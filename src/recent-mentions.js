@@ -1,0 +1,122 @@
+import { canonicalActorMentions } from './mention-composer.js';
+
+function messageTimestamp(message = {}) {
+  return Date.parse(message.updated_at || message.created_at || '') || 0;
+}
+
+function messageMentions(message = {}) {
+  const metadata = message.pg_metadata || message.metadata || {};
+  return Array.isArray(metadata.mentions) ? metadata.mentions : [];
+}
+
+function messageBelongsToThread(message = {}, threadId = '') {
+  if (!threadId) return false;
+  return [message.record_id, message.thread_id, message.thread_root_id, message.parent_message_id]
+    .some((value) => String(value || '').trim() === threadId);
+}
+
+export function rankRecentActorMentions({
+  messages = [],
+  threadId = '',
+  mentionPeople = [],
+  currentUserNpub = '',
+  draft = '',
+  limit = 8,
+} = {}) {
+  const peopleByNpub = new Map(
+    mentionPeople
+      .filter((person) => ['agent', 'person'].includes(person?.type) && person?.id)
+      .map((person) => [String(person.id).trim(), person]),
+  );
+  const excluded = new Set([
+    String(currentUserNpub || '').trim(),
+    ...canonicalActorMentions(draft).map((mention) => String(mention.npub || '').trim()),
+  ].filter(Boolean));
+  const activeThreadId = String(threadId || '').trim();
+  const recentFirst = [...messages]
+    .filter((message) => String(message?.record_state || 'active') !== 'deleted')
+    .sort((left, right) => messageTimestamp(right) - messageTimestamp(left));
+  const rankedMessages = activeThreadId
+    ? [
+        ...recentFirst.filter((message) => messageBelongsToThread(message, activeThreadId)),
+        ...recentFirst.filter((message) => !messageBelongsToThread(message, activeThreadId)),
+      ]
+    : recentFirst;
+  const results = [];
+  const seen = new Set();
+
+  for (const message of rankedMessages) {
+    for (const mention of [...messageMentions(message)].reverse()) {
+      const npub = String(mention?.npub || mention?.id || '').trim();
+      const person = peopleByNpub.get(npub);
+      if (!npub || !person || excluded.has(npub) || seen.has(npub)) continue;
+      seen.add(npub);
+      results.push(person);
+      if (results.length >= limit) return results;
+    }
+  }
+  return results;
+}
+
+function sameSourceReferences(previous = [], next = []) {
+  return previous.length === next.length
+    && next.every((value, index) => Object.is(value, previous[index]));
+}
+
+export function createRecentActorMentionResolver() {
+  let initialized = false;
+  let previousSourceReferences = [];
+  let rankedPeople = [];
+  let previousDraft = null;
+  let previousLimit = null;
+  let previousResult = [];
+
+  return ({
+    sourceReferences = [],
+    messages = [],
+    threadId = '',
+    currentUserNpub = '',
+    draft = '',
+    limit = 8,
+    buildMentionPeople = () => [],
+    resolveAvatar = () => '',
+  } = {}) => {
+    const sourcesChanged = !initialized || !sameSourceReferences(previousSourceReferences, sourceReferences);
+    if (sourcesChanged) {
+      rankedPeople = rankRecentActorMentions({
+        messages,
+        threadId,
+        mentionPeople: buildMentionPeople(),
+        currentUserNpub,
+        draft: '',
+        limit: Number.MAX_SAFE_INTEGER,
+      });
+      previousSourceReferences = [...sourceReferences];
+      initialized = true;
+      previousDraft = null;
+      previousLimit = null;
+    }
+
+    const normalizedDraft = String(draft || '');
+    const normalizedLimit = Math.max(0, Number(limit) || 0);
+    if (!sourcesChanged && normalizedDraft === previousDraft && normalizedLimit === previousLimit) {
+      return previousResult;
+    }
+
+    const excluded = new Set(
+      canonicalActorMentions(normalizedDraft)
+        .map((mention) => String(mention.npub || '').trim())
+        .filter(Boolean),
+    );
+    previousResult = rankedPeople
+      .filter((person) => !excluded.has(String(person?.id || '').trim()))
+      .slice(0, normalizedLimit)
+      .map((person) => ({
+        ...person,
+        avatarUrl: resolveAvatar(person) || '',
+      }));
+    previousDraft = normalizedDraft;
+    previousLimit = normalizedLimit;
+    return previousResult;
+  };
+}

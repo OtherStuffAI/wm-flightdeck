@@ -1,0 +1,795 @@
+{
+  "schemaVersion": 1,
+  "releases": [
+    {
+      "buildNumber": 1664,
+      "label": "Expandable upgrade summaries",
+      "notes": [
+        "Expand the new-version banner to review every available release before updating.",
+        "Show release history in stable build order, with accessible controls and a safe fallback when notes are unavailable."
+      ]
+    },
+    {
+      "buildNumber": 1676,
+      "label": "Consistent Recent Channels cards",
+      "notes": [
+        "Keep Recent Channels cards at a consistent height and truncate message previews to one line, including long text and mentions."
+      ]
+    },
+    {
+      "buildNumber": 1677,
+      "label": "Faster scope switching",
+      "notes": [
+        "Keep Deck scope changes responsive by reusing live local WApp and Recent Work data instead of refetching unchanged workspace projections.",
+        "Coalesce overlapping WApp update refreshes and avoid rewriting unchanged local WApp records during live activity."
+      ]
+    },
+    {
+      "buildNumber": 1678,
+      "label": "Reliable application updates",
+      "notes": [
+        "Show immediate progress and prevent duplicate actions while an application update is being prepared.",
+        "Wait for a complete release and its service worker before reloading, with a bounded one-time recovery for stale assets."
+      ]
+    },
+    {
+      "buildNumber": 1679,
+      "label": "Validated update transition",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1680,
+      "label": "Desktop and mobile transition validation",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1681,
+      "label": "Automatic update completion",
+      "notes": [
+        "Reload automatically when the verified new worker activates, including browsers that keep the same page controller.",
+        "Stop stalled update attempts within the configured limit and show an actionable retry state instead of remaining on Updating indefinitely."
+      ]
+    },
+    {
+      "buildNumber": 1682,
+      "label": "Local Inbox search and progressive loading",
+      "notes": [
+        "Search the complete locally available Inbox as you type, including titles, card text, and older messages within chat threads.",
+        "Open the Inbox with the newest 50 matching cards and progressively reveal 50 more near the end of the list or with the accessible load-more control."
+      ]
+    },
+    {
+      "buildNumber": 1683,
+      "label": "Submit-only Inbox search",
+      "notes": [
+        "Apply Inbox searches only after submitting the search field, so typing a draft does not change the visible cards.",
+        "Clear both draft and active Inbox searches when switching scope, restoring the newest 50 cards for that scope."
+      ]
+    },
+    {
+      "buildNumber": 1684,
+      "label": "Cleaner Inbox search field",
+      "notes": [
+        "Remove the redundant visible Search Inbox label while keeping the search field accessible to assistive technology."
+      ]
+    },
+    {
+      "buildNumber": 1685,
+      "label": "Immediate Inbox search clearing",
+      "notes": [
+        "Restore the full newest-first Inbox immediately when the search field is cleared, including with the native clear control.",
+        "Clear Inbox search and return to the first 50 cards whenever the selected scope or channel changes."
+      ]
+    },
+    {
+      "buildNumber": 1686,
+      "label": "Compact WApp Recents cards",
+      "notes": [
+        "Open launchable WApp activity from one clear View action, preferring approved deep links and safely falling back to matching My WApps launchers.",
+        "Scan shorter WApp Recents cards with routine metadata hidden and read, dismiss, and mute controls moved into an accessible actions menu."
+      ]
+    },
+    {
+      "buildNumber": 1687,
+      "label": "Reliable application update activation",
+      "notes": [
+        "Complete application updates reliably when multiple open Flight Deck tabs participate in service-worker activation."
+      ]
+    },
+    {
+      "buildNumber": 1688,
+      "label": "Stable live WApp Recents",
+      "notes": [
+        "Render cached WApp Recents immediately from workspace-local data and update cards, unread counts, and mutes automatically as sync materializes changes.",
+        "Keep background reconciliation silent and avoid repeated WApp feed reads while live Tower updates are connected."
+      ]
+    },
+    {
+      "buildNumber": 1689,
+      "label": "Quieter profile relay defaults",
+      "notes": [
+        "Stop connecting to relay.nostr.band for profile metadata while retaining the remaining profile relay fallbacks."
+      ]
+    },
+    {
+      "buildNumber": 1690,
+      "label": "Compact Inbox header",
+      "notes": [
+        "Keep the Inbox title, search field, magnifier submit, and actions menu together on one responsive row, with New thread available from the actions menu."
+      ]
+    },
+    {
+      "buildNumber": 1691,
+      "label": "Efficient channel refresh",
+      "notes": [
+        "Stop channel-directory refreshes from repeatedly downloading every channel's complete thread and message history."
+      ]
+    },
+    {
+      "buildNumber": 1694,
+      "label": "Faster local-first navigation",
+      "notes": [
+        "Open cached channels immediately, refresh only the newest remote message page, and reuse recent channel refreshes.",
+        "Bound WApp Recents reconciliation so repeated live updates cannot continuously download the complete activity archive.",
+        "Reuse rendered Markdown and load the rich-text editor only when an editing surface opens."
+      ]
+    },
+    {
+      "buildNumber": 1695,
+      "label": "Working View actions for WApp Recents",
+      "notes": [
+        "Show the View action on active WApp Recent cards when their own deep link is unavailable but a matching safe My WApps launcher is registered."
+      ]
+    },
+    {
+      "buildNumber": 1696,
+      "label": "Bounded live workspace refresh",
+      "notes": [
+        "Process live Tower updates through their targeted local collection instead of repeatedly requesting the whole workspace delta.",
+        "Stop startup from crawling tasks, documents, files, and audio across every channel when those records are already materialized locally.",
+        "Load storage-backed document bodies only when a document is opened instead of downloading every document during list refresh."
+      ]
+    },
+    {
+      "buildNumber": 1697,
+      "label": "Compact reconnect catch-up",
+      "notes": [
+        "Collapse large live-event replay bursts into one cursor-based workspace update instead of probing every historical task, thread, reaction, and document target.",
+        "Discard replay events already covered by a reconnect update so catch-up work is not immediately repeated."
+      ]
+    },
+    {
+      "buildNumber": 1699,
+      "label": "Reliable WApp Recent View actions",
+      "notes": [
+        "Refresh the current user's My WApps launchers together with WApp Recents so View actions appear after a cold reload or stale local cache."
+      ]
+    },
+    {
+      "buildNumber": 1700,
+      "label": "WApp Recents on new devices",
+      "notes": [
+        "Load WApp Recents and their matching My WApps launchers during first-time workspace setup, including browsers with an empty local cache."
+      ]
+    },
+    {
+      "buildNumber": 1701,
+      "label": "Bounded reaction refresh",
+      "notes": [
+        "Fetch reactions only for chat messages and comments currently visible on screen, with duplicate refreshes reused for 30 seconds.",
+        "Stop requesting reactions for every workspace task and stop sweeping every channel when the task board opens.",
+        "Limit reconnect replay deltas so consecutive historical event batches do not repeatedly refresh the whole workspace."
+      ]
+    },
+    {
+      "buildNumber": 1702,
+      "label": "Stable current sync cursor",
+      "notes": [
+        "Stop repeated SSE fallback syncs from requesting a workspace cursor that Tower has already confirmed is current."
+      ]
+    },
+    {
+      "buildNumber": 1703,
+      "label": "Tower sync ownership seam",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1704,
+      "label": "Clearer Inbox controls",
+      "notes": [
+        "Keep New thread visible in the Inbox header, use a more compact search control, and label the search field Search Inbox."
+      ]
+    },
+    {
+      "buildNumber": 1705,
+      "label": "Tighter Inbox header",
+      "notes": [
+        "Group the Inbox header controls consistently and simplify New thread to a compact plus button."
+      ]
+    },
+    {
+      "buildNumber": 1706,
+      "label": "Task mentions for agents",
+      "notes": [
+        "Mention agents directly in task descriptions and task comments with the same selectable mention pills used in chat.",
+        "Send newly saved task assignments through Tower's typed assignment contract without retriggering unchanged assignments."
+      ]
+    },
+    {
+      "buildNumber": 1709,
+      "label": "Reliable task agent handoffs",
+      "notes": [
+        "Mention agents directly in task descriptions and task comments with selectable mention pills that survive refresh.",
+        "Send newly saved task assignments through Tower's typed assignment contract without retriggering unchanged assignments.",
+        "Open task mentions and same-site task links reliably from chat, including tasks that need to be loaded before detail opens."
+      ]
+    },
+    {
+      "buildNumber": 1710,
+      "label": "Validated task-link routing",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1711,
+      "label": "Validated sync ownership checkpoint",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1712,
+      "label": "Continuous task comments",
+      "notes": [
+        "Keep a newly submitted task comment visible while Tower's task activity snapshot catches up, without showing a duplicate when the server copy arrives."
+      ]
+    },
+    {
+      "buildNumber": 1713,
+      "label": "Collection sync ownership checkpoint",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1714,
+      "label": "Personal Deck and document agent controls",
+      "notes": [
+        "Choose whether My Focus appears on the Deck from Setup; it now defaults to hidden and can be restored without changing Daily Scope data.",
+        "Mention agents in document comments and replies with the same selectable mention pills used elsewhere in Flight Deck.",
+        "Send document reviews to the default agent and inspect associated Autopilot sessions from the document actions menu."
+      ]
+    },
+    {
+      "buildNumber": 1715,
+      "label": "Validated detail sync ownership",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1716,
+      "label": "Reliable document agent routing",
+      "notes": [
+        "Route full-document reviews with Tower's deterministic document trigger and open the exact document-bound sessions returned by Autopilot."
+      ]
+    },
+    {
+      "buildNumber": 1717,
+      "label": "Dexie live-query workspace boundary",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1718,
+      "label": "Tower command boundary checkpoint",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1719,
+      "label": "Expanded Tower command ownership",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1720,
+      "label": "Validated Tower command ownership",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1721,
+      "label": "Channel and scope command ownership",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1722,
+      "label": "Final Tower command ownership audit",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1723,
+      "label": "Reliable live document comments",
+      "notes": [
+        "See new document comments and inline replies automatically, without refresh or navigation replacing a newer discussion with an empty or stale view."
+      ]
+    },
+    {
+      "buildNumber": 1724,
+      "label": "Document comment build checkpoint",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1725,
+      "label": "Complete inline document conversations",
+      "notes": [
+        "See replies to replies in document comment threads, including agent responses nested beneath a follow-up."
+      ]
+    },
+    {
+      "buildNumber": 1726,
+      "label": "Clearer document comment conversations",
+      "notes": [
+        "Read every reply in a document comment conversation at one consistent indentation, including replies to replies."
+      ]
+    },
+    {
+      "buildNumber": 1727,
+      "label": "Denser text in Wingman on iPhone",
+      "notes": [
+        "Fit more Flight Deck text on screen inside the Wingman iPhone app while keeping the standalone PWA layout and sizing unchanged."
+      ]
+    },
+    {
+      "buildNumber": 1728,
+      "label": "Unread channels first in All",
+      "notes": [
+        "See unread channels first in the workspace All view with bold, high-emphasis labels, while scoped channel ordering stays unchanged."
+      ]
+    },
+    {
+      "buildNumber": 1729,
+      "label": "Feed dismiss controls",
+      "notes": [
+        "Use the renamed Feed panel to dismiss one linkout card without opening it, or dismiss every item matching the current Feed filters from the options menu.",
+        "Keep dismissed Feed items cleared across refreshes through the existing server-backed item state."
+      ]
+    },
+    {
+      "buildNumber": 1730,
+      "label": "iPhone channel tab swiping",
+      "notes": [
+        "Swipe the overflowing channel tab bar horizontally inside Wingman on iPhone while taps, tab menus, and header controls keep working normally."
+      ]
+    },
+    {
+      "buildNumber": 1732,
+      "label": "Responsive Feed dismissal",
+      "notes": [
+        "See Feed cards disappear immediately when dismissing one or all matching items, with automatic restoration and clear feedback if the server cannot save the dismissal."
+      ]
+    },
+    {
+      "buildNumber": 1734,
+      "label": "Live Feed outstanding count",
+      "notes": [
+        "See the Feed outstanding count update immediately when dismissing one or all items, including restoring the count if the server cannot save a dismissal."
+      ]
+    },
+    {
+      "buildNumber": 1735,
+      "label": "Persistent Feed dismissals",
+      "notes": [
+        "Keep dismissed Feed cards and their outstanding count cleared after a full page refresh."
+      ]
+    },
+    {
+      "buildNumber": 1736,
+      "label": "Inbox-first mobile Deck",
+      "notes": [
+        "Open the mobile Deck directly on Inbox, with Hello and Links one swipe to the right and Feed and Recent to the left.",
+        "Use four accessible Deck indicators while preserving the selected card through orientation changes and return navigation."
+      ]
+    },
+    {
+      "buildNumber": 1738,
+      "label": "Reliable mobile Inbox entry",
+      "notes": [
+        "Enter the mobile Deck on Inbox every time from the workspace avatar's All view or a scope's Home view, without briefly showing Hello and Links first."
+      ]
+    },
+    {
+      "buildNumber": 1739,
+      "label": "Reliable return to channel Decks",
+      "notes": [
+        "Return from a thread to the complete channel Deck without refreshing, with Hello and Links, Agents, and WApps still available."
+      ]
+    },
+    {
+      "buildNumber": 1740,
+      "label": "Reliable task return to channel Decks",
+      "notes": [
+        "Return from a task through its channel link to the complete channel Deck, with Hello and Links, Agents, and WApps still reachable on desktop and mobile."
+      ]
+    },
+    {
+      "buildNumber": 1741,
+      "label": "Sticky mobile Deck headers",
+      "notes": [
+        "Keep Inbox, Feed, and Recent titles and controls visible while scrolling their mobile Deck cards."
+      ]
+    },
+    {
+      "buildNumber": 1742,
+      "label": "Sequential chat catch-up",
+      "notes": [
+        "Move through the chats visible in the current Deck list with Left and Right Arrow or deliberate horizontal swipes, without returning to the list between threads.",
+        "Use compact newer and older controls in the thread header, with navigation stopping at the visible list boundaries."
+      ]
+    },
+    {
+      "buildNumber": 1743,
+      "label": "Single-panel chat catch-up",
+      "notes": [
+        "Navigate through any number of visible Deck chats in one thread panel, then close once to return directly to the original Deck list context."
+      ]
+    },
+    {
+      "buildNumber": 1744,
+      "label": "Reliable new direct messages",
+      "notes": [
+        "Open direct-message creation from the DMs New control whether DMs Home or an existing direct message is selected."
+      ]
+    },
+    {
+      "buildNumber": 1746,
+      "label": "Reliable document uploads",
+      "notes": [
+        "Upload valid DOCX files without a local database error, including when the browser omits their content type.",
+        "Choose a scope and channel before the upload dialog opens when Files has no channel context, with clear stage-specific failure details."
+      ]
+    },
+    {
+      "buildNumber": 1747,
+      "label": "Persistent personal agent lists",
+      "notes": [
+        "Keep My Agents saved in Tower across refreshes and browser clients, while stale clients reload the newer list instead of clearing it."
+      ]
+    },
+    {
+      "buildNumber": 1750,
+      "label": "Reliable image paste routing",
+      "notes": [
+        "Paste images and files into a Deck-opened message using that message's channel, even when the Deck itself has a different channel selected.",
+        "Keep the reply composer safely unavailable with a clear loading message until its channel context is ready."
+      ]
+    },
+    {
+      "buildNumber": 1751,
+      "label": "Durable agent activity",
+      "notes": [
+        "Keep the newest agent turn visible when older completed activity is replayed, including after reconnecting.",
+        "Preserve current-work context with clear stale, reconnecting, and update-error states plus a removal control."
+      ]
+    },
+    {
+      "buildNumber": 1752,
+      "label": "Clearer pasted screenshots and reliable Deck return",
+      "notes": [
+        "Insert numbered screenshot placeholders at the chat cursor when images are pasted, while retaining attachment thumbnails and upload handling.",
+        "Restore the complete responsive channel Deck after returning from a thread whose route hydration replaced the Deck markup."
+      ]
+    },
+    {
+      "buildNumber": 1754,
+      "label": "Verified shared build",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1755,
+      "label": "Verified shared build",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1756,
+      "label": "Verified shared build",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1757,
+      "label": "Verified shared build",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1758,
+      "label": "Inline pasted chat images",
+      "notes": [
+        "Paste an image at any point in a chat message and keep it inline at that exact position after upload, while its attachment thumbnail remains available below the composer."
+      ]
+    },
+    {
+      "buildNumber": 1759,
+      "label": "Faster live agent replies",
+      "notes": [
+        "Keep healthy live updates connected after background refreshes so completed agent replies appear promptly instead of waiting for the 15-second fallback poll.",
+        "Automatically retry live updates after a prolonged connection outage while preserving offline polling."
+      ]
+    },
+    {
+      "buildNumber": 1760,
+      "label": "Visible Agent Direct progress",
+      "notes": [
+        "Show Agent Direct receipt and commentary updates in a thread opened from Deck, restore them after reconnecting, and clear the working state when the final reply completes."
+      ]
+    },
+    {
+      "buildNumber": 1761,
+      "label": "Agent thinking history",
+      "notes": [
+        "Keep the latest Agent Direct thinking update concise and live, with an accessible second expansion for the full ordered thinking history that survives reconnects."
+      ]
+    },
+    {
+      "buildNumber": 1762,
+      "label": "Verified Agent thinking history build",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1764,
+      "label": "Retry failed chat messages",
+      "notes": [
+        "Resend your failed outgoing chat messages from their message menu while preserving the original text, mentions, and attachments."
+      ]
+    },
+    {
+      "buildNumber": 1766,
+      "label": "Reliable attachment resends",
+      "notes": [
+        "Resend failed messages with fresh copies of their attachments, avoiding attachment ownership conflicts while preserving filenames, file types, and message links."
+      ]
+    },
+    {
+      "buildNumber": 1767,
+      "label": "Safe document saves",
+      "notes": [
+        "Keep document edits open while pasted images upload, and return to Read mode only after the document save is confirmed."
+      ]
+    },
+    {
+      "buildNumber": 1768,
+      "label": "Preserve newly pasted document drafts",
+      "notes": [
+        "Keep text and rich-content drafts intact when a newly opened document's background refresh finishes after editing has begun."
+      ]
+    },
+    {
+      "buildNumber": 1769,
+      "label": "Save the visible document editor",
+      "notes": [
+        "Prevent duplicate rich-editor mounts from making Save read an empty editor while another visible editor contains your document.",
+        "Keep the visible draft open with an explicit error if editor serialization ever disagrees with the content shown on screen."
+      ]
+    },
+    {
+      "buildNumber": 1771,
+      "label": "Delegated WApp management",
+      "notes": [
+        "Grant a person or agent narrow, expiring WApp management authority from Setup → Permissions, preview its limits before signing, and revoke it immediately.",
+        "Assign existing WApps through installation intents and inspect pending, active, failed, repairable, or revoked lifecycle state with reconcile and revoke controls."
+      ]
+    },
+    {
+      "buildNumber": 1774,
+      "label": "Stable comment reply drafts",
+      "notes": [
+        "Keep long task and document comment drafts positioned at the current line while typing, and preserve a manually enlarged reply box instead of collapsing it on the next character."
+      ]
+    },
+    {
+      "buildNumber": 1775,
+      "label": "Reliable Feed links",
+      "notes": [
+        "Open approved Feed View links at their complete destination, preserving query details and page fragments instead of falling back to the WApp root."
+      ]
+    },
+    {
+      "buildNumber": 1776,
+      "label": "Tower-approved Feed destinations",
+      "notes": [
+        "Open a Tower-approved Feed destination immediately, including its query and page fragment, even while the local WApp permission list is still loading."
+      ]
+    },
+    {
+      "buildNumber": 1777,
+      "label": "Quieter sidebar navigation",
+      "notes": [
+        "Remove redundant unread dots from top-level sidebar destinations while keeping unread indicators on individual channels."
+      ]
+    },
+    {
+      "buildNumber": 1778,
+      "label": "Live-only agent activity",
+      "notes": [
+        "Keep current agent working and thinking activity visible in blue while hiding stale, connecting, and failed activity cards."
+      ]
+    },
+    {
+      "buildNumber": 1779,
+      "label": "Faster Agent Direct threads",
+      "notes": [
+        "Open cached Deck threads immediately from local data without waiting for a Tower refresh.",
+        "Apply normal Agent Direct activity updates incrementally instead of refetching the channel's full activity history for every update."
+      ]
+    },
+    {
+      "buildNumber": 1780,
+      "label": "Visible background catch-up",
+      "notes": [
+        "Keep cached workspace content usable while Flight Deck receives and applies startup changes, with a compact progress message for updates lasting longer than 1.5 seconds.",
+        "Show a clear retry state if startup updating stalls instead of leaving the workspace looking frozen."
+      ]
+    },
+    {
+      "buildNumber": 1781,
+      "label": "Operator-neutral setup guidance",
+      "notes": [
+        "Use neutral example hosts, project paths, and browser-identity guidance throughout setup and managed WApp activation screens."
+      ]
+    },
+    {
+      "buildNumber": 1782,
+      "label": "Public-source fixture correction",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1786,
+      "label": "Resumable workspace startup",
+      "notes": [
+        "Load large workspaces in bounded pages, keep each completed page after an interruption, and resume without clearing browser storage.",
+        "Stop stalled startup requests within 30 seconds and show a retryable Update stalled state."
+      ]
+    },
+    {
+      "buildNumber": 1789,
+      "label": "Stable paginated startup completion",
+      "notes": [
+        "Complete the final workspace snapshot transaction without repeatedly reopening the Update stalled message."
+      ]
+    },
+    {
+      "buildNumber": 1792,
+      "label": "Faster channel switching",
+      "notes": [
+        "Switch cached channels without briefly clearing the conversation or showing messages beneath the wrong channel heading.",
+        "Ignore late channel loads during rapid navigation and enrich the destination conversation after its first visible frame."
+      ]
+    },
+    {
+      "buildNumber": 1794,
+      "label": "Instant cached chat navigation",
+      "notes": [
+        "Show cached channels and scope feeds immediately while local and Tower reconciliation continues after the first frame.",
+        "Keep recent chat presentation state bounded while preserving threads, pending messages, expansion state, and scroll restoration."
+      ]
+    },
+    {
+      "buildNumber": 1797,
+      "label": "Paint-first chat navigation",
+      "notes": [
+        "Paint cached or pending channel and scope state before board, route, subscription, scroll, unread, and reconciliation work begins.",
+        "Copy recent click-to-state and click-to-paint timings from the unobtrusive chat timing control for desktop or mobile validation."
+      ]
+    },
+    {
+      "buildNumber": 1798,
+      "label": "Navigation timing event correction",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1799,
+      "label": "Internal navigation diagnostics cleanup",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1800,
+      "label": "Shared work context controller",
+      "notes": [
+        "Route the shared scope and channel bar through one controller across Deck, Chat, Tasks, and Docs."
+      ]
+    },
+    {
+      "buildNumber": 1801,
+      "label": "Deck-first work context navigation",
+      "notes": [
+        "Open Deck whenever the shared scope or channel bar selects a new work context, including selections made from Chat, Tasks, or Docs.",
+        "Paint the destination Deck context before cleaning up the previous section or refreshing recent changes, routes, subscriptions, and background sync."
+      ]
+    },
+    {
+      "buildNumber": 1802,
+      "label": "Reliable chat file attachments",
+      "notes": [
+        "Attach Markdown and other non-image files directly to chat messages and new threads without a local database error."
+      ]
+    },
+    {
+      "buildNumber": 1804,
+      "label": "Expanded workspace navigation",
+      "notes": [
+        "Browse every visible scope and channel in the expanded desktop sidebar while the primary navigation and workspace selector stay fixed.",
+        "Scroll long scope and channel lists inside the sidebar, then open any channel directly in its full Chat context."
+      ]
+    },
+    {
+      "buildNumber": 1805,
+      "label": "Deck-aware sidebar channels",
+      "notes": [
+        "Open Deck when selecting a channel from the expanded sidebar, matching the shared workspace channel bar.",
+        "Show resolved participant names for direct-message channels in the expanded sidebar."
+      ]
+    },
+    {
+      "buildNumber": 1806,
+      "label": "Clear mobile Inbox header",
+      "notes": [
+        "Keep Inbox cards hidden beneath the fixed Inbox and search header while scrolling on mobile."
+      ]
+    },
+    {
+      "buildNumber": 1807,
+      "label": "Scope Home sidebar links",
+      "notes": [
+        "Open a scope's Home view in Deck by selecting its heading in the expanded sidebar, with clear keyboard focus and current-page feedback."
+      ]
+    },
+    {
+      "buildNumber": 1808,
+      "label": "Workspace overview sidebar link",
+      "notes": [
+        "Open the whole-workspace Deck from a workspace avatar link above the expanded sidebar hierarchy, clearly separated from Setup."
+      ]
+    },
+    {
+      "buildNumber": 1809,
+      "label": "Sidebar channel unread state",
+      "notes": [
+        "See unread workspace channels at a glance in the expanded sidebar with the same red dot and bold label used by the channel toolbar.",
+        "Open the whole-workspace Deck from the expanded sidebar's clearer View All control."
+      ]
+    },
+    {
+      "buildNumber": 1810,
+      "label": "Reliable Feed-only WApp activation",
+      "notes": [
+        "Activate an existing WApp with Feed-only authority without requiring a channel destination."
+      ]
+    },
+    {
+      "buildNumber": 1811,
+      "label": "Responsive sidebar navigation",
+      "notes": [
+        "Use the complete Home, scope, and channel hierarchy in the opened mobile drawer, with scoped channel creation and channel settings controls.",
+        "Keep one workspace navigation surface on desktop: the sidebar when expanded and the horizontal channel bar when collapsed."
+      ]
+    },
+    {
+      "buildNumber": 1812,
+      "label": "Permission-safe sidebar creation",
+      "notes": [
+        "Show each scope's channel creation shortcut only when the current workspace permissions make creation available there."
+      ]
+    }
+  ]
+}

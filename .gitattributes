@@ -1,0 +1,2 @@
+# Generated minified bundles can contain intentional whitespace-only template lines.
+dist/assets/*.js -diff

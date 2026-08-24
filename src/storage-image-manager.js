@@ -1,0 +1,307 @@
+/**
+ * Storage image hydration and caching methods extracted from app.js.
+ *
+ * The storageImageManagerMixin object contains methods that use `this` (the Alpine store)
+ * and should be spread into the store definition.
+ */
+
+import Alpine from 'alpinejs';
+import {
+  getCachedStorageImage,
+  cacheStorageImage,
+} from './db.js';
+import { downloadStorageObjectBlob } from './api.js';
+import { storageImageCacheKey } from './utils/state-helpers.js';
+import { flightDeckLog } from './logging.js';
+
+const STORAGE_IMAGE_FAILURE_TTL_MS = 60 * 1000;
+
+// ---------------------------------------------------------------------------
+// Mixin — methods that use `this` (the Alpine store)
+// ---------------------------------------------------------------------------
+
+export const storageImageManagerMixin = {
+
+  scheduleStorageImageHydration() {
+    if (this._storageImageHydrateScheduled || typeof window === 'undefined') return;
+    this.ensureStorageImageHydrationObserver();
+    this._storageImageHydrateScheduled = true;
+    window.requestAnimationFrame(() => {
+      this._storageImageHydrateScheduled = false;
+      this.hydrateStorageImages();
+      this.scheduleChatPreviewMeasurement();
+      this.scheduleTaskCommentPreviewMeasurement?.();
+    });
+  },
+
+  ensureStorageImageHydrationObserver() {
+    if (
+      this._storageImageHydrationObserver
+      || typeof window === 'undefined'
+      || typeof document === 'undefined'
+      || !document.body
+      || typeof MutationObserver === 'undefined'
+    ) {
+      return;
+    }
+
+    this._storageImageHydrationObserver = new MutationObserver((mutations = []) => {
+      const hasStorageImage = mutations.some((mutation) => (
+        [...(mutation.addedNodes || [])].some((node) => {
+          if (!node || node.nodeType !== 1) return false;
+          if (node.matches?.('img[data-storage-object-id]')) return true;
+          return Boolean(node.querySelector?.('img[data-storage-object-id]'));
+        })
+      ));
+      if (hasStorageImage) this.scheduleStorageImageHydration();
+    });
+    this._storageImageHydrationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  },
+
+  revokeStorageImageObjectUrls() {
+    for (const url of Object.values(this.storageImageUrlCache || {})) {
+      if (typeof url === 'string' && url.startsWith('blob:')) URL.revokeObjectURL(url);
+    }
+    this.storageImageUrlCache = {};
+    this.storageImageLoadPromises = {};
+    this.storageImageFailureCache = {};
+  },
+
+  rememberStorageImageUrl(cacheKey, url) {
+    const previous = this.storageImageUrlCache?.[cacheKey];
+    if (previous && previous !== url && previous.startsWith('blob:')) {
+      URL.revokeObjectURL(previous);
+    }
+    this.storageImageUrlCache = {
+      ...(this.storageImageUrlCache || {}),
+      [cacheKey]: url,
+    };
+    if (this.storageImageFailureCache?.[cacheKey]) {
+      const nextFailures = { ...(this.storageImageFailureCache || {}) };
+      delete nextFailures[cacheKey];
+      this.storageImageFailureCache = nextFailures;
+    }
+    return url;
+  },
+
+  getStorageImageFailure(cacheKey) {
+    const entry = this.storageImageFailureCache?.[cacheKey] || null;
+    if (!entry) return null;
+    if ((Date.now() - Number(entry.ts || 0)) > STORAGE_IMAGE_FAILURE_TTL_MS) {
+      const nextFailures = { ...(this.storageImageFailureCache || {}) };
+      delete nextFailures[cacheKey];
+      this.storageImageFailureCache = nextFailures;
+      return null;
+    }
+    return entry;
+  },
+
+  rememberStorageImageFailure(cacheKey, objectId, error, options = {}) {
+    const message = error instanceof Error ? error.message : String(error);
+    const backendUrl = String(options?.backendUrl || '').trim().replace(/\/+$/, '');
+    const entry = {
+      ts: Date.now(),
+      objectId,
+      backendUrl,
+      requestUrl: String(
+        error?.requestUrl
+        || (backendUrl ? `${backendUrl}/api/v4/storage/${objectId}/content` : '')
+      ).trim(),
+      method: String(error?.method || 'GET').toUpperCase(),
+      code: error?.code || null,
+      status: error?.status || null,
+      reason: error?.reason || null,
+      cause: error?.cause instanceof Error ? error.cause.message : null,
+      error: message,
+    };
+    this.storageImageFailureCache = {
+      ...(this.storageImageFailureCache || {}),
+      [cacheKey]: entry,
+    };
+    flightDeckLog('warn', 'storage', 'storage image fetch failed; suppressing retries temporarily', entry);
+    return entry;
+  },
+
+  async resolveStorageImageUrl(objectId, options = {}) {
+    const backendUrl = String(options?.backendUrl || '').trim();
+    const cacheKey = storageImageCacheKey(objectId, backendUrl);
+    const existing = this.storageImageUrlCache?.[cacheKey];
+    if (existing) return existing;
+
+    const previousFailure = this.getStorageImageFailure(cacheKey);
+    if (previousFailure) {
+      throw Object.assign(
+        new Error(previousFailure.error || `Storage image ${objectId} unavailable`),
+        previousFailure,
+      );
+    }
+
+    const pending = this.storageImageLoadPromises?.[cacheKey];
+    if (pending) return pending;
+
+    const loadPromise = (async () => {
+      let cached = await getCachedStorageImage(cacheKey);
+      if (!cached && cacheKey !== objectId) {
+        cached = await getCachedStorageImage(objectId);
+        if (cached?.blob instanceof Blob && cached.blob.size > 0) {
+          await cacheStorageImage({
+            object_id: cacheKey,
+            blob: cached.blob,
+            content_type: cached.content_type || 'application/octet-stream',
+          });
+        }
+      }
+      if (cached?.blob instanceof Blob && cached.blob.size > 0) {
+        return this.rememberStorageImageUrl(cacheKey, URL.createObjectURL(cached.blob));
+      }
+
+      const blob = await downloadStorageObjectBlob(objectId, { backendUrl });
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        throw new Error(`No image data returned for ${objectId}`);
+      }
+      await cacheStorageImage({
+        object_id: cacheKey,
+        blob,
+        content_type: blob.type || 'application/octet-stream',
+      });
+      return this.rememberStorageImageUrl(cacheKey, URL.createObjectURL(blob));
+    })();
+
+    const guardedPromise = loadPromise.catch((error) => {
+      this.rememberStorageImageFailure(cacheKey, objectId, error, { backendUrl });
+      throw error;
+    });
+
+    this.storageImageLoadPromises = {
+      ...(this.storageImageLoadPromises || {}),
+      [cacheKey]: guardedPromise,
+    };
+
+    try {
+      return await guardedPromise;
+    } finally {
+      const next = { ...(this.storageImageLoadPromises || {}) };
+      delete next[cacheKey];
+      this.storageImageLoadPromises = next;
+    }
+  },
+
+  getStorageImageHydrationBackendUrl() {
+    return String(
+      this.currentWorkspace?.directHttpsUrl
+      || this.currentWorkspaceBackendUrl
+      || this.backendUrl
+      || '',
+    ).trim();
+  },
+
+  applyResolvedStorageImage(image, url) {
+    if (!image || !url) return;
+    image.src = url;
+    image.dataset.storageResolved = 'true';
+    delete image.dataset.storageError;
+    image.classList.remove('md-storage-image-pending');
+    image.classList.remove('md-storage-image-error');
+  },
+
+  hydrateStorageImages() {
+    if (typeof document === 'undefined') return;
+    const images = [...document.querySelectorAll('img[data-storage-object-id]')];
+    const backendUrl = this.getStorageImageHydrationBackendUrl();
+    for (const image of images) {
+      const objectId = String(image.dataset.storageObjectId || '').trim();
+      if (!objectId || image.dataset.storageResolved === 'true') continue;
+      const cacheKey = storageImageCacheKey(objectId, backendUrl);
+      const cachedUrl = this.storageImageUrlCache?.[cacheKey] || this.storageImageUrlCache?.[objectId];
+      if (cachedUrl) {
+        this.applyResolvedStorageImage(image, cachedUrl);
+        continue;
+      }
+      image.dataset.storageResolved = 'pending';
+      this.resolveStorageImageUrl(objectId, { backendUrl })
+        .then((url) => {
+          const chatFeedAnchor = this.captureScrollAnchor({
+            containerSelector: '[data-chat-feed]',
+            itemSelector: '[data-message-id]',
+            itemAttribute: 'data-message-id',
+          });
+          const threadRepliesAnchor = this.captureScrollAnchor({
+            containerSelector: '[data-thread-replies]',
+            itemSelector: '[data-thread-message-id]',
+            itemAttribute: 'data-thread-message-id',
+          });
+          this.applyResolvedStorageImage(image, url);
+          this.scheduleChatPreviewMeasurement();
+          this.scheduleTaskCommentPreviewMeasurement?.();
+          this.restoreScrollAnchor(chatFeedAnchor);
+          this.restoreScrollAnchor(threadRepliesAnchor);
+        })
+        .catch((error) => {
+          const chatFeedAnchor = this.captureScrollAnchor({
+            containerSelector: '[data-chat-feed]',
+            itemSelector: '[data-message-id]',
+            itemAttribute: 'data-message-id',
+          });
+          const threadRepliesAnchor = this.captureScrollAnchor({
+            containerSelector: '[data-thread-replies]',
+            itemSelector: '[data-thread-message-id]',
+            itemAttribute: 'data-thread-message-id',
+          });
+          image.dataset.storageResolved = 'error';
+          image.dataset.storageError = error?.message || String(error);
+          image.classList.add('md-storage-image-error');
+          this.scheduleChatPreviewMeasurement();
+          this.scheduleTaskCommentPreviewMeasurement?.();
+          this.restoreScrollAnchor(chatFeedAnchor);
+          this.restoreScrollAnchor(threadRepliesAnchor);
+        });
+    }
+  },
+
+  captureScrollAnchor({ containerSelector, itemSelector, itemAttribute }) {
+    if (typeof document === 'undefined') return null;
+    const container = document.querySelector(containerSelector);
+    if (!container) return null;
+
+    const containerRect = container.getBoundingClientRect();
+    const items = [...container.querySelectorAll(itemSelector)];
+    const anchorItem = items.find((item) => item.getBoundingClientRect().bottom > containerRect.top + 1) || null;
+
+    return {
+      containerSelector,
+      itemSelector,
+      itemAttribute,
+      itemId: anchorItem?.getAttribute(itemAttribute) || '',
+      offsetTop: anchorItem ? anchorItem.getBoundingClientRect().top - containerRect.top : 0,
+      atBottom: (container.scrollHeight - container.clientHeight - container.scrollTop) <= 8,
+    };
+  },
+
+  restoreScrollAnchor(anchor) {
+    if (!anchor || typeof window === 'undefined' || typeof document === 'undefined') return;
+    Alpine.nextTick(() => {
+      window.requestAnimationFrame(() => {
+        const container = document.querySelector(anchor.containerSelector);
+        if (!container) return;
+
+        if (anchor.atBottom) {
+          container.scrollTop = container.scrollHeight;
+          return;
+        }
+
+        if (!anchor.itemId) return;
+
+        const item = [...container.querySelectorAll(anchor.itemSelector)]
+          .find((candidate) => candidate.getAttribute(anchor.itemAttribute) === anchor.itemId);
+        if (!item) return;
+
+        const containerRect = container.getBoundingClientRect();
+        const itemRect = item.getBoundingClientRect();
+        container.scrollTop += (itemRect.top - containerRect.top) - anchor.offsetTop;
+      });
+    });
+  },
+};

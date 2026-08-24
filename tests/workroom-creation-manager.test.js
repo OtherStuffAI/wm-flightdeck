@@ -1,0 +1,424 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('../src/api.js', async () => {
+  const actual = await vi.importActual('../src/api.js');
+  return {
+    ...actual,
+    startTowerPgWorkroom: vi.fn(),
+  };
+});
+
+import { startTowerPgWorkroom } from '../src/api.js';
+import {
+  buildWorkroomCreatePayload,
+  channelParticipantFormRows,
+  createWorkroomForm,
+  failedWorkroomParticipants,
+  inferWorkroomRepo,
+  mergeWorkroomFormWithChannelDefaults,
+  workroomCreationMixin,
+  workroomRepoSuggestions,
+  workroomDefaultsFromChannel,
+  workroomVisibleParticipantNpubs,
+} from '../src/workroom-creation-manager.js';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
+
+describe('workroom creation flow helpers', () => {
+  it('uses conventional branch defaults', () => {
+    expect(createWorkroomForm()).toMatchObject({
+      integration_branch: 'staging',
+      production_branch: 'deployed',
+    });
+  });
+
+  it('applies channel defaults while keeping room fields overridable', () => {
+    const channel = {
+      metadata: {
+        workroom_defaults: {
+          repo_url: 'https://github.com/acme/app',
+          production_branch: 'release',
+          participants: [{ actor_npub: 'npub-default', role: 'reviewer' }],
+        },
+      },
+    };
+    expect(workroomDefaultsFromChannel(channel).production_branch).toBe('release');
+    expect(mergeWorkroomFormWithChannelDefaults(channel, { production_branch: 'main' })).toMatchObject({
+      repo_url: 'https://github.com/acme/app',
+      production_branch: 'main',
+    });
+  });
+
+  it('builds the Tower create payload with all FD-02 fields', () => {
+    const payload = buildWorkroomCreatePayload(createWorkroomForm({
+      title: 'Release',
+      goal: 'Ship it',
+      integration_autopilot_npub: 'npub-auto',
+      repo_url: 'https://github.com/acme/app',
+      repo_name: 'acme/app',
+      integration_branch: 'feature/release',
+      production_branch: 'main',
+      preview_app_target: 'preview-123',
+      production_app_target: 'prod-123',
+      approval_policy: 'human_required',
+      participants: [
+        { actor_npub: 'npub-human', role: 'human_approver', label: 'Operator A' },
+        { actor_npub: 'npub-integration', role: 'integration', label: 'Autopilot' },
+      ],
+    }), { scopeId: 'scope-1', channelId: 'channel-1' });
+    expect(payload).toMatchObject({
+      scope_id: 'scope-1',
+      channel_id: 'channel-1',
+      repo: { url: 'https://github.com/acme/app', name: 'acme/app' },
+      branches: { integration: 'feature/release', production: 'main' },
+      app_targets: { preview: 'preview-123', production: 'prod-123' },
+      approval_policy: { mode: 'human_required' },
+      integration_autopilot_npub: 'npub-integration',
+      participants: [
+        { actor_npub: 'npub-human', role: 'human_approver', kind: 'human' },
+        { actor_npub: 'npub-integration', role: 'integration', kind: 'autopilot' },
+      ],
+    });
+  });
+
+  it('normalizes the selected integration npub even if the role row is stale', () => {
+    const payload = buildWorkroomCreatePayload(createWorkroomForm({
+      title: 'Release',
+      goal: 'Ship it',
+      integration_autopilot_npub: 'npub-testagent',
+      participants: [
+        { actor_npub: 'npub-operator-a', role: 'contributor', label: 'Operator A' },
+        { actor_npub: 'npub-testagent', role: 'contributor', label: 'Test Agent' },
+      ],
+    }), { scopeId: 'scope-1', channelId: 'channel-1' });
+
+    expect(payload.integration_autopilot_npub).toBe('npub-testagent');
+    expect(payload.participants).toEqual([
+      { actor_npub: 'npub-operator-a', role: 'contributor', kind: 'human', label: 'Operator A' },
+      { actor_npub: 'npub-testagent', role: 'integration', kind: 'autopilot', label: 'Test Agent' },
+    ]);
+  });
+
+  it('infers repository name and URL in either direction', () => {
+    expect(inferWorkroomRepo('https://github.com/acme/app.git')).toEqual({
+      url: 'https://github.com/acme/app',
+      name: 'acme/app',
+    });
+    expect(inferWorkroomRepo('acme/app')).toEqual({
+      url: 'https://github.com/acme/app',
+      name: 'acme/app',
+    });
+  });
+
+  it('prefills channel participants as contributors with resolved labels', () => {
+    const rows = channelParticipantFormRows(
+      { participant_npubs: ['npub-a', 'npub-b', 'npub-a'] },
+      (channel) => channel.participant_npubs,
+      (npub) => npub === 'npub-a' ? 'Alice' : 'Bob',
+    );
+    expect(rows).toEqual([
+      { actor_npub: 'npub-a', role: 'contributor', label: 'Alice' },
+      { actor_npub: 'npub-b', role: 'contributor', label: 'Bob' },
+    ]);
+    expect(channelParticipantFormRows({}, () => [])).toEqual([]);
+  });
+
+  it('prefills the channel roster and assigns one integration role', () => {
+    const store = {
+      selectedChannel: { record_id: 'channel-1', participant_npubs: ['npub-a', 'npub-b'] },
+      workroomCreationForm: createWorkroomForm(),
+      getChannelParticipants: (channel) => channel.participant_npubs,
+      getSenderName: (npub) => npub === 'npub-b' ? 'Bob' : 'Alice',
+    };
+    Object.assign(store, workroomCreationMixin);
+    store.openWorkroomCreation();
+    expect(store.workroomCreationForm.participants).toEqual([
+      { actor_npub: 'npub-a', role: 'contributor', label: 'Alice' },
+      { actor_npub: 'npub-b', role: 'contributor', label: 'Bob' },
+    ]);
+    store.setWorkroomParticipantRole(1, 'integration');
+    expect(store.workroomCreationForm.integration_autopilot_npub).toBe('npub-b');
+    store.setWorkroomParticipantRole(0, 'integration');
+    expect(store.workroomCreationForm.participants[0].role).toBe('integration');
+    expect(store.workroomCreationForm.participants[1].role).toBe('contributor');
+    expect(store.workroomCreationForm.integration_autopilot_npub).toBe('npub-a');
+  });
+
+  it('expands actor grants for a non-DM PG channel', () => {
+    expect(workroomVisibleParticipantNpubs({ record_id: 'channel-1' }, {
+      channelGrants: [{ principal_type: 'actor', principal_id: 'actor-testagent' }],
+      workspaceMembers: [{ actor_id: 'actor-testagent', npub: 'npub-testagent' }],
+      sessionNpub: 'npub-operator-a',
+    })).toEqual(['npub-testagent', 'npub-operator-a']);
+  });
+
+  it('uses cached PG grants when opening the Workroom Creation modal', () => {
+    const store = {
+      selectedChannelId: 'channel-1',
+      selectedChannel: { record_id: 'channel-1', channel_type: 'channel' },
+      channelGrants: [{ principal_type: 'actor', principal_id: 'actor-testagent' }],
+      pgWorkspaceMembers: [{ actor_id: 'actor-testagent', npub: 'npub-testagent' }],
+      session: { npub: 'npub-operator-a' },
+      workroomCreationForm: createWorkroomForm(),
+      getChannelParticipants: () => [],
+      getSenderName: () => '',
+    };
+    Object.assign(store, workroomCreationMixin);
+    store.openWorkroomCreation();
+    expect(store.workroomCreationForm.participants.map((row) => row.actor_npub)).toEqual([
+      'npub-testagent',
+      'npub-operator-a',
+    ]);
+  });
+
+  it('uses channel-aware grant rows when opening the Workroom Creation modal', () => {
+    const store = {
+      selectedChannelId: 'channel-2',
+      selectedChannel: { record_id: 'channel-2', channel_type: 'channel' },
+      channelGrantsChannelId: 'channel-1',
+      channelGrants: [{ principal_type: 'actor', principal_id: 'actor-stale' }],
+      currentWorkspaceGroups: [{ group_id: 'group-agents', name: 'Agents', member_npubs: ['npub-testagent'] }],
+      pgWorkspaceMembers: [{ actor_id: 'actor-testagent', npub: 'npub-testagent' }],
+      session: { npub: 'npub-operator-a' },
+      workroomCreationForm: createWorkroomForm(),
+      getSelectedChannelGrantRows: vi.fn(() => [{ principal_type: 'group', principal_id: 'group-agents' }]),
+      getChannelParticipants: () => [],
+      getSenderName: (npub) => npub === 'npub-testagent' ? 'Test Agent' : 'Operator A',
+    };
+    Object.assign(store, workroomCreationMixin);
+
+    store.openWorkroomCreation();
+
+    expect(store.getSelectedChannelGrantRows).toHaveBeenCalledWith('channel-2');
+    expect(store.workroomCreationForm.participants).toEqual([
+      { actor_npub: 'npub-testagent', role: 'contributor', label: 'Test Agent' },
+      { actor_npub: 'npub-operator-a', role: 'contributor', label: 'Operator A' },
+    ]);
+  });
+
+  it('refreshes PG groups, members, and channel grants before finalizing the Workroom Creation roster', async () => {
+    const store = {
+      selectedChannelId: 'channel-1',
+      selectedChannel: { record_id: 'channel-1', channel_type: 'channel' },
+      channelGrants: [],
+      currentWorkspaceGroups: [],
+      pgWorkspaceMembers: [],
+      session: { npub: 'npub-operator-a' },
+      canAttemptSelectedPgChannelGrantRead: true,
+      workroomCreationForm: createWorkroomForm(),
+      getChannelParticipants: () => [],
+      getSenderName: (npub) => npub === 'npub-testagent' ? 'Test Agent' : 'Operator A',
+      refreshGroups: vi.fn(async function refreshGroups() {
+        this.currentWorkspaceGroups = [{ group_id: 'group-agents', name: 'Agents', member_npubs: ['npub-testagent'] }];
+        return this.currentWorkspaceGroups;
+      }),
+      refreshTowerPgWorkspaceMembers: vi.fn(async function refreshTowerPgWorkspaceMembers() {
+        this.pgWorkspaceMembers = [{ actor_id: 'actor-testagent', npub: 'npub-testagent' }];
+        return this.pgWorkspaceMembers;
+      }),
+      refreshChannelGrants: vi.fn(async function refreshChannelGrants() {
+        this.channelGrants = [{ principal_type: 'group', principal_id: 'group-agents' }];
+        return this.channelGrants;
+      }),
+    };
+    Object.assign(store, workroomCreationMixin);
+
+    await store.openWorkroomCreation();
+
+    expect(store.refreshGroups).toHaveBeenCalledWith({ force: true, minIntervalMs: 0 });
+    expect(store.refreshTowerPgWorkspaceMembers).toHaveBeenCalledWith({ force: true, limit: 200 });
+    expect(store.refreshChannelGrants).toHaveBeenCalled();
+    expect(store.workroomCreationPeopleLoading).toBe(false);
+    expect(store.workroomCreationForm.participants).toEqual([
+      { actor_npub: 'npub-operator-a', role: 'contributor', label: 'Operator A' },
+      { actor_npub: 'npub-testagent', role: 'contributor', label: 'Test Agent' },
+    ]);
+  });
+
+  it('includes members from enclosing scope groups when creating a channel workroom', async () => {
+    const store = {
+      selectedChannelId: 'channel-1',
+      selectedChannel: { record_id: 'channel-1', scope_id: 'scope-feature', channel_type: 'channel' },
+      scopesMap: new Map([['scope-feature', { record_id: 'scope-feature', group_ids: ['group-agents'] }]]),
+      groups: [{ group_id: 'group-agents', name: 'Agents', member_npubs: ['npub-testagent'] }],
+      currentWorkspaceGroups: [],
+      channelGrants: [],
+      pgWorkspaceMembers: [{ actor_id: 'actor-testagent', npub: 'npub-testagent' }],
+      session: { npub: 'npub-operator-a' },
+      workroomCreationForm: createWorkroomForm(),
+      getChannelParticipants: () => ['npub-operator-a'],
+      getSenderName: (npub) => npub === 'npub-testagent' ? 'Test Agent' : 'Operator A',
+      refreshGroups: vi.fn(async function refreshGroups() { return this.groups; }),
+      refreshTowerPgWorkspaceMembers: vi.fn(async function refreshTowerPgWorkspaceMembers() { return this.pgWorkspaceMembers; }),
+      refreshChannelGrants: vi.fn(async function refreshChannelGrants() { return this.channelGrants; }),
+    };
+    Object.assign(store, workroomCreationMixin);
+
+    await store.openWorkroomCreation();
+
+    expect(store.workroomCreationForm.participants).toEqual([
+      { actor_npub: 'npub-operator-a', role: 'contributor', label: 'Operator A' },
+      { actor_npub: 'npub-testagent', role: 'contributor', label: 'Test Agent' },
+    ]);
+  });
+
+  it('uses the selected scope context when the channel row lacks a scope id', async () => {
+    const store = {
+      selectedChannelId: 'channel-1',
+      selectedChannel: { record_id: 'channel-1', title: 'Features', channel_type: 'channel' },
+      selectedBoardScope: { record_id: 'scope-feature', group_ids: ['group-agents'] },
+      scopesMap: new Map([['scope-feature', { record_id: 'scope-feature', group_ids: ['group-agents'] }]]),
+      groups: [{ group_id: 'group-agents', name: 'Agents', member_npubs: ['npub-testagent'] }],
+      currentWorkspaceGroups: [],
+      channelGrants: [],
+      pgWorkspaceMembers: [{ actor_id: 'actor-testagent', npub: 'npub-testagent' }],
+      session: { npub: 'npub-operator-a' },
+      workroomCreationForm: createWorkroomForm(),
+      getChannelParticipants: () => ['npub-operator-a'],
+      getSenderName: (npub) => npub === 'npub-testagent' ? 'Test Agent' : 'Operator A',
+      refreshGroups: vi.fn(async function refreshGroups() { return this.groups; }),
+      refreshTowerPgWorkspaceMembers: vi.fn(async function refreshTowerPgWorkspaceMembers() { return this.pgWorkspaceMembers; }),
+      refreshChannelGrants: vi.fn(async function refreshChannelGrants() { return this.channelGrants; }),
+    };
+    Object.assign(store, workroomCreationMixin);
+
+    await store.openWorkroomCreation();
+
+    expect(store.workroomCreationForm.participants).toEqual([
+      { actor_npub: 'npub-operator-a', role: 'contributor', label: 'Operator A' },
+      { actor_npub: 'npub-testagent', role: 'contributor', label: 'Test Agent' },
+    ]);
+  });
+
+  it('does not shrink the creation roster when async visibility refresh returns partial data', async () => {
+    const store = {
+      selectedChannelId: 'channel-1',
+      selectedChannel: { record_id: 'channel-1', title: 'Features', channel_type: 'channel' },
+      selectedBoardScope: { record_id: 'scope-feature', group_ids: ['group-agents'] },
+      scopesMap: new Map([['scope-feature', { record_id: 'scope-feature', group_ids: ['group-agents'] }]]),
+      groups: [{ group_id: 'group-agents', name: 'Agents', member_npubs: ['npub-testagent'] }],
+      currentWorkspaceGroups: [],
+      channelGrants: [],
+      pgWorkspaceMembers: [{ actor_id: 'actor-testagent', npub: 'npub-testagent' }],
+      session: { npub: 'npub-operator-a' },
+      workroomCreationForm: createWorkroomForm(),
+      getChannelParticipants: () => ['npub-operator-a'],
+      getSenderName: (npub) => npub === 'npub-testagent' ? 'Test Agent' : 'Operator A',
+      refreshGroups: vi.fn(async function refreshGroups() {
+        this.groups = [];
+        return [];
+      }),
+      refreshTowerPgWorkspaceMembers: vi.fn(async function refreshTowerPgWorkspaceMembers() { return this.pgWorkspaceMembers; }),
+      refreshChannelGrants: vi.fn(async function refreshChannelGrants() { return []; }),
+    };
+    Object.assign(store, workroomCreationMixin);
+
+    await store.openWorkroomCreation();
+
+    expect(store.workroomCreationForm.participants).toEqual([
+      { actor_npub: 'npub-operator-a', role: 'contributor', label: 'Operator A' },
+      { actor_npub: 'npub-testagent', role: 'contributor', label: 'Test Agent' },
+    ]);
+  });
+
+  it('expands group grants through known group members', () => {
+    expect(workroomVisibleParticipantNpubs({ record_id: 'channel-1' }, {
+      channelGrants: [{ principal_type: 'group', principal_id: 'group-team' }],
+      groups: [{ group_id: 'group-team', member_npubs: ['npub-testagent', 'npub-operator-a'] }],
+    })).toEqual(['npub-testagent', 'npub-operator-a']);
+  });
+
+  it('expands embedded Tower group principals in channel grants', () => {
+    expect(workroomVisibleParticipantNpubs({ record_id: 'channel-1' }, {
+      channelGrants: [{
+        principal_type: 'group',
+        principal: {
+          group_id: 'group-agents',
+          members: [{ actor: { npub: 'npub-testagent' } }],
+        },
+      }],
+    })).toEqual(['npub-testagent']);
+  });
+
+  it('includes the current viewer when local channel visibility is incomplete', () => {
+    expect(workroomVisibleParticipantNpubs({ record_id: 'channel-1' }, {
+      currentViewerNpub: 'npub-operator-a',
+    })).toEqual(['npub-operator-a']);
+  });
+
+  it('preserves direct channel participants while deduplicating them', () => {
+    expect(workroomVisibleParticipantNpubs({ participant_npubs: ['npub-operator-a', 'npub-testagent', 'npub-operator-a'] }, {
+      sessionNpub: 'npub-operator-a',
+    })).toEqual(['npub-operator-a', 'npub-testagent']);
+  });
+
+  it('prioritizes channel defaults and existing workroom repositories', () => {
+    const suggestions = workroomRepoSuggestions({
+      metadata: { workroom_defaults: { repo_url: 'https://github.com/acme/defaults' } },
+    }, [{ repo: { name: 'acme/prior' } }]);
+    expect(suggestions).toEqual([
+      { url: 'https://github.com/acme/defaults', name: 'acme/defaults' },
+      { url: 'https://github.com/acme/prior', name: 'acme/prior' },
+    ]);
+  });
+
+  it('identifies participant access failures for the warning state', () => {
+    expect(failedWorkroomParticipants([
+      { actor_npub: 'npub-ok', access_status: 'granted' },
+      { actor_npub: 'npub-failed', access_status: 'failed', access_issue: 'workspace_membership_missing' },
+    ])).toEqual([{ actor_npub: 'npub-failed', access_status: 'failed', access_issue: 'workspace_membership_missing' }]);
+  });
+
+  it('renders legacy workroom announcements as enter cards instead of raw API links', () => {
+    const store = {
+      currentWorkspace: { directHttpsUrl: 'https://tower.example', workspaceId: 'workspace-1' },
+      getSenderName: (npub) => npub === 'npub-operator-a' ? 'Operator A' : npub,
+    };
+    Object.assign(store, workroomCreationMixin);
+    const message = {
+      sender_npub: 'npub-operator-a',
+      body: [
+        'Workroom started: Quick Updates',
+        '',
+        'Goal: Quick updates',
+        '',
+        '/api/v4/flightdeck-pg/workspaces/workspace-1/workrooms/room-1',
+      ].join('\n'),
+      metadata: {},
+    };
+
+    expect(store.isWorkroomAnnouncement(message)).toBe(true);
+    expect(store.workroomMessageCard(message)).toEqual({
+      title: 'Quick Updates',
+      goal: 'Quick updates',
+      starter: 'Operator A',
+      roomId: 'room-1',
+      link: 'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/workrooms/room-1',
+      status: 'started',
+    });
+  });
+
+  it('shows start failures in the creation modal after creating the draft', async () => {
+    startTowerPgWorkroom.mockRejectedValueOnce(new Error('integration autopilot is missing'));
+    const store = {
+      workrooms: [],
+      messages: [],
+      selectedChannel: { record_id: 'channel-1', scope_id: 'scope-1' },
+      workroomCreationOpen: true,
+      workroomCreationForm: createWorkroomForm({ title: 'Quick', goal: 'Updates' }),
+      workroomError: '',
+      workroomCreationError: '',
+      workroomStartingId: '',
+      currentWorkspace: { pgBackendMode: true, workspaceId: 'workspace-1', directHttpsUrl: 'https://tower.example', appNpub: 'flightdeck-app' },
+      backendUrl: 'https://tower.example',
+    };
+    Object.assign(store, workroomCreationMixin);
+
+    await store.startWorkroom({ record_id: 'room-1', row_version: 1 });
+
+    expect(store.workroomCreationError).toBe('Workroom draft created but not started: integration autopilot is missing');
+    expect(store.workroomError).toBe('integration autopilot is missing');
+  });
+});

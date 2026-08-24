@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Navigation paint boundary harness</title>
+<div id="state">old</div>
+<script type="module">
+  import { waitForNavigationPaint } from '/src/navigation-paint.js';
+  const state = document.querySelector('#state');
+  window.harnessResult = (async () => {
+    const events = [];
+    state.textContent = 'destination';
+    events.push({ name: 'assigned', at: performance.now() });
+    await waitForNavigationPaint({});
+    events.push({ name: 'paint-boundary', at: performance.now() });
+    const expensiveStart = performance.now();
+    while (performance.now() - expensiveStart < 75) {}
+    events.push({ name: 'expensive-end', at: performance.now() });
+    return { events, text: state.textContent };
+  })();
+</script>

@@ -1,0 +1,93 @@
+# Wingman Flight Deck llms.txt
+
+This file describes the current Agent Connect surface for Wingman Flight Deck.
+The active protocol is Postgres-backed Tower PG only.
+
+## Agent Connect package
+
+Flight Deck emits a JSON package with:
+
+- `kind`: `coworker_agent_connect`
+- `version`: `6`
+- `protocol`: `flightdeck_pg`
+- `service.direct_https_url`: Tower base URL
+- `service.openapi_url`: live OpenAPI URL for the Tower deployment
+- `service.docs_url`: live docs URL for the Tower deployment
+- `auth.scheme`: `NIP-98`
+- `auth.app_header`: `x-flightdeck-pg-app-npub`
+- `workspace_descriptor`: a `wingman_workspace_locator`
+
+The package intentionally includes only Tower PG connection details and excludes
+legacy connection keys, relay credentials, private keys, bearer tokens, and
+encrypted-record metadata.
+
+## Connect flow
+
+1. Parse the Agent Connect JSON.
+2. Read `workspace_descriptor.tower_base_url` and
+   `workspace_descriptor.identity.workspace_id`.
+3. Sign every Tower request with NIP-98.
+4. Send `x-flightdeck-pg-app-npub` with
+   `workspace_descriptor.identity.app_npub`.
+5. Verify the workspace with:
+   `GET /api/v4/flightdeck-pg/workspaces/:workspaceId/descriptor`
+   and `GET /api/v4/flightdeck-pg/workspaces/:workspaceId/me`.
+6. Use `service.openapi_url` and `service.docs_url` for exact request and
+   response shapes on the live deployment.
+
+If a static OpenAPI export is behind the deployed Tower, prefer the direct
+Postgres routes below until the export catches up.
+
+## Core Tower PG routes
+
+All routes are under `/api/v4/flightdeck-pg`.
+
+- `GET /service`
+- `GET /workspaces`
+- `GET /workspaces/:workspaceId/descriptor`
+- `GET /workspaces/:workspaceId/me`
+- `PATCH /workspaces/:workspaceId`
+- `POST /workspaces/:workspaceId/storage/prepare`
+- `GET /workspaces/:workspaceId/events`
+- `GET /workspaces/:workspaceId/events/stream`
+- `GET|POST /workspaces/:workspaceId/members`
+- `GET|POST /workspaces/:workspaceId/groups`
+- `POST /workspaces/:workspaceId/groups/:groupId/members`
+- `DELETE /workspaces/:workspaceId/groups/:groupId/members/:actorId`
+- `GET /workspaces/:workspaceId/groups/:groupId/effective-members`
+- `POST /workspaces/:workspaceId/groups/:groupId/child-groups`
+- `DELETE /workspaces/:workspaceId/groups/:groupId/child-groups/:childGroupId`
+- `POST /workspaces/:workspaceId/invites`
+- `GET|POST /workspaces/:workspaceId/scopes`
+- `DELETE /workspaces/:workspaceId/scopes/:scopeId`
+- `GET|POST /workspaces/:workspaceId/scopes/:scopeId/channels`
+- `PATCH|DELETE /workspaces/:workspaceId/channels/:channelId`
+- `GET|POST /workspaces/:workspaceId/channels/:channelId/grants`
+- `PUT|DELETE /workspaces/:workspaceId/channels/:channelId/grants/:principalType/:principalId`
+- `GET|POST /workspaces/:workspaceId/channels/:channelId/threads`
+- `DELETE /workspaces/:workspaceId/threads/:threadId`
+- `PATCH /workspaces/:workspaceId/threads/:threadId/archive`
+- `GET|POST /workspaces/:workspaceId/channels/:channelId/messages`
+- `DELETE /workspaces/:workspaceId/messages/:messageId`
+- `GET|POST /workspaces/:workspaceId/channels/:channelId/docs`
+- `GET|PATCH|DELETE /workspaces/:workspaceId/docs/:docId`
+- `GET /workspaces/:workspaceId/docs/:docId/body`
+- `GET /workspaces/:workspaceId/docs/:docId/versions`
+- `GET|POST /workspaces/:workspaceId/docs/:docId/comments`
+- `PATCH|DELETE /workspaces/:workspaceId/docs/:docId/comments/:commentId`
+- `GET|POST /workspaces/:workspaceId/channels/:channelId/files`
+- `GET|PATCH /workspaces/:workspaceId/files/:fileId`
+- `GET /workspaces/:workspaceId/files/:fileId/object`
+- `GET|POST /workspaces/:workspaceId/channels/:channelId/tasks`
+- `GET /workspaces/:workspaceId/scopes/:scopeId/tasks`
+- `GET|PATCH|DELETE /workspaces/:workspaceId/tasks/:taskId`
+- `POST /workspaces/:workspaceId/tasks/:taskId/state`
+- `GET|POST /workspaces/:workspaceId/tasks/:taskId/comments`
+- `POST /workspaces/:workspaceId/tasks/:taskId/assignments`
+- `DELETE /workspaces/:workspaceId/tasks/:taskId/assignments/:actorId`
+
+Markdown documents are storage-backed: prepare/upload the Markdown object with
+`POST /storage/prepare`, then create or update docs using the returned
+`storage_object_id`.
+
+Do not use legacy record-sync setup for Postgres Flight Deck work.
