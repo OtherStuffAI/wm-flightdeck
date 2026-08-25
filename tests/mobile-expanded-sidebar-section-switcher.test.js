@@ -52,7 +52,14 @@ describe('expanded left-column section switcher', () => {
 
     expect(expandedSwitcher.match(/class="expanded-sidebar-section-icon"/g)).toHaveLength(6);
     expect(expandedSwitcher.match(/navigateTo\('settings'\)/g)).toHaveLength(1);
-    expect(expandedSwitcher).toContain('class="expanded-sidebar-section-switcher-btn expanded-sidebar-section-switcher-btn-mobile-only" x-show="$store.chat.mobileNavOpen"');
+    const setupButton = expandedSwitcher.match(/<button[^>]*navigateTo\('settings'\)[^>]*>[\s\S]*?<\/button>/)?.[0] ?? '';
+    const canonicalSetupItem = sidebar.match(/<li[^>]*navSection === 'settings'[^>]*>[\s\S]*?<\/li>/)?.[0] ?? '';
+    const setupGear = setupButton.match(/<svg[\s\S]*?<\/svg>/)?.[0].replace(/\s+/g, '') ?? '';
+    const canonicalGear = canonicalSetupItem.match(/<svg[\s\S]*?<\/svg>/)?.[0].replace(/\s+/g, '') ?? '';
+    expect(setupButton).toContain('class="expanded-sidebar-section-switcher-btn"');
+    expect(setupButton).not.toContain('mobileNavOpen');
+    expect(setupButton).not.toContain('mobile-only');
+    expect(setupGear).toBe(canonicalGear);
   });
 
   it('removes the actual expanded left-column navigation set and its layout space', () => {
@@ -86,11 +93,12 @@ describe('expanded left-column section switcher', () => {
     expect(navigateTo).not.toContain('this.navCollapsed = true;');
   });
 
-  it('selects canonical settings, closes the mobile drawer, and keeps the settings deep-link route', () => {
+  it.each([
+    ['expanded laptop', { mobileNavOpen: false, navCollapsed: false }],
+    ['expanded mobile', { mobileNavOpen: true, navCollapsed: true }],
+  ])('selects canonical settings from %s state and keeps the settings deep-link route', (_label, navigationState) => {
     const shell = createShellState();
-    Object.assign(shell, {
-      mobileNavOpen: true,
-      navCollapsed: true,
+    Object.assign(shell, navigationState, {
       clearInactiveSectionData: vi.fn(),
       syncRoute: vi.fn(),
       startWorkspaceLiveQueries: vi.fn(),
@@ -101,7 +109,7 @@ describe('expanded left-column section switcher', () => {
 
     expect(shell.navSection).toBe('settings');
     expect(shell.mobileNavOpen).toBe(false);
-    expect(shell.navCollapsed).toBe(true);
+    expect(shell.navCollapsed).toBe(navigationState.navCollapsed);
     expect(shell.syncRoute).toHaveBeenCalledTimes(1);
     expect(shell.getRoutePath('settings')).toMatch(/\/settings$/);
   });
@@ -111,7 +119,6 @@ describe('expanded left-column section switcher', () => {
     expect(styles).toMatch(/\.expanded-sidebar-section-switcher-btn\s*\{[^}]*min-height:\s*44px;/s);
     expect(styles).toMatch(/\.expanded-sidebar-section-switcher-btn:focus-visible\s*\{[^}]*outline:\s*2px solid #2563eb;/s);
     expect(styles).toMatch(/\.expanded-sidebar-section-switcher-btn-active\s*\{[^}]*background:\s*#eff6ff;/s);
-    expect(styles).toMatch(/\.expanded-sidebar-section-switcher-btn-mobile-only\s*\{[^}]*display:\s*none;/s);
-    expect(styles).toMatch(/@media \(max-width: 768px\)[\s\S]*\.expanded-sidebar-section-switcher-btn-mobile-only\s*\{[^}]*display:\s*inline-flex;/s);
+    expect(styles).not.toContain('expanded-sidebar-section-switcher-btn-mobile-only');
   });
 });

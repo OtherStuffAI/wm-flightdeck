@@ -8874,10 +8874,6 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   font-weight: 800;
 }
 
-.expanded-sidebar-section-switcher-btn-mobile-only {
-  display: none;
-}
-
 .expanded-sidebar-section-icon {
   display: inline-flex;
   flex: 0 0 auto;
@@ -15070,10 +15066,6 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
   .global-pg-channel-bar.global-pg-channel-bar-sidebar-expanded {
     display: flex;
-  }
-
-  .expanded-sidebar-section-switcher-btn-mobile-only {
-    display: inline-flex;
   }
 
   .sidebar-collapsed .sidebar-label {

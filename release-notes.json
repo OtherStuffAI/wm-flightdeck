@@ -811,6 +811,13 @@
       "notes": [
         "Reach Setup from the labelled horizontal section picker while the mobile left column is open."
       ]
+    },
+    {
+      "buildNumber": 1819,
+      "label": "Show Setup in expanded picker",
+      "notes": [
+        "Reach Setup from the labelled horizontal section picker whenever the left column is open, including laptop and desktop layouts."
+      ]
     }
   ]
 }
