@@ -309,11 +309,11 @@
 
     <div
       class="mobile-scope-switcher"
-      x-show="$store.chat.isLoggedIn"
+      x-show="$store.chat.isLoggedIn && !$store.chat.mobileNavOpen"
       x-data="{ open: false }"
       @click.outside="open = false"
     >
-      <div class="mobile-scope-context-controls" x-show="!$store.chat.mobileNavOpen">
+      <div class="mobile-scope-context-controls">
         <button
           type="button"
           class="mobile-scope-workspace-avatar-btn"
@@ -348,87 +348,6 @@
           </template>
         </ul>
       </div>
-      <nav
-        class="mobile-expanded-section-switcher"
-        x-show="$store.chat.mobileNavOpen"
-        x-cloak
-        aria-label="Flight Deck sections"
-      >
-        <button
-          type="button"
-          class="mobile-expanded-section-switcher-btn"
-          :class="{ 'mobile-expanded-section-switcher-btn-active': $store.chat.navSection === 'status' }"
-          :aria-current="$store.chat.navSection === 'status' ? 'page' : null"
-          @click="$store.chat.navigateTo('status')"
-        >
-          <span class="mobile-expanded-section-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5"></path>
-              <path d="M10 17a2 2 0 0 0 4 0"></path>
-            </svg>
-          </span>
-          <span>Deck</span>
-        </button>
-        <button
-          type="button"
-          class="mobile-expanded-section-switcher-btn"
-          :class="{ 'mobile-expanded-section-switcher-btn-active': $store.chat.navSection === 'chat' }"
-          :aria-current="$store.chat.navSection === 'chat' ? 'page' : null"
-          @click="$store.chat.navigateTo('chat')"
-        >
-          <span class="mobile-expanded-section-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"></path>
-            </svg>
-          </span>
-          <span>Chat</span>
-        </button>
-        <button
-          type="button"
-          class="mobile-expanded-section-switcher-btn"
-          :class="{ 'mobile-expanded-section-switcher-btn-active': $store.chat.navSection === 'tasks' }"
-          :aria-current="$store.chat.navSection === 'tasks' ? 'page' : null"
-          @click="$store.chat.navigateTo('tasks')"
-        >
-          <span class="mobile-expanded-section-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M9 11l2 2 4-4"></path>
-              <rect x="4" y="4" width="16" height="16" rx="2"></rect>
-            </svg>
-          </span>
-          <span>Tasks</span>
-        </button>
-        <button
-          type="button"
-          class="mobile-expanded-section-switcher-btn"
-          :class="{ 'mobile-expanded-section-switcher-btn-active': $store.chat.navSection === 'docs' }"
-          :aria-current="$store.chat.navSection === 'docs' ? 'page' : null"
-          @click="$store.chat.navigateTo('docs')"
-        >
-          <span class="mobile-expanded-section-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path>
-              <path d="M14 3v5h5"></path>
-            </svg>
-          </span>
-          <span>Docs</span>
-        </button>
-        <button
-          type="button"
-          class="mobile-expanded-section-switcher-btn"
-          :class="{ 'mobile-expanded-section-switcher-btn-active': $store.chat.navSection === 'files' }"
-          :aria-current="$store.chat.navSection === 'files' ? 'page' : null"
-          @click="$store.chat.navigateTo('files')"
-        >
-          <span class="mobile-expanded-section-icon" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
-              <path d="M7 13h10"></path>
-            </svg>
-          </span>
-          <span>Files</span>
-        </button>
-      </nav>
     </div>
 
     <section class="auth-panel" x-show="!$store.chat.isLoggedIn">
@@ -1052,7 +971,7 @@
     <div class="app-layout" x-show="$store.chat.isLoggedIn">
       <div class="mobile-sidebar-backdrop" x-show="$store.chat.mobileNavOpen" @click="$store.chat.mobileNavOpen = false"></div>
       <nav class="sidebar" :class="{ 'sidebar-collapsed': $store.chat.navCollapsed, 'sidebar-mobile-open': $store.chat.mobileNavOpen }">
-        <ul class="sidebar-nav">
+        <ul class="sidebar-nav" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen">
           <li :class="{ active: $store.chat.navSection === 'status' }" @click="$store.chat.navigateTo('status')">
             <span class="sidebar-icon" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -1318,10 +1237,7 @@
       <div class="main-content">
           <div
             class="global-pg-channel-bar"
-            :class="{
-              'global-pg-channel-bar-sidebar-expanded': !$store.chat.navCollapsed,
-              'global-pg-channel-bar-mobile-sidebar-open': $store.chat.mobileNavOpen
-            }"
+            :class="{ 'global-pg-channel-bar-sidebar-expanded': !$store.chat.navCollapsed || $store.chat.mobileNavOpen }"
             x-show="$store.chat.isLoggedIn"
             x-cloak
           >
@@ -1329,9 +1245,37 @@
               class="chat-channel-header"
               :class="{ 'pg-all-scopes-context': $store.chat.pgContextAllScopesSelected }"
             >
+              <nav
+                class="expanded-sidebar-section-switcher"
+                x-show="!$store.chat.navCollapsed || $store.chat.mobileNavOpen"
+                x-cloak
+                aria-label="Flight Deck sections"
+              >
+                <button type="button" class="expanded-sidebar-section-switcher-btn" :class="{ 'expanded-sidebar-section-switcher-btn-active': $store.chat.navSection === 'status' }" :aria-current="$store.chat.navSection === 'status' ? 'page' : null" @click="$store.chat.navigateTo('status')">
+                  <span class="expanded-sidebar-section-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5"></path><path d="M10 17a2 2 0 0 0 4 0"></path></svg></span>
+                  <span>Deck</span>
+                </button>
+                <button type="button" class="expanded-sidebar-section-switcher-btn" :class="{ 'expanded-sidebar-section-switcher-btn-active': $store.chat.navSection === 'chat' }" :aria-current="$store.chat.navSection === 'chat' ? 'page' : null" @click="$store.chat.navigateTo('chat')">
+                  <span class="expanded-sidebar-section-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a8 8 0 0 1-8 8H7l-4 3V12a8 8 0 0 1 8-8h2a8 8 0 0 1 8 8Z"></path></svg></span>
+                  <span>Chat</span>
+                </button>
+                <button type="button" class="expanded-sidebar-section-switcher-btn" :class="{ 'expanded-sidebar-section-switcher-btn-active': $store.chat.navSection === 'tasks' }" :aria-current="$store.chat.navSection === 'tasks' ? 'page' : null" @click="$store.chat.navigateTo('tasks')">
+                  <span class="expanded-sidebar-section-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l2 2 4-4"></path><rect x="4" y="4" width="16" height="16" rx="2"></rect></svg></span>
+                  <span>Tasks</span>
+                </button>
+                <button type="button" class="expanded-sidebar-section-switcher-btn" :class="{ 'expanded-sidebar-section-switcher-btn-active': $store.chat.navSection === 'docs' }" :aria-current="$store.chat.navSection === 'docs' ? 'page' : null" @click="$store.chat.navigateTo('docs')">
+                  <span class="expanded-sidebar-section-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg></span>
+                  <span>Docs</span>
+                </button>
+                <button type="button" class="expanded-sidebar-section-switcher-btn" :class="{ 'expanded-sidebar-section-switcher-btn-active': $store.chat.navSection === 'files' }" :aria-current="$store.chat.navSection === 'files' ? 'page' : null" @click="$store.chat.navigateTo('files')">
+                  <span class="expanded-sidebar-section-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><path d="M7 13h10"></path></svg></span>
+                  <span>Files</span>
+                </button>
+              </nav>
               <button
                 type="button"
                 class="channel-row-workspace-avatar-btn"
+                x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen"
                 @click="$store.chat.openAllScopesOverview()"
                 title="All scopes overview"
                 aria-label="All scopes overview"
@@ -1345,6 +1289,7 @@
               </button>
               <div
                 class="channel-row-scope-switcher"
+                x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen"
                 x-data="{ bpIdx: 0, open: false, query: '' }"
                 @click.outside="open = false; query = ''"
               >
@@ -1376,7 +1321,7 @@
                 </div>
                 <span class="channel-row-scope-separator" aria-hidden="true">|</span>
               </div>
-              <div class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels">
+              <div class="chat-channel-tab-scroll" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen" role="tablist" aria-label="Workspace channels">
                 <div
                   class="chat-channel-tab-item channel-home-tab-item"
                   :class="{ active: $store.chat.pgContextHomeSelected }"
@@ -1442,7 +1387,7 @@
                   </div>
                 </template>
               </div>
-              <button type="button" class="chat-channel-tab-add" @click="$store.chat.openNewChannelModal()" title="New channel" aria-label="New channel">
+              <button type="button" class="chat-channel-tab-add" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen" @click="$store.chat.openNewChannelModal()" title="New channel" aria-label="New channel">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <path d="M12 5v14M5 12h14" stroke-linecap="round"></path>
                 </svg>
@@ -1470,7 +1415,7 @@
                 </button>
               </div>
             </div>
-            <nav class="mobile-section-switcher" x-show="!$store.chat.mobileNavOpen" aria-label="Scope section navigation">
+            <nav class="mobile-section-switcher" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen" aria-label="Scope section navigation">
               <button
                 type="button"
                 class="mobile-section-switcher-btn"

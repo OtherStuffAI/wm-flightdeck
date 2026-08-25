@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
-const sidebarNav = html.match(/<ul class="sidebar-nav">([\s\S]*?)<\/ul>/)?.[1] ?? '';
+const sidebarNav = html.match(/<ul class="sidebar-nav"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
 
 describe('sidebar unread indicators', () => {
   it('does not render unread dots on top-level navigation entries', () => {

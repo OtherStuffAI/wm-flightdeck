@@ -120,9 +120,9 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(mobile).toMatch(/\.sidebar\.sidebar-mobile-open \.sidebar-workspace-navigation-divider\s*\{[^}]*display:\s*block;/s);
   });
 
-  it('hides the horizontal work-context bar only for expanded desktop rails', () => {
+  it('keeps the shared top bar available for the expanded-column section picker', () => {
     expect(html).toContain("'global-pg-channel-bar-sidebar-expanded': !$store.chat.navCollapsed");
-    expect(styles).toMatch(/@media \(min-width: 769px\)\s*\{[\s\S]*?\.global-pg-channel-bar\.global-pg-channel-bar-sidebar-expanded\s*\{[^}]*display:\s*none;/s);
+    expect(styles).not.toMatch(/@media \(min-width: 769px\)\s*\{[\s\S]*?\.global-pg-channel-bar\.global-pg-channel-bar-sidebar-expanded\s*\{[^}]*display:\s*none;/s);
     const mobile = styles.slice(styles.indexOf('@media (max-width: 768px)'));
     expect(mobile).toMatch(/\.global-pg-channel-bar\.global-pg-channel-bar-sidebar-expanded\s*\{[^}]*display:\s*flex;/s);
   });

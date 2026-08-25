@@ -355,7 +355,7 @@ describe('flight deck summary template', () => {
     const html = readFileSync(INDEX_PATH, 'utf8');
 
     expect(html).toContain('class="page-header" x-show="!$store.chat.appHeaderHidden"');
-    expect(html).toMatch(/class="global-pg-channel-bar"[\s\S]*?:class="\{[\s\S]*?'global-pg-channel-bar-sidebar-expanded': !\$store\.chat\.navCollapsed,[\s\S]*?'global-pg-channel-bar-mobile-sidebar-open': \$store\.chat\.mobileNavOpen[\s\S]*?\}"[\s\S]*?x-show="\$store\.chat\.isLoggedIn"/s);
+    expect(html).toMatch(/class="global-pg-channel-bar"[\s\S]*?:class="\{ 'global-pg-channel-bar-sidebar-expanded': !\$store\.chat\.navCollapsed \|\| \$store\.chat\.mobileNavOpen \}"[\s\S]*?x-show="\$store\.chat\.isLoggedIn"/s);
     expect(html).toContain('class="content-scroll-area"');
     expect(html).toContain('class="chat-channel-tab-item"');
     expect(html).toContain('class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels"');

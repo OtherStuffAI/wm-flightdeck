@@ -797,6 +797,13 @@
       "notes": [
         "Show labelled Deck, Chat, Tasks, Docs, and Files controls above the open mobile sidebar while keeping the existing scope, channel, and compact controls when it is closed."
       ]
+    },
+    {
+      "buildNumber": 1816,
+      "label": "Correct expanded sidebar selectors",
+      "notes": [
+        "Move the labelled Deck, Chat, Tasks, Docs, and Files picker into the horizontal top bar when the left column is open, leaving the column for workspace scopes and channels."
+      ]
     }
   ]
 }
