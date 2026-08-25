@@ -867,6 +867,12 @@
       "notes": [
         "Accept each successful TipTap save as the new local edit base before live updates arrive, preventing a document from conflicting with its own autosave."
       ]
+    },
+    {
+      "buildNumber": 1831,
+      "label": "Document autosave validation",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
