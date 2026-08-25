@@ -195,7 +195,6 @@ describe('worker-only sync enforcement', () => {
       'npub-owner',
       'npub-viewer',
       'https://backend.example.com',
-      'nip98-token',
       'workspace-db',
       { checkoutPolicyConfig: { familySuffixes: { task: 'checkout_required' } } },
     );
@@ -213,12 +212,32 @@ describe('worker-only sync enforcement', () => {
       ownerNpub: 'npub-owner',
       viewerNpub: 'npub-viewer',
       backendUrl: 'https://backend.example.com',
-      token: 'nip98-token',
       workspaceDbKey: 'workspace-db',
       options: {
         checkoutPolicyConfig: { familySuffixes: { task: 'checkout_required' } },
       },
     }));
+  });
+
+  it('returns a request-bound SSE token to the worker without reconnecting it', () => {
+    const messages = [];
+    class MockWorker {
+      addEventListener() {}
+      removeEventListener() {}
+      terminate() {}
+      postMessage(message) { messages.push(message); }
+    }
+    globalThis.Worker = MockWorker;
+
+    client.connectSSE('npub-owner', 'npub-viewer', 'https://backend.example.com', 'workspace-db');
+    client.provideSSEToken('sse-token-9', 'connection-key', 'nip98-token');
+
+    expect(messages).toContainEqual({
+      type: 'sync-worker:sse-token',
+      requestId: 'sse-token-9',
+      connectionKey: 'connection-key',
+      token: 'nip98-token',
+    });
   });
 });
 

@@ -10,6 +10,10 @@ import { setBaseUrl } from '../api.js';
 import { setExtensionSignerBridge } from '../auth/nostr.js';
 import { importDecryptedKeys, setActiveSessionNpub } from '../crypto/group-keys.js';
 import { importWorkspaceKeyFromMain } from '../crypto/workspace-keys.js';
+import {
+  buildSSESigningUrl,
+  createSSETokenRequestTracker,
+} from '../sse-stream-protocol.js';
 
 const REQUEST_TYPE = 'sync-worker:request';
 const PROGRESS_TYPE = 'sync-worker:progress';
@@ -26,6 +30,7 @@ const FLUSH_RESULT_TYPE = 'sync-worker:flush-result';
 const SSE_CONNECT_TYPE = 'sync-worker:sse-connect';
 const SSE_DISCONNECT_TYPE = 'sync-worker:sse-disconnect';
 const SSE_STATUS_TYPE = 'sync-worker:sse-status';
+const SSE_TOKEN_TYPE = 'sync-worker:sse-token';
 const FLUSH_NOW_TYPE = 'sync-worker:flush-now';
 
 let nextAuthRequestId = 1;
@@ -61,6 +66,7 @@ const SSE_FALLBACK_PROBE_MS = 60_000;
 let sseDebounceTimer = null;
 let sseFallbackProbeTimer = null;
 let sseLastFailureReason = null;
+const sseTokenRequests = createSSETokenRequestTracker();
 const sseStaleFamilies = new Set();
 const sseEchoSet = new Map(); // key: "recordId:version" → expiry timestamp
 
@@ -158,6 +164,7 @@ function buildSSEConnectionKey(ownerNpub, viewerNpub, backendUrl, workspaceDbKey
 }
 
 function closeSSE({ resetContext = false } = {}) {
+  sseTokenRequests.clear();
   if (sseDebounceTimer) {
     clearTimeout(sseDebounceTimer);
     sseDebounceTimer = null;
@@ -192,59 +199,30 @@ function closeSSE({ resetContext = false } = {}) {
   }
 }
 
-function connectSSE(ownerNpub, viewerNpub, backendUrl, token, workspaceDbKey, options = {}) {
-  const connectionKey = buildSSEConnectionKey(
-    ownerNpub,
-    viewerNpub,
-    backendUrl,
-    workspaceDbKey,
-    options.checkoutPolicyConfig || null,
-    Boolean(options?.pgMode),
-    options?.workspaceId || null,
-  );
-  const force = Boolean(options?.force);
-  const reason = String(options?.reason || 'connect');
-  const hasActiveLifecycle = Boolean(eventSource || sseReconnectTimer)
-    || ['connecting', 'connected', 'reconnecting', 'token-needed'].includes(sseConnectionState);
+function requestSSEToken(extra = {}) {
+  if (!sseConnectionKey || !sseBackendUrl) return;
+  const signingUrl = buildSSESigningUrl({
+    backendUrl: sseBackendUrl,
+    pgMode: ssePgMode,
+    workspaceId: ssePgWorkspaceId,
+    ownerNpub: sseOwnerNpub,
+    cursor: sseLastPgCursor,
+    lastEventId: sseLastEventId,
+  });
+  const request = sseTokenRequests.request(sseConnectionKey, signingUrl);
+  sseConnectionState = 'token-needed';
+  postSSEStatus('token-needed', {
+    ...extra,
+    requestId: request.requestId,
+    signingUrl: request.signingUrl,
+  });
+}
 
-  if (!force && connectionKey === sseConnectionKey && hasActiveLifecycle) {
-    postSSEStatus(sseConnectionState, {
-      connectionKey,
-      phase: 'connect-skipped',
-      reason: 'duplicate-connect',
-    });
-    return;
-  }
+function openSSEWithToken(message) {
+  const accepted = sseTokenRequests.accept(message);
+  if (!accepted || accepted.connectionKey !== sseConnectionKey) return;
 
-  const phase = !sseConnectionKey
-    ? 'initial-connect'
-    : connectionKey === sseConnectionKey
-      ? 'intentional-reconnect'
-      : 'context-switch';
-
-  closeSSE();
-
-  sseOwnerNpub = ownerNpub;
-  sseViewerNpub = viewerNpub;
-  sseBackendUrl = backendUrl;
-  sseWorkspaceDbKey = workspaceDbKey;
-  sseCheckoutPolicyConfig = options.checkoutPolicyConfig || null;
-  ssePgMode = Boolean(options?.pgMode);
-  ssePgWorkspaceId = String(options?.workspaceId || '').trim() || null;
-  sseConnectionKey = connectionKey;
-
-  const ssePath = ssePgMode && ssePgWorkspaceId
-    ? `/api/v4/flightdeck-pg/workspaces/${ssePgWorkspaceId}/events/stream`
-    : `/api/v4/workspaces/${ownerNpub}/stream`;
-  const sseUrl = new URL(ssePath, backendUrl);
-  sseUrl.searchParams.set('token', token);
-  if (ssePgMode && sseLastPgCursor != null) {
-    sseUrl.searchParams.set('cursor', String(sseLastPgCursor));
-  } else if (!ssePgMode && sseLastEventId != null) {
-    sseUrl.searchParams.set('last_event_id', String(sseLastEventId));
-  }
-
-  const source = new EventSource(sseUrl.toString());
+  const source = new EventSource(accepted.eventSourceUrl);
   eventSource = source;
 
   source.addEventListener('record-changed', (event) => {
@@ -284,6 +262,59 @@ function connectSSE(ownerNpub, viewerNpub, backendUrl, token, workspaceDbKey, op
 
   sseConnectionState = 'connecting';
   postSSEStatus('connecting', {
+    phase: 'signed-stream-open',
+    reason: 'token-received',
+  });
+}
+
+function connectSSE(ownerNpub, viewerNpub, backendUrl, workspaceDbKey, options = {}) {
+  const connectionKey = buildSSEConnectionKey(
+    ownerNpub,
+    viewerNpub,
+    backendUrl,
+    workspaceDbKey,
+    options.checkoutPolicyConfig || null,
+    Boolean(options?.pgMode),
+    options?.workspaceId || null,
+  );
+  const force = Boolean(options?.force);
+  const reason = String(options?.reason || 'connect');
+  const hasActiveLifecycle = Boolean(eventSource || sseReconnectTimer)
+    || ['connecting', 'connected', 'reconnecting', 'token-needed'].includes(sseConnectionState);
+
+  if (!force && connectionKey === sseConnectionKey && hasActiveLifecycle) {
+    postSSEStatus(sseConnectionState, {
+      connectionKey,
+      phase: 'connect-skipped',
+      reason: 'duplicate-connect',
+    });
+    return;
+  }
+
+  const phase = !sseConnectionKey
+    ? 'initial-connect'
+    : connectionKey === sseConnectionKey
+      ? 'intentional-reconnect'
+      : 'context-switch';
+
+  const contextChanged = Boolean(sseConnectionKey && connectionKey !== sseConnectionKey);
+  closeSSE();
+
+  if (contextChanged) {
+    sseLastEventId = null;
+    sseLastPgCursor = null;
+  }
+
+  sseOwnerNpub = ownerNpub;
+  sseViewerNpub = viewerNpub;
+  sseBackendUrl = backendUrl;
+  sseWorkspaceDbKey = workspaceDbKey;
+  sseCheckoutPolicyConfig = options.checkoutPolicyConfig || null;
+  ssePgMode = Boolean(options?.pgMode);
+  ssePgWorkspaceId = String(options?.workspaceId || '').trim() || null;
+  sseConnectionKey = connectionKey;
+
+  requestSSEToken({
     connectionKey,
     phase,
     reason,
@@ -316,8 +347,7 @@ function scheduleReconnect({ reason = 'eventsource-error' } = {}) {
       sseFallbackProbeTimer = null;
       if (sseConnectionState !== 'fallback-polling') return;
       sseReconnectAttempts = 0;
-      sseConnectionState = 'token-needed';
-      postSSEStatus('token-needed', {
+      requestSSEToken({
         phase: 'fallback-probe',
         reason: 'fallback-probe',
         failure: sseLastFailureReason,
@@ -335,9 +365,7 @@ function scheduleReconnect({ reason = 'eventsource-error' } = {}) {
   });
   sseReconnectTimer = setTimeout(() => {
     sseReconnectTimer = null;
-    // Request a fresh token from the main thread
-    sseConnectionState = 'token-needed';
-    postSSEStatus('token-needed', {
+    requestSSEToken({
       phase: 'refresh-token',
       reason: 'reconnect-attempt',
       attempt,
@@ -359,18 +387,35 @@ function handleConnected(event) {
   sseConnectionState = 'connected';
   let data = null;
   try { data = event?.data ? JSON.parse(event.data) : null; } catch { data = null; }
-  if (ssePgMode && data?.cursor) sseLastPgCursor = data.cursor;
-  else if (event?.lastEventId) sseLastEventId = event.lastEventId;
+  if (ssePgMode && data?.cursor) updateSSECursor('pg', data.cursor);
+  else if (event?.lastEventId) updateSSECursor('legacy', event.lastEventId);
   postSSEStatus('connected', {
     phase: 'stream-open',
     reason: 'eventsource-open',
   });
 }
 
+function updateSSECursor(kind, value) {
+  if (value == null) return;
+  const normalized = String(value);
+  const changed = kind === 'pg'
+    ? normalized !== sseLastPgCursor
+    : normalized !== sseLastEventId;
+  if (!changed) return;
+  if (kind === 'pg') sseLastPgCursor = normalized;
+  else sseLastEventId = normalized;
+  if (sseTokenRequests.getPending()) {
+    requestSSEToken({
+      phase: 'cursor-changed',
+      reason: 'cursor-changed-before-token',
+    });
+  }
+}
+
 function handleRecordChanged(event) {
   let data;
   try { data = JSON.parse(event.data); } catch { return; }
-  if (event.lastEventId) sseLastEventId = event.lastEventId;
+  if (event.lastEventId) updateSSECursor('legacy', event.lastEventId);
 
   // Echo suppression
   if (isOwnEcho(data.record_id, data.version)) return;
@@ -387,8 +432,8 @@ function handleRecordChanged(event) {
 function handleFlightDeckPgEvent(event) {
   let data;
   try { data = JSON.parse(event.data); } catch { return; }
-  if (data?.cursor) sseLastPgCursor = data.cursor;
-  else if (event.lastEventId) sseLastEventId = event.lastEventId;
+  if (data?.cursor) updateSSECursor('pg', data.cursor);
+  else if (event.lastEventId) updateSSECursor('legacy', event.lastEventId);
 
   data.browser_received_at = new Date().toISOString();
   sseStaleFamilies.add({
@@ -610,10 +655,13 @@ self.addEventListener('message', async (event) => {
       message.ownerNpub,
       message.viewerNpub,
       message.backendUrl,
-      message.token,
       message.workspaceDbKey,
       message.options || {},
     );
+    return;
+  }
+  if (message.type === SSE_TOKEN_TYPE) {
+    openSSEWithToken(message);
     return;
   }
   if (message.type === SSE_DISCONNECT_TYPE) {

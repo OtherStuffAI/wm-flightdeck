@@ -1,4 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import {
+  appendSSETransportToken,
+  buildSSESigningUrl,
+  createSSETokenRequestTracker,
+  validateSSESigningUrl,
+} from '../src/sse-stream-protocol.js';
 
 /**
  * SSE worker-side logic tests — verifies echo suppression, debounce batching,
@@ -271,7 +277,6 @@ describe('SSE worker message protocol', () => {
       ownerNpub: 'npub1owner...',
       viewerNpub: 'npub1viewer...',
       backendUrl: 'https://tower.example.com',
-      token: 'base64encodedNip98Token',
       workspaceDbKey: 'ws-db-key',
       options: {
         checkoutPolicyConfig: { familySuffixes: { task: 'checkout_required' } },
@@ -282,7 +287,7 @@ describe('SSE worker message protocol', () => {
     expect(message.ownerNpub).toBeTruthy();
     expect(message.viewerNpub).toBeTruthy();
     expect(message.backendUrl).toBeTruthy();
-    expect(message.token).toBeTruthy();
+    expect(message).not.toHaveProperty('token');
     expect(message.workspaceDbKey).toBeTruthy();
     expect(message.options.checkoutPolicyConfig.familySuffixes.task).toBe('checkout_required');
   });
@@ -428,59 +433,76 @@ describe('SSE group-changed', () => {
 // ---------------------------------------------------------------------------
 
 describe('SSE URL construction', () => {
-  it('builds correct URL with token and no last_event_id', () => {
-    const ownerNpub = 'npub1owner123';
-    const backendUrl = 'https://tower.example.com';
-    const token = 'base64token==';
-
-    const sseUrl = new URL(`/api/v4/workspaces/${ownerNpub}/stream`, backendUrl);
-    sseUrl.searchParams.set('token', token);
-
-    expect(sseUrl.pathname).toBe(`/api/v4/workspaces/${ownerNpub}/stream`);
-    expect(sseUrl.searchParams.get('token')).toBe(token);
-    expect(sseUrl.searchParams.has('last_event_id')).toBe(false);
+  it('builds the initial legacy semantic URL without transport auth', () => {
+    const signingUrl = buildSSESigningUrl({
+      ownerNpub: 'npub1owner123',
+      backendUrl: 'https://tower.example.com',
+    });
+    expect(signingUrl).toBe('https://tower.example.com/api/v4/workspaces/npub1owner123/stream');
+    expect(new URL(signingUrl).searchParams.has('token')).toBe(false);
   });
 
-  it('includes last_event_id when available', () => {
-    const ownerNpub = 'npub1owner123';
-    const backendUrl = 'https://tower.example.com';
-    const token = 'base64token==';
-    const lastEventId = 42;
-
-    const sseUrl = new URL(`/api/v4/workspaces/${ownerNpub}/stream`, backendUrl);
-    sseUrl.searchParams.set('token', token);
-    if (lastEventId != null) {
-      sseUrl.searchParams.set('last_event_id', String(lastEventId));
-    }
-
-    expect(sseUrl.searchParams.get('last_event_id')).toBe('42');
+  it('includes and encodes the newest legacy last_event_id before signing', () => {
+    const signingUrl = buildSSESigningUrl({
+      ownerNpub: 'npub1owner123', backendUrl: 'https://tower.example.com', lastEventId: 'event 42/next',
+    });
+    expect(signingUrl).toBe('https://tower.example.com/api/v4/workspaces/npub1owner123/stream?last_event_id=event+42%2Fnext');
   });
 
-  it('builds the Flight Deck PG event stream URL when PG mode is active', () => {
-    const workspaceId = 'workspace-1';
-    const backendUrl = 'https://tower.example.com';
-    const token = 'base64token==';
-
-    const sseUrl = new URL(`/api/v4/flightdeck-pg/workspaces/${workspaceId}/events/stream`, backendUrl);
-    sseUrl.searchParams.set('token', token);
-
-    expect(sseUrl.pathname).toBe(`/api/v4/flightdeck-pg/workspaces/${workspaceId}/events/stream`);
-    expect(sseUrl.searchParams.get('token')).toBe(token);
+  it('builds the initial and resumed PG semantic URLs with cursor rather than last_event_id', () => {
+    const initial = buildSSESigningUrl({
+      pgMode: true, workspaceId: 'workspace-1', backendUrl: 'https://tower.example.com',
+    });
+    const resumed = buildSSESigningUrl({
+      pgMode: true, workspaceId: 'workspace-1', backendUrl: 'https://tower.example.com',
+      cursor: 'opaque cursor/42', lastEventId: 'ignored',
+    });
+    expect(initial).toBe('https://tower.example.com/api/v4/flightdeck-pg/workspaces/workspace-1/events/stream');
+    expect(resumed).toBe('https://tower.example.com/api/v4/flightdeck-pg/workspaces/workspace-1/events/stream?cursor=opaque+cursor%2F42');
+    expect(new URL(resumed).searchParams.has('last_event_id')).toBe(false);
   });
 
-  it('uses cursor rather than last_event_id for Flight Deck PG event streams', () => {
-    const workspaceId = 'workspace-1';
-    const backendUrl = 'https://tower.example.com';
-    const token = 'base64token==';
-    const pgCursor = 'eyJ2ZXJzaW9uIjoxLCJyb3dWZXJzaW9uIjo0Mn0';
+  it('appends only transport token after signing', () => {
+    const signingUrl = 'https://tower.example.com/api/v4/workspaces/npub1owner/stream?last_event_id=42';
+    const finalUrl = appendSSETransportToken(signingUrl, 'base64 token==');
+    expect(finalUrl).toBe(`${signingUrl}&token=base64+token%3D%3D`);
+  });
 
-    const sseUrl = new URL(`/api/v4/flightdeck-pg/workspaces/${workspaceId}/events/stream`, backendUrl);
-    sseUrl.searchParams.set('token', token);
-    if (pgCursor != null) {
-      sseUrl.searchParams.set('cursor', String(pgCursor));
-    }
+  it('rejects origins, paths, extra parameters and pre-existing tokens', () => {
+    const context = { backendUrl: 'https://tower.example.com', ownerNpub: 'npub1owner' };
+    expect(validateSSESigningUrl('https://tower.example.com/api/v4/workspaces/npub1owner/stream?last_event_id=42', context)).toBe(true);
+    expect(validateSSESigningUrl('https://evil.example/api/v4/workspaces/npub1owner/stream', context)).toBe(false);
+    expect(validateSSESigningUrl('https://tower.example.com/api/v4/workspaces/npub1other/stream', context)).toBe(false);
+    expect(validateSSESigningUrl('https://tower.example.com/api/v4/workspaces/npub1owner/stream?extra=1', context)).toBe(false);
+    expect(validateSSESigningUrl('https://tower.example.com/api/v4/workspaces/npub1owner/stream?token=secret', context)).toBe(false);
+  });
+});
 
-    expect(sseUrl.searchParams.get('cursor')).toBe(pgCursor);
-    expect(sseUrl.searchParams.has('last_event_id')).toBe(false);
+describe('SSE token request lifecycle', () => {
+  it('discards stale and duplicate token responses after a newer cursor request', () => {
+    const tracker = createSSETokenRequestTracker();
+    const first = tracker.request('connection-1', buildSSESigningUrl({
+      backendUrl: 'https://tower.example.com', ownerNpub: 'npub1owner', lastEventId: '41',
+    }));
+    const second = tracker.request('connection-1', buildSSESigningUrl({
+      backendUrl: 'https://tower.example.com', ownerNpub: 'npub1owner', lastEventId: '42',
+    }));
+
+    expect(tracker.accept({ ...first, token: 'stale' })).toBeNull();
+    const accepted = tracker.accept({ ...second, token: 'current' });
+    expect(accepted.signingUrl).toContain('last_event_id=42');
+    expect(accepted.eventSourceUrl).toContain('last_event_id=42&token=current');
+    expect(tracker.accept({ ...second, token: 'duplicate' })).toBeNull();
+  });
+
+  it('discards a response after a workspace/context switch or disconnect', () => {
+    const tracker = createSSETokenRequestTracker();
+    const old = tracker.request('workspace-1', 'https://tower.example.com/api/v4/workspaces/owner-1/stream');
+    tracker.request('workspace-2', 'https://tower.example.com/api/v4/workspaces/owner-2/stream');
+    expect(tracker.accept({ ...old, token: 'stale' })).toBeNull();
+
+    const disconnected = tracker.request('workspace-2', 'https://tower.example.com/api/v4/workspaces/owner-2/stream');
+    tracker.clear();
+    expect(tracker.accept({ ...disconnected, token: 'stale' })).toBeNull();
   });
 });

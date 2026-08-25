@@ -105,6 +105,25 @@ describe('Tower PG API helpers', () => {
     );
   });
 
+  it('signs and fetches the identical final URL with encoding and repeated parameters', async () => {
+    const api = await import('../src/api.js');
+    api.setBaseUrl('https://tower.example');
+    const finalUrl = 'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/scopes?search=two%20words&tag=one&tag=two&limit=25';
+
+    await api.getTowerPgWorkspaceScopes('workspace-1', {
+      appNpub: 'flightdeck_pg',
+      path: '/api/v4/flightdeck-pg/workspaces/workspace-1/scopes?search=two%20words&tag=one&tag=two',
+      limit: 25,
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      finalUrl,
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: `NIP98 GET ${finalUrl}` }),
+      }),
+    );
+  });
+
   it('aborts a stalled workspace sync request at the caller timeout', async () => {
     const api = await import('../src/api.js');
     api.setBaseUrl('https://tower.example');

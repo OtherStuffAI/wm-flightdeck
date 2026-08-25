@@ -47,10 +47,12 @@ import {
   startWorkerFlushTimer,
   stopWorkerFlushTimer,
   connectSSE,
+  provideSSEToken,
   disconnectSSE,
   setSSEStatusCallback,
 } from './sync-worker-client.js';
 import { createNip98AuthHeader, createNip98AuthHeaderForSecret } from './auth/nostr.js';
+import { validateSSESigningUrl } from './sse-stream-protocol.js';
 import { getActiveWorkspaceKeySecretForAuth } from './crypto/workspace-keys.js';
 import { flightDeckLog, flightDeckTrace } from './logging.js';
 import { SYNC_FAMILY_OPTIONS, getSyncFamily, getSyncFamilyHashes } from './sync-families.js';
@@ -2405,42 +2407,7 @@ export const syncManagerMixin = {
       return false;
     }
 
-    const connectAttemptId = (this.sseConnectAttemptId || 0) + 1;
-    this.sseConnectAttemptId = connectAttemptId;
     this.sseConnectInFlightKey = connectionKey;
-
-    // Mint a NIP-98 auth token for the stream URL (Tower verifies NIP-98, not the bootstrap connection token)
-    const streamUrl = this.isEncryptedRecordSyncDisabled
-      ? `${context.backendUrl}/api/v4/flightdeck-pg/workspaces/${context.workspaceId}/events/stream`
-      : `${context.backendUrl}/api/v4/workspaces/${context.ownerNpub}/stream`;
-    let authHeader;
-    try {
-      const workspaceSecret = getActiveWorkspaceKeySecretForAuth();
-      authHeader = workspaceSecret
-        ? await createNip98AuthHeaderForSecret(streamUrl, 'GET', null, workspaceSecret)
-        : await createNip98AuthHeader(streamUrl, 'GET', null);
-    } catch (err) {
-      if (this.sseConnectAttemptId === connectAttemptId) {
-        this.sseConnectInFlightKey = null;
-      }
-      flightDeckLog('error', 'sse', 'SSE auth failed — cannot mint NIP-98 token', {
-        connectionKey,
-        reason,
-        error: err?.message || String(err),
-      });
-      return false;
-    }
-
-    if (this.sseConnectAttemptId !== connectAttemptId) return false;
-
-    const latestConnectionKey = this.buildSSEConnectionKey();
-    if (latestConnectionKey !== connectionKey) {
-      if (this.sseConnectInFlightKey === connectionKey) this.sseConnectInFlightKey = null;
-      return false;
-    }
-
-    // Extract the base64 token from "Nostr <base64>"
-    const nip98Token = authHeader.replace(/^Nostr\s+/i, '');
 
     setSSEStatusCallback((message) => this.handleSSEStatus(message));
     this.sseConnectionKey = connectionKey;
@@ -2448,7 +2415,6 @@ export const syncManagerMixin = {
       context.ownerNpub,
       context.viewerNpub,
       context.backendUrl,
-      nip98Token,
       context.workspaceDbKey,
       {
         force,
@@ -2461,10 +2427,63 @@ export const syncManagerMixin = {
     return true;
   },
 
+  async answerSSETokenRequest(message) {
+    const requestId = String(message?.requestId || '').trim();
+    const signingUrl = String(message?.signingUrl || '').trim();
+    const connectionKey = String(message?.connectionKey || '').trim();
+    const context = this.getSSEConnectionContext();
+    if (!requestId || !signingUrl || !connectionKey || !context) return false;
+    if (connectionKey !== this.sseConnectionKey || connectionKey !== this.buildSSEConnectionKey(context)) return false;
+    if (!validateSSESigningUrl(signingUrl, {
+      backendUrl: context.backendUrl,
+      pgMode: this.isEncryptedRecordSyncDisabled,
+      workspaceId: context.workspaceId,
+      ownerNpub: context.ownerNpub,
+    })) {
+      flightDeckLog('error', 'sse', 'SSE signing target rejected', {
+        connectionKey,
+        reason: 'unexpected-stream-target',
+      });
+      return false;
+    }
+
+    this.sseTokenRequestId = requestId;
+    const workspaceSecret = getActiveWorkspaceKeySecretForAuth();
+    let authHeader;
+    try {
+      authHeader = workspaceSecret
+        ? await createNip98AuthHeaderForSecret(signingUrl, 'GET', null, workspaceSecret)
+        : await createNip98AuthHeader(signingUrl, 'GET', null);
+    } catch (err) {
+      if (this.sseTokenRequestId === requestId) this.sseTokenRequestId = null;
+      flightDeckLog('error', 'sse', 'SSE auth failed — cannot mint NIP-98 token', {
+        connectionKey,
+        reason: message?.reason || 'token-needed',
+        error: err?.name || 'Error',
+        errorCode: err?.code || null,
+      });
+      return false;
+    }
+
+    const latestContext = this.getSSEConnectionContext();
+    const latestWorkspaceSecret = getActiveWorkspaceKeySecretForAuth();
+    if (
+      this.sseTokenRequestId !== requestId
+      || connectionKey !== this.sseConnectionKey
+      || connectionKey !== this.buildSSEConnectionKey(latestContext)
+      || latestWorkspaceSecret !== workspaceSecret
+    ) {
+      return false;
+    }
+    this.sseTokenRequestId = null;
+    provideSSEToken(requestId, connectionKey, authHeader.replace(/^Nostr\s+/i, ''));
+    return true;
+  },
+
   disconnectSSEStream(reason = 'client-disconnect') {
-    this.sseConnectAttemptId = (this.sseConnectAttemptId || 0) + 1;
     this.sseConnectInFlightKey = null;
     this.sseConnectionKey = null;
+    this.sseTokenRequestId = null;
     disconnectSSE({ reason });
     this.sseStatus = 'disconnected';
   },
@@ -2515,8 +2534,7 @@ export const syncManagerMixin = {
     }
 
     if (status === 'token-needed') {
-      this.connectSSEStream({ force: true, reason: message?.reason || 'token-needed' });
-      return;
+      return this.answerSSETokenRequest(message);
     }
 
     if (status === 'connected') {

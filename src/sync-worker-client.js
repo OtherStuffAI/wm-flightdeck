@@ -9,6 +9,7 @@ const AUTH_REQUEST_TYPE = 'sync-worker:auth-request';
 const AUTH_RESPONSE_TYPE = 'sync-worker:auth-response';
 const BOOTSTRAP_KEYS_TYPE = 'sync-worker:bootstrap-keys';
 const SSE_STATUS_TYPE = 'sync-worker:sse-status';
+const SSE_TOKEN_TYPE = 'sync-worker:sse-token';
 
 const MAX_RECOVERY_ATTEMPTS = 2;
 const RECOVERY_DELAY_MS = 500;
@@ -340,7 +341,7 @@ export function setWorkerDegradedCallback(callback) {
   _workerDegradedCallback = callback;
 }
 
-export function connectSSE(ownerNpub, viewerNpub, backendUrl, token, workspaceDbKey, options = {}) {
+export function connectSSE(ownerNpub, viewerNpub, backendUrl, workspaceDbKey, options = {}) {
   const worker = ensureWorkerInstance();
   if (!worker) return;
   syncKeysToWorker(worker);
@@ -350,9 +351,20 @@ export function connectSSE(ownerNpub, viewerNpub, backendUrl, token, workspaceDb
       ownerNpub,
       viewerNpub,
       backendUrl,
-      token,
       workspaceDbKey,
       options,
+    });
+  } catch { /* ignore */ }
+}
+
+export function provideSSEToken(requestId, connectionKey, token) {
+  if (!workerInstance) return;
+  try {
+    workerInstance.postMessage({
+      type: SSE_TOKEN_TYPE,
+      requestId,
+      connectionKey,
+      token,
     });
   } catch { /* ignore */ }
 }

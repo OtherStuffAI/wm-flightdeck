@@ -818,6 +818,13 @@
       "notes": [
         "Reach Setup from the labelled horizontal section picker whenever the left column is open, including laptop and desktop layouts."
       ]
+    },
+    {
+      "buildNumber": 1820,
+      "label": "Reliable live-update authentication",
+      "notes": [
+        "Keep live workspace updates connected when Tower verifies the complete stream URL, including the latest reconnect cursor."
+      ]
     }
   ]
 }

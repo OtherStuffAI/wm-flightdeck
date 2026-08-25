@@ -19,6 +19,7 @@ import {
   runSync,
   startWorkerFlushTimer,
   connectSSE,
+  provideSSEToken,
 } from '../src/sync-worker-client.js';
 import { syncManagerMixin } from '../src/sync-manager.js';
 import { getSyncFamilyHash } from '../src/sync-families.js';
@@ -96,6 +97,7 @@ vi.mock('../src/sync-worker-client.js', () => ({
   startWorkerFlushTimer: vi.fn(),
   stopWorkerFlushTimer: vi.fn(),
   connectSSE: vi.fn(),
+  provideSSEToken: vi.fn(),
   disconnectSSE: vi.fn(),
   setSSEStatusCallback: vi.fn(),
   flushNow: vi.fn(),
@@ -2187,14 +2189,10 @@ describe('PG mode encrypted record sync startup guard', () => {
 
     expect(result).toBe(true);
     expect(connectSSE).toHaveBeenCalledTimes(1);
-    const options = connectSSE.mock.calls[0][5];
+    const options = connectSSE.mock.calls[0][4];
     expect(options.pgMode).toBe(true);
     expect(options.workspaceId).toBe('workspace-1');
-    expect(createNip98AuthHeader).toHaveBeenCalledWith(
-      'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/events/stream',
-      'GET',
-      null,
-    );
+    expect(createNip98AuthHeader).not.toHaveBeenCalled();
   });
 });
 
@@ -3132,10 +3130,10 @@ describe('syncNow', () => {
 });
 
 // ---------------------------------------------------------------------------
-// SSE token regression — must use NIP-98, never bootstrap connection token
+// SSE token regression — the worker supplies the complete semantic URL to sign
 // ---------------------------------------------------------------------------
-describe('connectSSEStream — NIP-98 auth token', () => {
-  it('passes a NIP-98 token to the worker, not the connection token', async () => {
+describe('SSE complete-URL NIP-98 handshake', () => {
+  it('starts the worker connection context without passing the bootstrap token', async () => {
     const { fn, store } = bindMethod('connectSSEStream', {
       session: { npub: 'npub1viewer' },
       backendUrl: 'https://tower.example',
@@ -3146,50 +3144,61 @@ describe('connectSSEStream — NIP-98 auth token', () => {
     await fn();
 
     expect(connectSSE).toHaveBeenCalledTimes(1);
-    const [ownerNpub, viewerNpub, backendUrl, token] = connectSSE.mock.calls[0];
-
-    // The token must be the base64 NIP-98 event, NOT the bootstrap token
-    expect(token).not.toBe('CONNECTION_BOOTSTRAP_TOKEN_SHOULD_NOT_APPEAR');
-    expect(token).not.toContain('superbased_connection');
-    // It should be a base64 string extracted from "Nostr <base64>"
-    expect(token).toMatch(/^[A-Za-z0-9+/=]+$/);
-  });
-
-  it('uses workspace key auth when available', async () => {
-    getActiveWorkspaceKeySecretForAuth.mockReturnValue('deadbeef');
-
-    const { fn } = bindMethod('connectSSEStream', {
-      session: { npub: 'npub1viewer' },
-      backendUrl: 'https://tower.example',
-      workspaceOwnerNpub: 'npub1owner',
-    });
-
-    await fn();
-
-    expect(createNip98AuthHeaderForSecret).toHaveBeenCalledWith(
-      'https://tower.example/api/v4/workspaces/npub1owner/stream',
-      'GET',
-      null,
-      'deadbeef',
-    );
+    const [ownerNpub, viewerNpub, backendUrl, workspaceDbKey, options] = connectSSE.mock.calls[0];
+    expect([ownerNpub, viewerNpub, backendUrl, workspaceDbKey]).toEqual([
+      'npub1owner', 'npub1viewer', 'https://tower.example', 'npub1owner',
+    ]);
+    expect(options).not.toHaveProperty('token');
+    expect(JSON.stringify(connectSSE.mock.calls)).not.toContain('CONNECTION_BOOTSTRAP_TOKEN_SHOULD_NOT_APPEAR');
     expect(createNip98AuthHeader).not.toHaveBeenCalled();
   });
 
-  it('falls back to session auth when no workspace key', async () => {
-    getActiveWorkspaceKeySecretForAuth.mockReturnValue(null);
+  it('uses workspace key auth for the exact worker signing URL when available', async () => {
+    getActiveWorkspaceKeySecretForAuth.mockReturnValue('deadbeef');
 
-    const { fn } = bindMethod('connectSSEStream', {
+    const store = createStore({
       session: { npub: 'npub1viewer' },
       backendUrl: 'https://tower.example',
       workspaceOwnerNpub: 'npub1owner',
     });
+    store.sseConnectionKey = store.buildSSEConnectionKey();
+    const signingUrl = 'https://tower.example/api/v4/workspaces/npub1owner/stream?last_event_id=encoded+cursor%2F9';
 
-    await fn();
+    await store.answerSSETokenRequest({
+      requestId: 'sse-token-workspace',
+      connectionKey: store.sseConnectionKey,
+      signingUrl,
+    });
 
-    expect(createNip98AuthHeader).toHaveBeenCalledWith(
-      'https://tower.example/api/v4/workspaces/npub1owner/stream',
-      'GET',
-      null,
+    expect(createNip98AuthHeaderForSecret).toHaveBeenCalledWith(
+      signingUrl, 'GET', null, 'deadbeef',
+    );
+    expect(createNip98AuthHeader).not.toHaveBeenCalled();
+    expect(provideSSEToken).toHaveBeenCalledWith(
+      'sse-token-workspace', store.sseConnectionKey, 'eyJzZWNyZXQiOnRydWV9',
+    );
+  });
+
+  it('falls back to session auth for the exact worker signing URL when no workspace key exists', async () => {
+    getActiveWorkspaceKeySecretForAuth.mockReturnValue(null);
+
+    const store = createStore({
+      session: { npub: 'npub1viewer' },
+      backendUrl: 'https://tower.example',
+      workspaceOwnerNpub: 'npub1owner',
+    });
+    store.sseConnectionKey = store.buildSSEConnectionKey();
+    const signingUrl = 'https://tower.example/api/v4/workspaces/npub1owner/stream?last_event_id=19';
+
+    await store.answerSSETokenRequest({
+      requestId: 'sse-token-session',
+      connectionKey: store.sseConnectionKey,
+      signingUrl,
+    });
+
+    expect(createNip98AuthHeader).toHaveBeenCalledWith(signingUrl, 'GET', null);
+    expect(provideSSEToken).toHaveBeenCalledWith(
+      'sse-token-session', store.sseConnectionKey, 'eyJraW5kIjoyNzIzNX0=',
     );
   });
 
@@ -3207,19 +3216,24 @@ describe('connectSSEStream — NIP-98 auth token', () => {
     expect(connectSSE).not.toHaveBeenCalled();
   });
 
-  it('does not call connectSSE when NIP-98 signing fails', async () => {
+  it('does not return a token when NIP-98 signing fails', async () => {
     createNip98AuthHeader.mockRejectedValueOnce(new Error('no signer'));
     getActiveWorkspaceKeySecretForAuth.mockReturnValue(null);
 
-    const { fn } = bindMethod('connectSSEStream', {
+    const store = createStore({
       session: { npub: 'npub1viewer' },
       backendUrl: 'https://tower.example',
       workspaceOwnerNpub: 'npub1owner',
     });
+    store.sseConnectionKey = store.buildSSEConnectionKey();
 
-    await fn();
+    await store.answerSSETokenRequest({
+      requestId: 'sse-token-failed',
+      connectionKey: store.sseConnectionKey,
+      signingUrl: 'https://tower.example/api/v4/workspaces/npub1owner/stream',
+    });
 
-    expect(connectSSE).not.toHaveBeenCalled();
+    expect(provideSSEToken).not.toHaveBeenCalled();
   });
 
   it('does not call connectSSE when missing session or backendUrl', async () => {
