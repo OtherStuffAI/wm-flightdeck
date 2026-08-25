@@ -87,6 +87,7 @@ import {
   getDocumentById,
   getPendingWrites,
   openWorkspaceDb,
+  upsertDocument,
 } from '../src/db.js';
 import { isCheckoutHeld } from '../src/lock-managed-records.js';
 import {
@@ -94,12 +95,16 @@ import {
   DOCUMENT_CONTENT_STORAGE_MIME,
 } from '../src/translators/docs.js';
 import { FLIGHTDECK_PROSEMIRROR_CONTENT_FORMAT } from '../src/docs/editor/prosemirror-flightdeck-schema.js';
+import { createDocumentEditorState } from '../src/docs/editor/document-editor-store.js';
+import { prosemirrorToFlightDeckContentModel } from '../src/docs/editor/prosemirror-to-flightdeck.js';
 import {
   cacheGroupKey,
   clearCryptoContext,
   createGroupIdentity,
 } from '../src/crypto/group-keys.js';
 import { recordFamilyHash } from '../src/translators/chat.js';
+import { prepareTowerWorkspaceCommand } from '../src/tower-command-port.js';
+import { TowerSyncService } from '../src/tower-sync-service.js';
 
 function createStore(overrides = {}) {
   const store = {
@@ -1711,9 +1716,275 @@ describe('docsManagerMixin rich editor mount safety', () => {
   });
 });
 
+function richDocContentModel(text) {
+  return prosemirrorToFlightDeckContentModel({
+    type: 'doc',
+    content: [{
+      type: 'paragraph',
+      attrs: { fdBlockId: 'block-1' },
+      content: text ? [{ type: 'text', text }] : [],
+    }],
+  });
+}
+
+function createSyncedPgDocSaveStore({ version = 43, content = 'Original body', currentModel } = {}) {
+  const record = {
+    record_id: 'doc-save-race',
+    owner_npub: 'npub1pgworkspace',
+    title: 'Race document',
+    content,
+    content_blocks: richDocContentModel(content).content_blocks,
+    scope_id: 'scope-1',
+    scope_l1_id: 'scope-1',
+    pg_backend: true,
+    pg_record_type: 'doc',
+    pg_channel_id: 'channel-1',
+    sync_status: 'synced',
+    record_state: 'active',
+    version,
+  };
+  const modelRef = { current: currentModel || richDocContentModel(content) };
+  const adapter = {
+    getContentModel: vi.fn(() => modelRef.current),
+    setContent: vi.fn(),
+    setEditable: vi.fn(),
+  };
+  const store = createStore({
+    workspaceOwnerNpub: 'npub1signedinactor',
+    backendUrl: 'https://tower.example',
+    currentWorkspace: {
+      workspaceId: 'workspace-1',
+      workspaceOwnerNpub: 'npub1pgworkspace',
+      directHttpsUrl: 'https://tower.example',
+      appNpub: 'flightdeck_pg',
+    },
+    documents: [record],
+    selectedDocType: 'document',
+    selectedDocId: record.record_id,
+    docEditorTitle: record.title,
+    docEditorMode: 'rich',
+    docRichEditorAdapter: adapter,
+    docEditAccessState: 'editing',
+    docEditDraftDirty: true,
+    docEditBaseRecordId: record.record_id,
+    docEditBaseRowVersion: version,
+    pgEditLeaseSessions: {
+      [`document:${record.record_id}`]: { lease: { lease_token: 'lease-token' } },
+    },
+    prepareDocumentContentForEnvelope: vi.fn(async (_record, model) => ({
+      content: model.content,
+      content_storage_object_id: `storage-${model.content.length}`,
+      content_storage_format: DOCUMENT_CONTENT_STORAGE_FORMAT,
+      content_storage_content_type: DOCUMENT_CONTENT_STORAGE_MIME,
+      content_size_bytes: model.content.length,
+      content_sha256_hex: 'a'.repeat(64),
+    })),
+  });
+  return { adapter, modelRef, record, store };
+}
+
+function acceptedPgDoc(version, body, title = 'Race document') {
+  return {
+    doc: {
+      id: 'doc-save-race',
+      workspace_id: 'workspace-1',
+      scope_id: 'scope-1',
+      channel_id: 'channel-1',
+      storage_object_id: `storage-${body.length}`,
+      title,
+      summary: body,
+      row_version: version,
+      updated_at: `2026-08-25T12:45:${String(version).padStart(2, '0')}.000Z`,
+    },
+  };
+}
+
 describe('docsManagerMixin canonical row normalization', () => {
+  beforeEach(() => {
+    updateTowerPgDocMock.mockReset();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('deduplicates an immediate unchanged autosave after Tower accepts N+1', async () => {
+    const wsDb = openWorkspaceDb('npub1signedinactor');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    updateTowerPgDocMock.mockReset();
+    let resolvePatch;
+    updateTowerPgDocMock.mockReturnValueOnce(new Promise((resolve) => { resolvePatch = resolve; }));
+    const firstModel = richDocContentModel('One deliberate edit');
+    const { store } = createSyncedPgDocSaveStore({ currentModel: firstModel });
+
+    const firstSave = store.saveSelectedDocItem({ autosave: false });
+    await vi.waitFor(() => expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1));
+    const immediateAutosave = store.saveSelectedDocItem({ autosave: true });
+    resolvePatch(acceptedPgDoc(44, firstModel.content));
+
+    await expect(Promise.all([firstSave, immediateAutosave])).resolves.toEqual([
+      expect.objectContaining({ version: 44 }),
+      expect.objectContaining({ version: 44 }),
+    ]);
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
+    expect(store.prepareDocumentContentForEnvelope).toHaveBeenCalledTimes(1);
+    expect(store.docEditBaseRowVersion).toBe(44);
+    expect(store.docEditDraftDirty).toBe(false);
+    expect(store.docEditAccessState).not.toBe('conflict');
+  });
+
+  it('advances the edit base before the production command reconciliation publishes N+1', async () => {
+    const wsDb = openWorkspaceDb('npub1signedinactor');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const savedModel = richDocContentModel('Production command edit');
+    updateTowerPgDocMock.mockResolvedValueOnce(acceptedPgDoc(44, savedModel.content));
+    const { record, store } = createSyncedPgDocSaveStore({ currentModel: savedModel });
+    await upsertDocument(record);
+
+    const service = new TowerSyncService({
+      workspaceKey: 'workspace-1',
+      ports: {
+        prepareCommand(name, input) {
+          const descriptor = prepareTowerWorkspaceCommand(store, name, input);
+          const reconcile = descriptor.reconcile;
+          return {
+            ...descriptor,
+            async reconcile(acknowledgement) {
+              const result = await reconcile(acknowledgement);
+              store.documents = [await getDocumentById(record.record_id)];
+              store.observeSelectedDocAuthoritativeVersion();
+              return result;
+            },
+          };
+        },
+      },
+    });
+    store.commandTowerWorkspace = (name, input, options) => service.command(name, input, options);
+
+    await expect(store.saveSelectedDocItem({ autosave: false })).resolves.toMatchObject({ version: 44 });
+
+    expect(store.docEditBaseRowVersion).toBe(44);
+    expect(store.docEditAccessState).toBe('editing');
+    expect(store.docEditConflict).toBeNull();
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an accepted N+1 row and edit base when older hydration reaches Dexie later', async () => {
+    const wsDb = openWorkspaceDb('npub1signedinactor');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    updateTowerPgDocMock.mockReset();
+    const savedModel = richDocContentModel('Accepted body');
+    updateTowerPgDocMock.mockResolvedValueOnce(acceptedPgDoc(44, savedModel.content));
+    const { record, store } = createSyncedPgDocSaveStore({ currentModel: savedModel });
+
+    await store.saveSelectedDocItem({ autosave: false });
+    await upsertDocument({ ...record, title: 'Stale hydration', content: 'Old body', version: 43 });
+
+    expect(await getDocumentById(record.record_id)).toMatchObject({
+      title: 'Race document',
+      content: savedModel.content,
+      version: 44,
+    });
+    expect(store.selectedDocument).toMatchObject({ content: savedModel.content, version: 44 });
+    expect(store.docEditBaseRowVersion).toBe(44);
+    expect(store.observeSelectedDocAuthoritativeVersion()).toBe(false);
+  });
+
+  it('serializes edits entered during a PATCH and saves the follow-up once against N+1', async () => {
+    const wsDb = openWorkspaceDb('npub1signedinactor');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    updateTowerPgDocMock.mockReset();
+    let resolveFirstPatch;
+    const firstModel = richDocContentModel('First edit');
+    const secondModel = richDocContentModel('Second edit entered while saving');
+    updateTowerPgDocMock
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirstPatch = resolve; }))
+      .mockResolvedValueOnce(acceptedPgDoc(45, secondModel.content));
+    const { modelRef, store } = createSyncedPgDocSaveStore({ currentModel: firstModel });
+
+    const firstSave = store.saveSelectedDocItem({ autosave: true });
+    await vi.waitFor(() => expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1));
+    modelRef.current = secondModel;
+    store.docEditDraftDirty = true;
+    const queuedSave = store.saveSelectedDocItem({ autosave: true });
+    resolveFirstPatch(acceptedPgDoc(44, firstModel.content));
+
+    await expect(Promise.all([firstSave, queuedSave])).resolves.toEqual([
+      expect.objectContaining({ version: 44 }),
+      expect.objectContaining({ version: 45 }),
+    ]);
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(2);
+    expect(updateTowerPgDocMock.mock.calls.map((call) => call[2].row_version)).toEqual([43, 44]);
+    expect(updateTowerPgDocMock.mock.calls[1][2].summary).toBe(secondModel.content);
+    expect(store.selectedDocument).toMatchObject({ content: secondModel.content, version: 45 });
+    expect(store.docEditBaseRowVersion).toBe(45);
+    expect(store.docEditDraftDirty).toBe(false);
+  });
+
+  it('reconciles a successful canonical response without emitting an editor update or duplicating content', async () => {
+    const wsDb = openWorkspaceDb('npub1signedinactor');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    updateTowerPgDocMock.mockReset();
+    const model = richDocContentModel('Stable accepted content');
+    updateTowerPgDocMock.mockResolvedValueOnce(acceptedPgDoc(44, model.content));
+    const { adapter, store } = createSyncedPgDocSaveStore({ currentModel: model });
+
+    await store.saveSelectedDocItem({ autosave: false });
+
+    expect(adapter.setContent).not.toHaveBeenCalled();
+    expect(adapter.getContentModel()).toEqual(model);
+    expect(store.selectedDocument.content).toBe(model.content);
+    expect(store.docEditorContent).toBe(model.content);
+    expect(store.docEditDraftDirty).toBe(false);
+    expect(store.observeSelectedDocAuthoritativeVersion()).toBe(false);
+  });
+
+  it('still enters safe conflict when a genuinely newer external row arrives over a dirty draft', () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const { adapter, record, store } = createSyncedPgDocSaveStore();
+    store.documents = [{ ...record, version: 44, content: 'Other client body' }];
+
+    expect(store.observeSelectedDocAuthoritativeVersion()).toBe(true);
+    expect(store.docEditConflict).toEqual({ baseVersion: 43, currentVersion: 44 });
+    expect(store.docEditDraftDirty).toBe(true);
+    expect(store.docEditAccessState).toBe('conflict');
+    expect(adapter.setEditable).toHaveBeenLastCalledWith(false);
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps a long rich document serializable and stable across storage and reopen', () => {
+    const editorState = {
+      type: 'doc',
+      content: Array.from({ length: 500 }, (_, index) => ({
+        type: index % 11 === 0 ? 'heading' : 'paragraph',
+        attrs: index % 11 === 0
+          ? { level: 2, fdBlockId: `long-block-${index}` }
+          : { fdBlockId: `long-block-${index}` },
+        content: [{ type: 'text', text: `Spiral interview note ${index}: durable rich content with punctuation — and context.` }],
+      })),
+    };
+    const original = prosemirrorToFlightDeckContentModel(editorState);
+    const stored = JSON.parse(JSON.stringify({
+      record_id: 'doc-long-rich',
+      title: 'Spiral AI Grant — Wingman Interview Notes and Proposal Draft',
+      ...original,
+    }));
+    const reopened = createDocumentEditorState(stored).contentModel;
+
+    expect(original.content.length).toBeGreaterThan(25_000);
+    expect(reopened.content).toBe(original.content);
+    expect(reopened.editor_state).toEqual(editorState);
+    expect(reopened.content_blocks).toEqual(original.content_blocks);
   });
 
   it('uploads document content for envelope storage', async () => {

@@ -137,6 +137,21 @@ function hasProseMirrorContentModel(contentModel = {}) {
     && contentModel?.editor_state?.type === 'doc';
 }
 
+const PG_DOCUMENT_ACCEPTED_CONTENT_FIELDS = [
+  'content',
+  'content_format',
+  'content_blocks',
+  'editor_state',
+  'editor_state_format',
+  'editor_state_version',
+  'content_storage_object_id',
+  'content_storage_format',
+  'content_storage_content_type',
+  'content_size_bytes',
+  'content_sha256_hex',
+  'references',
+];
+
 export function mergeDocumentSaveReferences(record = {}, parsedReferences = []) {
   const links = buildRecordLinkPayload(record || {});
   const highSignalKeys = new Set([
@@ -1269,6 +1284,43 @@ export const docsManagerMixin = {
       return true;
     }
     return false;
+  },
+
+  acceptSelectedPgDocSaveCanonical(accepted, submittedDocument = null) {
+    if (!accepted?.record_id) return accepted;
+    const canonical = PG_DOCUMENT_ACCEPTED_CONTENT_FIELDS.reduce((row, field) => {
+      if (submittedDocument && Object.prototype.hasOwnProperty.call(submittedDocument, field)) {
+        row[field] = submittedDocument[field];
+      }
+      return row;
+    }, { ...accepted });
+    canonical.sync_status = 'synced';
+    canonical.content_storage_status = canonical.content_storage_object_id ? 'remote' : null;
+    canonical.content_storage_error = null;
+
+    const acceptedVersion = Number(canonical.version || canonical.row_version || 0);
+    const selected = this.selectedDocument;
+    const isSelectedSave = String(this.selectedDocId || '') === String(canonical.record_id)
+      && String(this.docEditBaseRecordId || '') === String(canonical.record_id);
+    const selectedVersion = Number(selected?.version || selected?.row_version || 0);
+
+    // This hook runs synchronously after PATCH resolves and before the workspace
+    // command reconciles its acknowledgement into Dexie. Advance the editor base
+    // first so Alpine cannot classify our own N+1 acknowledgement as external.
+    if (isSelectedSave && selectedVersion <= acceptedVersion) {
+      const submittedTitle = submittedDocument?.title || canonical.title || 'Untitled document';
+      const submittedContent = submittedDocument?.content || canonical.content || '';
+      const currentTitle = this.docEditorTitle.trim() || 'Untitled document';
+      const currentContentModel = this.buildSelectedDocContentModel();
+      const hasFollowupChanges = currentTitle !== submittedTitle
+        || (currentContentModel.content || '') !== submittedContent;
+      this.docEditBaseRowVersion = acceptedVersion;
+      this.docEditConflict = null;
+      this.docEditDraftDirty = hasFollowupChanges;
+    }
+
+    this.patchDocumentLocal?.(canonical);
+    return canonical;
   },
 
   async loadDocComments(docId, options = {}) {
@@ -3409,15 +3461,14 @@ export const docsManagerMixin = {
     if (isTowerPgBackendMode()) {
       const recordId = item.record_id;
       this.pgDocSavePromises = this.pgDocSavePromises || {};
-      const inFlight = this.pgDocSavePromises[recordId];
-      if (inFlight) {
-        await inFlight.catch(() => {});
+      const previousSave = this.pgDocSavePromises[recordId] || null;
+      const savePromise = (async () => {
+        if (previousSave) await previousSave.catch(() => {});
+        if (this.docEditAccessState === 'conflict') return null;
         const latest = this.selectedDocument;
         if (!latest || latest.record_id !== recordId) return null;
-        return this.saveSelectedDocItem(options);
-      }
-
-      const savePromise = this.saveSelectedPgDocItem(item, ownerNpub, options);
+        return this.saveSelectedPgDocItem(latest, this.workspaceOwnerNpub, options);
+      })();
       this.pgDocSavePromises[recordId] = savePromise;
       try {
         return await savePromise;
@@ -3647,30 +3698,10 @@ export const docsManagerMixin = {
         updated_at: new Date().toISOString(),
       };
       const accepted = await updateTowerPgDocFromLocal(this, updated, item);
-      const canonical = {
-        ...accepted,
-        content: contentModel.content,
-        content_format: contentModel.content_format,
-        content_blocks: contentModel.content_blocks,
-        editor_state: contentModel.editor_state ?? null,
-        editor_state_format: contentModel.editor_state_format ?? null,
-        editor_state_version: contentModel.editor_state_version ?? null,
-        content_storage_object_id: contentPayload.content_storage_object_id,
-        content_storage_format: contentPayload.content_storage_format,
-        content_storage_content_type: contentPayload.content_storage_content_type,
-        content_size_bytes: contentPayload.content_size_bytes,
-        content_sha256_hex: contentPayload.content_sha256_hex,
-        content_storage_status: 'remote',
-        content_storage_error: null,
-        references: nextReferences,
-      };
+      const canonical = this.acceptSelectedPgDocSaveCanonical(accepted, updated);
       await upsertDocument(canonical);
-      this.patchDocumentLocal(canonical);
-      this.docAutosaveState = 'saved';
+      this.docAutosaveState = this.docEditDraftDirty ? 'pending' : 'saved';
       this.docEditorSharesDirty = false;
-      this.docEditDraftDirty = false;
-      this.docEditBaseRowVersion = Number(canonical.version || canonical.row_version || item.version || 0);
-      this.docEditConflict = null;
       return canonical;
     } catch (error) {
       if (isPgStaleRowVersionError(error)) {

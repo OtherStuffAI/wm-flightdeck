@@ -846,6 +846,27 @@
       "notes": [
         "Keep Agent Direct thinking and commentary visible through live-update disconnects, reconnect replay, and missed terminal events."
       ]
+    },
+    {
+      "buildNumber": 1826,
+      "label": "Reliable document autosave",
+      "notes": [
+        "Keep TipTap saves on the latest accepted document version so autosave cannot mistake its own successful update for an external conflict."
+      ]
+    },
+    {
+      "buildNumber": 1827,
+      "label": "Efficient live updates",
+      "notes": [
+        "Keep healthy live-update connections on the normal heartbeat cadence instead of repeatedly reloading the workspace after each update."
+      ]
+    },
+    {
+      "buildNumber": 1828,
+      "label": "Correct document self-conflicts",
+      "notes": [
+        "Accept each successful TipTap save as the new local edit base before live updates arrive, preventing a document from conflicting with its own autosave."
+      ]
     }
   ]
 }

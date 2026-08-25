@@ -19,6 +19,13 @@ function documentVersion(document = {}) {
   return Number.isFinite(version) ? version : 0;
 }
 
+export function preferNewerDocumentRow(current = null, incoming = null) {
+  if (!current || !incoming) return incoming;
+  if (String(current.record_id || '') !== String(incoming.record_id || '')) return incoming;
+  if (documentVersion(current) > documentVersion(incoming)) return current;
+  return incoming;
+}
+
 export function documentLinkViewState(commentId = null) {
   const selectedCommentId = String(commentId || '').trim() || null;
   return {
@@ -28,6 +35,8 @@ export function documentLinkViewState(commentId = null) {
 }
 
 export function preserveHydratedDocumentContent(current = null, incoming = null) {
+  const newest = preferNewerDocumentRow(current, incoming);
+  if (newest !== incoming) return newest;
   if (!current || !incoming) return incoming;
   if (String(current.record_id || '') !== String(incoming.record_id || '')) return incoming;
   if (documentVersion(current) !== documentVersion(incoming)) return incoming;

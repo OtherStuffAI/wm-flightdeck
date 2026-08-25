@@ -1,4 +1,8 @@
 import Dexie from 'dexie';
+import {
+  preferNewerDocumentRow,
+  preserveHydratedDocumentContent,
+} from './document-selection.js';
 import { getSyncFamily, getSyncStateKeyForFamily } from './sync-families.js';
 import {
   resolveWindowLimit,
@@ -571,7 +575,15 @@ export async function getDocumentsByOwner(ownerNpub) {
 }
 
 export async function upsertDocument(document) {
-  return wsDb().documents.put(sanitizeForStorage(document));
+  const incoming = sanitizeForStorage(document);
+  if (!incoming?.record_id) return null;
+  const db = wsDb();
+  return db.transaction('rw', db.documents, async () => {
+    const current = await db.documents.get(incoming.record_id);
+    const next = preserveHydratedDocumentContent(current, incoming);
+    if (next === current) return current.record_id;
+    return db.documents.put(next);
+  });
 }
 
 export async function replaceDocumentRecord(previousRecordId, document) {
@@ -612,6 +624,8 @@ export async function replacePgDocumentsForChannel(channelId, documents = []) {
     const existingById = new Map(existing.map((document) => [document?.record_id, document]));
     const rows = incomingRows.map((document) => {
       const cached = existingById.get(document.record_id);
+      const newest = preferNewerDocumentRow(cached, document);
+      if (newest !== document) return newest;
       const preservesLoadedBody = document?.pg_record_type === 'doc'
         && cached?.content_storage_status === 'loaded'
         && cached?.content_storage_object_id

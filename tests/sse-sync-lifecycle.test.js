@@ -733,7 +733,25 @@ describe('handleSSEStatus', () => {
 
     expect(syncTowerPgWorkspace).toHaveBeenCalledTimes(1);
     expect(syncTowerPgWorkspace.mock.calls[0][0]).toBe(store);
-    expect(store.sseStatus).toBe('pull-complete');
+    expect(store.sseStatus).toBe('connected');
+  });
+
+  it('keeps the healthy SSE cadence across pull and cursor acknowledgement notifications', async () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    const pgEvents = [{ entity_type: 'message', entity_id: 'message-1', channel_id: 'channel-1' }];
+    const { fn, store } = bindMethod('handleSSEStatus', {
+      session: { npub: 'npub1viewer' },
+      backendUrl: 'https://tower.example.com',
+      sseStatus: 'connected',
+      navSection: 'chat',
+      selectedChannelId: 'channel-1',
+    });
+
+    await fn({ status: 'pull-complete', families: ['flightdeck_pg'], pgEvents });
+    fn({ status: 'cursor-acknowledged', batchId: 'batch-1' });
+
+    expect(store.sseStatus).toBe('connected');
+    expect(store.getSyncCadenceMs()).toBe(store.SSE_HEARTBEAT_CADENCE_MS);
   });
 
   it('falls back to polling-only on fallback-polling status', () => {

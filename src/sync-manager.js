@@ -127,6 +127,16 @@ const PG_SSE_TARGETED_ONLY_ENTITY_TYPES = new Set([
   'workroom_link',
   'workroom_participant',
 ]);
+const SSE_LIFECYCLE_STATUSES = new Set([
+  'connecting',
+  'connected',
+  'reconnecting',
+  'fallback-polling',
+  'disconnected',
+  'token-needed',
+  'token-failed',
+  'cursor-ack-failed',
+]);
 const WAPP_FAMILY_FRESH_MS = 30_000;
 const COLLECTION_FAMILY_FRESH_MS = 30_000;
 const DETAIL_FAMILY_FRESH_MS = 15_000;
@@ -2522,7 +2532,11 @@ export const syncManagerMixin = {
       this.sseConnectInFlightKey = null;
     }
 
-    this.sseStatus = status;
+    // Worker notifications such as pull-complete and cursor-acknowledged
+    // describe work performed by an otherwise healthy EventSource. Keeping
+    // them out of the connection lifecycle prevents the fallback poller from
+    // treating every live PG event as an SSE disconnect.
+    if (SSE_LIFECYCLE_STATUSES.has(status)) this.sseStatus = status;
     this.logSSELifecycle(status, message);
 
     if (status === 'pull-complete') {

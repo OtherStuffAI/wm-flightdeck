@@ -4318,12 +4318,17 @@ export function initApp() {
       const normalizedDocument = this.normalizeDocumentRowGroupRefs
         ? this.normalizeDocumentRowGroupRefs(nextDocument)
         : nextDocument;
-      this.patchMentionDocumentIndex(normalizedDocument);
       const index = this.documents.findIndex((item) => item.record_id === nextDocument.record_id);
+      const currentDocument = index >= 0 ? this.documents[index] : null;
+      const reconciledDocument = preserveHydratedDocumentContent(
+        currentDocument,
+        currentDocument ? { ...currentDocument, ...normalizedDocument } : normalizedDocument,
+      );
+      this.patchMentionDocumentIndex(reconciledDocument);
       if (index >= 0) {
-        this.documents.splice(index, 1, { ...this.documents[index], ...normalizedDocument });
+        this.documents.splice(index, 1, reconciledDocument);
       } else {
-        this.documents = [...this.documents, normalizedDocument];
+        this.documents = [...this.documents, reconciledDocument];
       }
       this.refreshOpenDocFromLatestDocument({ force: false });
     },

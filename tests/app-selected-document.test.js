@@ -107,6 +107,25 @@ describe('preserveHydratedDocumentContent', () => {
 
     expect(preserveHydratedDocumentContent(current, next)).toBe(next);
   });
+
+  it('keeps a newer locally accepted canonical row when an older hydration arrives', () => {
+    const accepted = {
+      record_id: 'doc-1',
+      version: 44,
+      title: 'Accepted title',
+      content: '# Accepted body',
+      content_storage_status: 'remote',
+    };
+    const staleHydration = {
+      record_id: 'doc-1',
+      version: 43,
+      title: 'Older title',
+      content: '# Older body',
+      content_storage_status: 'loaded',
+    };
+
+    expect(preserveHydratedDocumentContent(accepted, staleHydration)).toBe(accepted);
+  });
 });
 
 describe('documentLinkViewState', () => {

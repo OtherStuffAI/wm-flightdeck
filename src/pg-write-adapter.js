@@ -257,7 +257,8 @@ export async function updateTowerPgDocFromLocal(store, document, previousDocumen
     mentions: canonicalDocumentAgentMentions(document.content),
   });
   const result = await updateTowerPgDoc(context.workspaceId, document.record_id, body, pgRequestOptions(context));
-  return mapPgDocToLocal(result.doc, { workspaceOwnerNpub: context.workspaceOwnerNpub });
+  const accepted = mapPgDocToLocal(result.doc, { workspaceOwnerNpub: context.workspaceOwnerNpub });
+  return store.acceptSelectedPgDocSaveCanonical?.(accepted, document) || accepted;
 }
 
 export async function deleteTowerPgDocFromLocal(store, document) {
