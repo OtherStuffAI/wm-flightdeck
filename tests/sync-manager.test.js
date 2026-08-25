@@ -48,6 +48,7 @@ vi.mock('../src/pg-read-hydrator.js', () => ({
   hydrateTowerPgEventUpdates: vi.fn(async () => ({ appliedTargets: 0, fallbackEvents: 0, events: 0 })),
   hydrateTowerPgTaskComments: vi.fn(async () => []),
   syncTowerPgWorkspace: vi.fn(async () => ({ applied: 0, pages: 1 })),
+  towerPgSyncCursorKey: vi.fn(() => 'tower_pg_sync_cursor:workspace-1:npub1viewer'),
 }));
 
 vi.mock('../src/crypto/group-keys.js', () => ({
@@ -63,6 +64,7 @@ vi.mock('../src/api.js', () => ({
 vi.mock('../src/db.js', () => ({
   getPendingWrites: vi.fn(async () => []),
   getPendingWritesByFamilies: vi.fn(async () => []),
+  getSyncState: vi.fn(async () => null),
   updatePendingWrite: vi.fn(async () => 1),
   removePendingWrite: vi.fn(async () => {}),
   clearSyncState: vi.fn(async () => {}),
@@ -1567,6 +1569,59 @@ describe('sync family progress helpers', () => {
       connectionGeneration: 3,
       requestedCursor: 'cursor-committed',
     }));
+    vi.useRealTimers();
+  });
+
+  it('isolates a permanently failing batch after bounded retries while later live work materialises', async () => {
+    vi.useFakeTimers();
+    isTowerPgBackendMode.mockReturnValue(true);
+    hydrateTowerPgEventUpdates.mockImplementation(async (_store, events) => {
+      if (events.some((event) => event.entity_id === 'bad-row')) throw new Error('permanent Dexie failure');
+      return { appliedTargets: events.length, fallbackEvents: 0, events: events.length };
+    });
+    const { fn } = bindMethod('handleSSEStatus', { sseConnectionKey: 'context-1' });
+
+    await fn({
+      status: 'pull-complete', connectionKey: 'context-1', families: ['flightdeck_pg'],
+      pgEvents: [{ entity_type: 'task', entity_id: 'bad-row' }],
+      batchId: 'bad-batch', connectionGeneration: 1,
+    });
+    await fn({
+      status: 'pull-complete', connectionKey: 'context-1', families: ['flightdeck_pg'],
+      pgEvents: [{ entity_type: 'task', entity_id: 'live-row' }],
+      batchId: 'live-batch', connectionGeneration: 1,
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    const hydratedIds = hydrateTowerPgEventUpdates.mock.calls.map((call) => call[1][0]?.entity_id);
+    expect(hydratedIds.filter((id) => id === 'bad-row')).toHaveLength(3);
+    expect(hydratedIds.filter((id) => id === 'live-row')).toHaveLength(1);
+    expect(acknowledgeSSEBatch).toHaveBeenCalledTimes(1);
+    expect(acknowledgeSSEBatch).toHaveBeenCalledWith(expect.objectContaining({ batchId: 'live-batch' }));
+
+    hydrateTowerPgEventUpdates.mockResolvedValue({ appliedTargets: 0, fallbackEvents: 0, events: 0 });
+    vi.useRealTimers();
+  });
+
+  it('cancels failed-batch retries when the SSE context switches', async () => {
+    vi.useFakeTimers();
+    isTowerPgBackendMode.mockReturnValue(true);
+    hydrateTowerPgEventUpdates.mockRejectedValue(new Error('Dexie failure'));
+    const { fn } = bindMethod('handleSSEStatus', { sseConnectionKey: 'context-1' });
+
+    await fn({
+      status: 'pull-complete', connectionKey: 'context-1', families: ['flightdeck_pg'],
+      pgEvents: [{ entity_type: 'task', entity_id: 'old-context-row' }],
+      batchId: 'old-context-batch', connectionGeneration: 1,
+    });
+    fn({ status: 'connecting', connectionKey: 'context-2' });
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(hydrateTowerPgEventUpdates).toHaveBeenCalledTimes(1);
+    expect(acknowledgeSSEBatch).not.toHaveBeenCalled();
+
+    hydrateTowerPgEventUpdates.mockResolvedValue({ appliedTargets: 0, fallbackEvents: 0, events: 0 });
     vi.useRealTimers();
   });
 

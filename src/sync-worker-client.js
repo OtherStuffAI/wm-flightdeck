@@ -389,6 +389,7 @@ export function acknowledgeSSEBatch(batch = {}) {
     workerInstance.postMessage({
       type: SSE_ACK_TYPE,
       batchId: batch.batchId,
+      connectionKey: batch.connectionKey,
       connectionGeneration: batch.connectionGeneration,
       requestedCursor: batch.requestedCursor || null,
       committedAt: batch.committedAt || new Date().toISOString(),

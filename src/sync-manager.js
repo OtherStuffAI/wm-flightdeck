@@ -8,6 +8,7 @@
 import {
   getPendingWrites,
   getPendingWritesByFamilies,
+  getSyncState,
   updatePendingWrite,
   removePendingWrite,
   clearSyncState,
@@ -96,6 +97,7 @@ import {
   hydrateTowerPgWorkroomParticipants,
   hydrateTowerPgWorkrooms,
   syncTowerPgWorkspace,
+  towerPgSyncCursorKey,
 } from './pg-read-hydrator.js';
 import {
   getRecordWriteFieldsForStore,
@@ -114,6 +116,7 @@ const PG_FULL_SYNC_STEPS = Object.freeze([
 ]);
 const PG_FULL_SYNC_CHILD_CONCURRENCY = 4;
 const PG_SSE_TARGETED_EVENT_LIMIT = 25;
+const PG_SSE_MATERIALISATION_MAX_ATTEMPTS = 3;
 const PG_SSE_TARGETED_ONLY_ENTITY_TYPES = new Set([
   'agent_activity',
   'response_activity',
@@ -2435,6 +2438,32 @@ export const syncManagerMixin = {
 
     this.sseConnectInFlightKey = connectionKey;
 
+    let workspaceCursorFallback = null;
+    if (this.isEncryptedRecordSyncDisabled) {
+      let cursor = null;
+      try {
+        cursor = await getSyncState(towerPgSyncCursorKey(this));
+      } catch {
+        // The worker can still restore a durable SSE acknowledgement cursor.
+      }
+      if (connectionKey !== this.buildSSEConnectionKey(this.getSSEConnectionContext())) {
+        if (this.sseConnectInFlightKey === connectionKey) this.sseConnectInFlightKey = null;
+        return false;
+      }
+      if (cursor != null && String(cursor).trim()) {
+        let backendOrigin = '';
+        try { backendOrigin = new URL(context.backendUrl).origin; } catch { backendOrigin = ''; }
+        workspaceCursorFallback = {
+          cursor: String(cursor),
+          backendOrigin,
+          workspaceId: context.workspaceId,
+          ownerNpub: context.ownerNpub,
+          viewerNpub: context.viewerNpub,
+          workspaceDbKey: context.workspaceDbKey,
+        };
+      }
+    }
+
     setSSEStatusCallback((message) => this.handleSSEStatus(message));
     this.sseConnectionKey = connectionKey;
     connectSSE(
@@ -2448,6 +2477,7 @@ export const syncManagerMixin = {
         checkoutPolicyConfig: context.checkoutPolicyConfig,
         pgMode: this.isEncryptedRecordSyncDisabled,
         workspaceId: context.workspaceId,
+        workspaceCursorFallback,
       },
     );
     return true;
@@ -2526,6 +2556,7 @@ export const syncManagerMixin = {
       } else {
         this.sseConnectionKey = message.connectionKey;
       }
+      this.discardStaleTowerPgSSEHydrationWork(message.connectionKey);
     }
 
     if (message?.connectionKey && this.sseConnectInFlightKey === message.connectionKey) {
@@ -2584,8 +2615,7 @@ export const syncManagerMixin = {
   },
 
   queueTowerPgSSEHydration(pgEvents = [], batch = null, options = {}) {
-    if (!Array.isArray(this.pendingTowerPgSSEEvents)) this.pendingTowerPgSSEEvents = [];
-    if (!Array.isArray(this.pendingTowerPgSSEBatches)) this.pendingTowerPgSSEBatches = [];
+    if (!Array.isArray(this.pendingTowerPgSSEHydrations)) this.pendingTowerPgSSEHydrations = [];
     const events = Array.isArray(pgEvents) ? pgEvents : [];
     for (const event of events) {
       if (event?.entity_type === 'message' && event?.entity_id) {
@@ -2602,23 +2632,31 @@ export const syncManagerMixin = {
         browserReceivedAt: event?.browser_received_at || null,
       });
     }
-    this.pendingTowerPgSSEEvents.push(...events);
-    if (batch?.batchId) {
-      this.pendingTowerPgSSEBatches.push({
+    const batches = batch?.batchId
+      ? [{
         batchId: batch.batchId,
+        connectionKey: batch.connectionKey || this.sseConnectionKey || null,
         connectionGeneration: batch.connectionGeneration,
         requestedCursor: batch.requestedCursor || null,
         receivedCursor: batch.receivedCursor || null,
         receivedAt: batch.receivedAt || null,
+      }]
+      : [];
+    if (events.length > 0 || options.drainOnly !== true) {
+      this.pendingTowerPgSSEHydrations.push({
+        events,
+        batches,
+        fallbackRefreshRequested: events.length === 0,
+        connectionKey: batch?.connectionKey || this.sseConnectionKey || null,
+        attempt: Number(options.attempt || 0),
       });
     }
-    if (events.length === 0 && options.drainOnly !== true) this.towerPgSSEFallbackRefreshPending = true;
     if (this.towerPgSSEHydrationPromise) return this.towerPgSSEHydrationPromise;
 
     this.towerPgSSEHydrationPromise = this.drainTowerPgSSEHydrationQueue()
       .finally(() => {
         this.towerPgSSEHydrationPromise = null;
-        if (!this.towerPgSSEHydrationRetryTimer && (this.pendingTowerPgSSEEvents?.length || this.towerPgSSEFallbackRefreshPending)) {
+        if (this.pendingTowerPgSSEHydrations?.length) {
           this.queueTowerPgSSEHydration([], null, { drainOnly: true });
         }
       });
@@ -2626,11 +2664,18 @@ export const syncManagerMixin = {
   },
 
   async drainTowerPgSSEHydrationQueue() {
-    while (this.pendingTowerPgSSEEvents?.length || this.towerPgSSEFallbackRefreshPending) {
-      const events = this.pendingTowerPgSSEEvents.splice(0);
-      const batches = this.pendingTowerPgSSEBatches.splice(0);
-      const fallbackRefreshRequested = this.towerPgSSEFallbackRefreshPending;
-      this.towerPgSSEFallbackRefreshPending = false;
+    while (this.pendingTowerPgSSEHydrations?.length) {
+      const item = this.pendingTowerPgSSEHydrations.shift();
+      const events = item.events || [];
+      const batches = item.batches || [];
+      const fallbackRefreshRequested = item.fallbackRefreshRequested === true;
+      const connectionKey = item.connectionKey || null;
+      if (connectionKey && connectionKey !== this.sseConnectionKey) {
+        flightDeckLog('warn', 'sse', 'discarded stale PG SSE materialisation work after context switch', {
+          materialisationBatchIds: batches.map((entry) => entry.batchId),
+        });
+        continue;
+      }
       try {
         const hydrationStartedAt = new Date().toISOString();
         flightDeckTrace('message-timing', 'targeted hydration started', {
@@ -2689,19 +2734,16 @@ export const syncManagerMixin = {
             visibleAgentActivities: Array.isArray(this.activeThreadAgentActivities) ? this.activeThreadAgentActivities.length : null,
           },
         });
-        for (const batch of batches) {
-          acknowledgeSSEBatch({
-            ...batch,
-            committedAt: new Date().toISOString(),
-          });
+        if (!connectionKey || connectionKey === this.sseConnectionKey) {
+          for (const batch of batches) {
+            acknowledgeSSEBatch({
+              ...batch,
+              committedAt: new Date().toISOString(),
+            });
+          }
         }
-        this.towerPgSSEHydrationRetryAttempt = 0;
       } catch (error) {
-        this.pendingTowerPgSSEEvents.unshift(...events);
-        this.pendingTowerPgSSEBatches.unshift(...batches);
-        if (fallbackRefreshRequested) this.towerPgSSEFallbackRefreshPending = true;
-        const attempt = Number(this.towerPgSSEHydrationRetryAttempt || 0) + 1;
-        this.towerPgSSEHydrationRetryAttempt = attempt;
+        const attempt = Number(item.attempt || 0) + 1;
         const delayMs = Math.min(500 * (2 ** Math.min(attempt - 1, 6)), 30_000);
         flightDeckLog('warn', 'sse', 'failed to refresh PG records after SSE event', {
           error: error?.message || String(error),
@@ -2709,14 +2751,43 @@ export const syncManagerMixin = {
           attempt,
           delayMs,
         });
-        if (!this.towerPgSSEHydrationRetryTimer) {
-          this.towerPgSSEHydrationRetryTimer = setTimeout(() => {
-            this.towerPgSSEHydrationRetryTimer = null;
+        if (attempt < PG_SSE_MATERIALISATION_MAX_ATTEMPTS && (!connectionKey || connectionKey === this.sseConnectionKey)) {
+          if (!(this.towerPgSSEHydrationRetryTimers instanceof Map)) this.towerPgSSEHydrationRetryTimers = new Map();
+          const retryKey = batches.map((entry) => entry.batchId).filter(Boolean).join(',')
+            || `${connectionKey || 'unscoped'}:${Date.now()}:${attempt}`;
+          if (this.towerPgSSEHydrationRetryTimers.has(retryKey)) continue;
+          const timerId = setTimeout(() => {
+            this.towerPgSSEHydrationRetryTimers?.delete(retryKey);
+            if (connectionKey && connectionKey !== this.sseConnectionKey) return;
+            if (!Array.isArray(this.pendingTowerPgSSEHydrations)) this.pendingTowerPgSSEHydrations = [];
+            this.pendingTowerPgSSEHydrations.push({ ...item, attempt });
             this.queueTowerPgSSEHydration([], null, { drainOnly: true });
           }, delayMs);
+          this.towerPgSSEHydrationRetryTimers.set(retryKey, { timerId, connectionKey });
+        } else {
+          flightDeckLog('error', 'sse', 'isolated PG SSE materialisation batch after bounded retries', {
+            materialisationBatchIds: batches.map((entry) => entry.batchId),
+            attempt,
+            connectionKey,
+            cursorAcknowledged: false,
+          });
         }
-        return;
       }
+    }
+  },
+
+  discardStaleTowerPgSSEHydrationWork(connectionKey) {
+    if (!connectionKey) return;
+    if (Array.isArray(this.pendingTowerPgSSEHydrations)) {
+      this.pendingTowerPgSSEHydrations = this.pendingTowerPgSSEHydrations.filter((item) => (
+        !item?.connectionKey || item.connectionKey === connectionKey
+      ));
+    }
+    if (!(this.towerPgSSEHydrationRetryTimers instanceof Map)) return;
+    for (const [key, retry] of this.towerPgSSEHydrationRetryTimers) {
+      if (!retry?.connectionKey || retry.connectionKey === connectionKey) continue;
+      clearTimeout(retry.timerId);
+      this.towerPgSSEHydrationRetryTimers.delete(key);
     }
   },
 

@@ -873,6 +873,13 @@
       "label": "Document autosave validation",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1833,
+      "label": "Fast live-update reloads",
+      "notes": [
+        "Resume live workspace updates from the browser's materialised Tower cursor on first reload instead of replaying the workspace history from the beginning."
+      ]
     }
   ]
 }

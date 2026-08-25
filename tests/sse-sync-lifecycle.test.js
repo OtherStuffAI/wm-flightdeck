@@ -15,6 +15,7 @@ import { createNip98AuthHeader, createNip98AuthHeaderForSecret } from '../src/au
 import { isTowerPgBackendMode } from '../src/backend-mode.js';
 import { syncTowerPgWorkspace } from '../src/pg-read-hydrator.js';
 import { flightDeckLog } from '../src/logging.js';
+import { getSyncState } from '../src/db.js';
 
 vi.mock('../src/api.js', () => ({
   downloadStorageObject: vi.fn(),
@@ -25,6 +26,7 @@ vi.mock('../src/api.js', () => ({
 vi.mock('../src/db.js', () => ({
   getPendingWrites: vi.fn(async () => []),
   getPendingWritesByFamilies: vi.fn(async () => []),
+  getSyncState: vi.fn(async () => null),
   updatePendingWrite: vi.fn(async () => 1),
   removePendingWrite: vi.fn(async () => {}),
   clearSyncState: vi.fn(async () => {}),
@@ -79,6 +81,7 @@ vi.mock('../src/pg-read-hydrator.js', () => ({
   hydrateTowerPgChannelAgentActivities: vi.fn(async () => []),
   hydrateTowerPgEventUpdates: vi.fn(async () => ({ appliedTargets: 0, fallbackEvents: 0, events: 0 })),
   syncTowerPgWorkspace: vi.fn(async () => ({ pages: 1, changed: 0 })),
+  towerPgSyncCursorKey: vi.fn(() => 'tower_pg_sync_cursor:workspace-1:npub1viewer'),
 }));
 
 vi.mock('../src/backend-mode.js', () => ({
@@ -405,6 +408,29 @@ describe('connectSSEStream', () => {
     expect(options.workspaceId).toBe('workspace-1');
     expect(createNip98AuthHeader).not.toHaveBeenCalled();
     expect(store.sseStatus).not.toBe('disabled');
+  });
+
+  it('passes the persisted workspace cursor to the worker with the exact active context', async () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    getSyncState.mockResolvedValueOnce('workspace-cursor-20420');
+    const { fn } = bindMethod('connectSSEStream', {
+      session: { npub: 'npub1viewer' },
+      backendUrl: 'https://tower.example.com/api/',
+      workspaceOwnerNpub: 'npub1owner',
+      currentWorkspaceKey: 'pg-workspace-db-key',
+      currentWorkspace: { workspaceId: 'workspace-1' },
+    });
+
+    await fn();
+
+    expect(connectSSE.mock.calls[0][4].workspaceCursorFallback).toEqual({
+      cursor: 'workspace-cursor-20420',
+      backendOrigin: 'https://tower.example.com',
+      workspaceId: 'workspace-1',
+      ownerNpub: 'npub1owner',
+      viewerNpub: 'npub1viewer',
+      workspaceDbKey: 'pg-workspace-db-key',
+    });
   });
 });
 

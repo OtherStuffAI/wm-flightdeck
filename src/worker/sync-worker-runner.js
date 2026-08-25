@@ -5,7 +5,7 @@ import {
   pruneOnLogin,
   checkStaleness,
 } from './sync-worker.js';
-import { getPendingWrites, getSyncState, setSyncState } from '../db.js';
+import { getPendingWrites, getSyncState, openWorkspaceDb, setSyncState } from '../db.js';
 import { setBaseUrl } from '../api.js';
 import { setExtensionSignerBridge } from '../auth/nostr.js';
 import { importDecryptedKeys, setActiveSessionNpub } from '../crypto/group-keys.js';
@@ -64,6 +64,7 @@ let sseConnectionGeneration = 0;
 let sseContextGeneration = 0;
 let sseNextBatchId = 1;
 const ssePendingBatches = new Map();
+let sseAckWritePromise = Promise.resolve();
 let sseReconnectTimer = null;
 let sseReconnectAttempts = 0;
 const SSE_DEBOUNCE_MS = 300;
@@ -226,15 +227,42 @@ function pgSSECursorStateKey() {
   ].join(':');
 }
 
-async function restoreCommittedPgCursor(contextGeneration) {
+function normalizedBackendOrigin(value) {
+  try { return new URL(value).origin; } catch { return ''; }
+}
+
+function compatibleWorkspaceCursorFallback(fallback) {
+  if (!fallback?.cursor || !ssePgMode) return null;
+  const expected = {
+    backendOrigin: normalizedBackendOrigin(sseBackendUrl),
+    workspaceId: String(ssePgWorkspaceId || ''),
+    ownerNpub: String(sseOwnerNpub || ''),
+    viewerNpub: String(sseViewerNpub || ''),
+    workspaceDbKey: String(sseWorkspaceDbKey || ''),
+  };
+  const actual = {
+    backendOrigin: normalizedBackendOrigin(fallback.backendOrigin),
+    workspaceId: String(fallback.workspaceId || ''),
+    ownerNpub: String(fallback.ownerNpub || ''),
+    viewerNpub: String(fallback.viewerNpub || ''),
+    workspaceDbKey: String(fallback.workspaceDbKey || ''),
+  };
+  return Object.keys(expected).every((key) => expected[key] && actual[key] === expected[key])
+    ? String(fallback.cursor)
+    : null;
+}
+
+async function restoreCommittedPgCursor(contextGeneration, workspaceCursorFallback = null) {
   const key = pgSSECursorStateKey();
   if (!key) return;
   try {
     const cursor = await getSyncState(key);
-    if (contextGeneration !== sseContextGeneration || !cursor) return;
-    sseLastPgCursor = String(cursor);
+    if (contextGeneration !== sseContextGeneration) return;
+    const restored = cursor ? String(cursor) : compatibleWorkspaceCursorFallback(workspaceCursorFallback);
+    if (restored) sseLastPgCursor = restored;
   } catch {
-    // A missing/corrupt local cursor falls back to bounded workspace catch-up.
+    const fallback = compatibleWorkspaceCursorFallback(workspaceCursorFallback);
+    if (contextGeneration === sseContextGeneration && fallback) sseLastPgCursor = fallback;
   }
 }
 
@@ -304,11 +332,6 @@ function openSSEWithToken(message) {
   const source = new EventSource(accepted.eventSourceUrl);
   sseConnectionGeneration += 1;
   source.sseConnectionGeneration = sseConnectionGeneration;
-  for (const [batchId, batch] of ssePendingBatches) {
-    if (Number(batch.connectionGeneration) !== Number(sseConnectionGeneration)) {
-      ssePendingBatches.delete(batchId);
-    }
-  }
   eventSource = source;
 
   source.addEventListener('record-changed', (event) => {
@@ -403,7 +426,12 @@ async function connectSSE(ownerNpub, viewerNpub, backendUrl, workspaceDbKey, opt
   const contextGeneration = sseContextGeneration;
 
   if (contextChanged) ssePendingBatches.clear();
-  if (ssePgMode && !sseLastPgCursor) await restoreCommittedPgCursor(contextGeneration);
+  if (sseWorkspaceDbKey) {
+    try { openWorkspaceDb(sseWorkspaceDbKey); } catch { /* cursor restore reports bounded fallback */ }
+  }
+  if (ssePgMode && !sseLastPgCursor) {
+    await restoreCommittedPgCursor(contextGeneration, options?.workspaceCursorFallback || null);
+  }
   if (contextGeneration !== sseContextGeneration || connectionKey !== sseConnectionKey) return;
 
   requestSSEToken({
@@ -568,16 +596,25 @@ async function flushSSEStaleFamilies() {
         },
       );
     }
-    const batchId = pgEvents.length > 0 ? `sse-batch-${sseNextBatchId++}` : null;
     const lastPgEntry = pgEntries.at(-1) || null;
-    const batch = batchId ? {
-      batchId,
-      connectionKey: sseConnectionKey,
-      connectionGeneration: lastPgEntry?.connectionGeneration || sseConnectionGeneration,
-      cursor: lastPgEntry?.cursor || null,
-      receivedAt: pgEvents[0]?.browser_received_at || null,
-    } : null;
-    if (batch) ssePendingBatches.set(batchId, batch);
+    const cursor = lastPgEntry?.cursor || null;
+    let batch = pgEvents.length > 0
+      ? [...ssePendingBatches.values()].find((entry) => (
+        entry.connectionKey === sseConnectionKey && entry.cursor && entry.cursor === cursor
+      ))
+      : null;
+    if (!batch && pgEvents.length > 0) {
+      const batchId = `sse-batch-${sseNextBatchId++}`;
+      batch = {
+        batchId,
+        connectionKey: sseConnectionKey,
+        connectionGeneration: lastPgEntry?.connectionGeneration || sseConnectionGeneration,
+        cursor,
+        receivedAt: pgEvents[0]?.browser_received_at || null,
+        committed: false,
+      };
+      ssePendingBatches.set(batchId, batch);
+    }
     postSSEStatus('pull-complete', {
       families,
       pgEvents,
@@ -594,23 +631,19 @@ async function flushSSEStaleFamilies() {
   }
 }
 
-async function acknowledgeSSEBatch(message) {
-  const batchId = String(message?.batchId || '').trim();
-  const batch = ssePendingBatches.get(batchId);
-  if (
-    !batch
-    || batch.connectionKey !== sseConnectionKey
-    || Number(message?.connectionGeneration) !== Number(batch.connectionGeneration)
-    || Number(batch.connectionGeneration) !== Number(sseConnectionGeneration)
-  ) return;
-  if (!batch.cursor) {
-    ssePendingBatches.delete(batchId);
-    return;
+async function persistAcknowledgedSSEBatches() {
+  const committed = [];
+  for (const batch of ssePendingBatches.values()) {
+    if (!batch.committed) break;
+    committed.push(batch);
   }
-  const acknowledgedCursor = String(batch.cursor);
+  if (!committed.length) return;
+  const lastCursorBatch = [...committed].reverse().find((batch) => batch.cursor) || null;
   const key = pgSSECursorStateKey();
+  const connectionKey = sseConnectionKey;
+  const contextGeneration = sseContextGeneration;
   try {
-    if (key) await setSyncState(key, acknowledgedCursor);
+    if (key && lastCursorBatch) await setSyncState(key, String(lastCursorBatch.cursor));
   } catch {
     sseLastFailureReason = {
       reason: 'cursor-persist-failed',
@@ -619,24 +652,26 @@ async function acknowledgeSSEBatch(message) {
     postSSEStatus('cursor-ack-failed', {
       phase: 'cursor-persist-failed',
       reason: 'cursor-persist-failed',
-      batchId,
-      connectionGeneration: batch.connectionGeneration,
+      batchId: committed[0]?.batchId || null,
+      connectionGeneration: committed[0]?.connectionGeneration || null,
     });
     closeSSE({ preserveWork: true });
     scheduleReconnect({ reason: 'cursor-persist-failed' });
     return;
   }
-  sseLastPgCursor = acknowledgedCursor;
-  ssePendingBatches.delete(batchId);
+  if (connectionKey !== sseConnectionKey || contextGeneration !== sseContextGeneration) return;
+  if (lastCursorBatch) sseLastPgCursor = String(lastCursorBatch.cursor);
+  for (const batch of committed) ssePendingBatches.delete(batch.batchId);
   postSSEStatus('cursor-acknowledged', {
     phase: 'materialisation-committed',
-    batchId,
-    connectionGeneration: batch.connectionGeneration,
-    requestedCursor: message?.requestedCursor || null,
-    receivedCursor: batch.cursor,
+    batchId: committed.at(-1)?.batchId || null,
+    batchIds: committed.map((batch) => batch.batchId),
+    connectionGeneration: committed.at(-1)?.connectionGeneration || null,
+    requestedCursor: committed[0]?.requestedCursor || null,
+    receivedCursor: lastCursorBatch?.cursor || null,
     acknowledgedCursor: sseLastPgCursor,
-    receivedAt: batch.receivedAt,
-    committedAt: message?.committedAt || new Date().toISOString(),
+    receivedAt: committed[0]?.receivedAt || null,
+    committedAt: committed.at(-1)?.committedAt || new Date().toISOString(),
   });
   if (sseTokenRequests.getPending()) {
     requestSSEToken({
@@ -644,6 +679,22 @@ async function acknowledgeSSEBatch(message) {
       reason: 'cursor-acknowledged-before-token',
     });
   }
+}
+
+async function acknowledgeSSEBatch(message) {
+  const batchId = String(message?.batchId || '').trim();
+  const batch = ssePendingBatches.get(batchId);
+  if (
+    !batch
+    || batch.connectionKey !== sseConnectionKey
+    || message?.connectionKey !== batch.connectionKey
+    || Number(message?.connectionGeneration) !== Number(batch.connectionGeneration)
+  ) return;
+  if (batch.committed) return;
+  batch.committed = true;
+  batch.requestedCursor = message?.requestedCursor || null;
+  batch.committedAt = message?.committedAt || new Date().toISOString();
+  await persistAcknowledgedSSEBatches();
 }
 
 function handleGroupChanged(event) {
@@ -836,7 +887,8 @@ self.addEventListener('message', async (event) => {
     return;
   }
   if (message.type === SSE_ACK_TYPE) {
-    await acknowledgeSSEBatch(message);
+    sseAckWritePromise = sseAckWritePromise.then(() => acknowledgeSSEBatch(message));
+    await sseAckWritePromise;
     return;
   }
   if (message.type === SSE_DISCONNECT_TYPE) {
