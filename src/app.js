@@ -1105,6 +1105,16 @@ export function initApp() {
     docRichEditorMountGeneration: 0,
     docRichImageUploadCount: 0,
     docRichEditorMountEl: null,
+    docEditAccessGeneration: 0,
+    docEditAccessState: 'ready',
+    docEditAccessMessage: '',
+    docEditDraftDirty: false,
+    docEditBaseRecordId: null,
+    docEditBaseRowVersion: 0,
+    docEditConflict: null,
+    docEditLeaseInfo: null,
+    docEditAcquirePromise: null,
+    docEditAcquirePromiseRecordId: null,
     docEditorSharesDirty: false,
     docShareTargetType: '',
     docShareTargetId: '',
@@ -1141,6 +1151,8 @@ export function initApp() {
     recordCheckoutPolicyConfig: FLIGHT_DECK_RECORD_CHECKOUT_POLICY_CONFIG,
     lockManagedCheckoutSessions: {},
     pgEditLeaseSessions: {},
+    pgEditLeaseAcquirePromises: {},
+    pgEditLeaseInspectionPromises: {},
     pgEditLeaseRenewalTimers: {},
     showDocShareModal: false,
     showInvocationModal: false,
@@ -1959,6 +1971,50 @@ export function initApp() {
       if (this.docAutosaveState === 'pending') return 'Autosave pending';
       if (this.docAutosaveState === 'saving') return 'Saving';
       return 'Saved';
+    },
+
+    get selectedDocPgLeaseSession() {
+      const recordId = String(this.selectedDocument?.record_id || '').trim();
+      return recordId ? this.pgEditLeaseSessions?.[`document:${recordId}`] || null : null;
+    },
+
+    get selectedDocEditStatusTone() {
+      if (this.docEditAccessState === 'editing') return 'editing';
+      if (this.docEditAccessState === 'acquiring') return 'acquiring';
+      if (this.docEditAccessState === 'blocked' || this.docEditAccessState === 'conflict') return 'blocked';
+      if (this.selectedDocPgLeaseSession?.inspectionState === 'offline') return 'offline';
+      if (this.docEditLeaseInfo) return 'blocked';
+      return 'ready';
+    },
+
+    get selectedDocEditStatusLabel() {
+      if (!isTowerPgBackendMode() || !isSyncedPgRecord(this.selectedDocument)) return '';
+      if (this.docEditAccessState === 'acquiring') return 'Acquiring edit access…';
+      if (this.docEditAccessState === 'editing') return `Editing · ${this.docSyncStatusLabel.toLowerCase()}`;
+      if (this.docEditAccessState === 'conflict') return 'Draft preserved — document changed in Tower';
+      if (this.docEditAccessState === 'blocked') {
+        return this.docEditDraftDirty
+          ? 'Draft preserved — edit access unavailable'
+          : 'Edit access unavailable';
+      }
+      const lease = this.docEditLeaseInfo || this.selectedDocPgLeaseSession?.inspectedLease || null;
+      if (lease) {
+        const holderNpub = String(lease.holder_actor_npub || lease.holder_npub || '').trim();
+        const ownHolderNpubs = new Set([
+          this.session?.npub,
+          this.signingNpub,
+          this.workspaceUserKeyNpub,
+        ].map((value) => String(value || '').trim()).filter(Boolean));
+        const holder = String(lease.holder_display_name || lease.holder_name || '').trim()
+          || (holderNpub ? this.getSenderName(holderNpub) : '')
+          || 'another person';
+        const remaining = formatLeaseRemaining({
+          lease_expires_at: lease.expires_at || lease.lease_expires_at || null,
+        });
+        return `${ownHolderNpubs.has(holderNpub) ? 'Edit access held by you' : `Being edited by ${holder}`}${remaining ? ` · ${remaining}` : ''}`;
+      }
+      if (this.selectedDocPgLeaseSession?.inspectionState === 'offline') return 'Offline · reconnect to edit';
+      return 'Ready to edit';
     },
 
     get selectedDocRequiresCheckout() {

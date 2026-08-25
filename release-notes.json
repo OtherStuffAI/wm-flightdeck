@@ -825,6 +825,27 @@
       "notes": [
         "Keep live workspace updates connected when Tower verifies the complete stream URL, including the latest reconnect cursor."
       ]
+    },
+    {
+      "buildNumber": 1821,
+      "label": "Cleaner Home navigation",
+      "notes": [
+        "Show Home directly beneath the section navigation without an extra horizontal divider in expanded desktop and mobile sidebars."
+      ]
+    },
+    {
+      "buildNumber": 1822,
+      "label": "Instant document editing",
+      "notes": [
+        "Open documents in TipTap immediately, preserve typing while edit access is acquired, and provide safe retry, copy, and discard recovery when access or versions conflict."
+      ]
+    },
+    {
+      "buildNumber": 1825,
+      "label": "Durable Agent Direct thinking",
+      "notes": [
+        "Keep Agent Direct thinking and commentary visible through live-update disconnects, reconnect replay, and missed terminal events."
+      ]
     }
   ]
 }

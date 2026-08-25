@@ -165,6 +165,9 @@ async function buildApiError(resp, { requestUrl = '', method = 'GET', prefix = '
         ? parsed.reason
         : (typeof parsed.error === 'string' ? parsed.error : (typeof parsed.details?.reason === 'string' ? parsed.details.reason : null));
       error.requiredPermission = typeof parsed.required_permission === 'string' ? parsed.required_permission : null;
+      error.holder_actor_npub = typeof parsed.holder_actor_npub === 'string' ? parsed.holder_actor_npub : null;
+      error.holder_display_name = typeof parsed.holder_display_name === 'string' ? parsed.holder_display_name : null;
+      error.expires_at = typeof parsed.expires_at === 'string' ? parsed.expires_at : null;
     }
   } catch {
     // Non-JSON error bodies keep the raw text only.

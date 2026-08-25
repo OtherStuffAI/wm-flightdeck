@@ -144,20 +144,25 @@ Store these keys in `sync_state`:
 | `sync:last_heartbeat_ok_at` | last successful heartbeat summary check |
 | `sync:last_transition` | last runtime transition reason payload |
 | `sync:last_recovery_reason` | latest reason that entered `recovery_required` or `full_reconcile` |
+| `sse_pg_ack_cursor:v1:<backend>:<workspace>:<owner>:<viewer>` | highest Tower PG cursor whose materialisation batch committed successfully |
 
 ### What counts as acknowledging an SSE cursor
 
-The worker should advance `sse:last_event_id` on every event that carries an
-event id, not only `record-changed`:
+Legacy record-stream event ids may advance after their worker-side family pull
+commits. Tower PG cursors follow a stricter acknowledgement rule: receipt is
+not acknowledgement. The worker attaches the newest received cursor to a
+correlated materialisation batch and persists it only after the main thread
+reports that the corresponding Dexie hydration committed successfully.
 
-- `connected`
-- `record-changed`
-- `group-changed`
-- `heartbeat`
-- `catch-up-required`
+Tower PG emits `connected` before replay, so its advertised current cursor must
+not skip queued replay. A quiet connection may leave the prior acknowledged
+cursor unchanged; the reconnect workspace delta provides bounded catch-up.
+Failed or stale connection-generation acknowledgements leave the committed
+cursor untouched and reconnect from that last committed boundary.
 
-On initial connect, `connected.event_id` seeds the stream baseline even if the
-workspace is quiet. That prevents a reconnect from starting with a null cursor.
+The acknowledgement key is scoped by workspace database plus backend origin,
+Tower workspace, owner, and viewer/session identity. This prevents a cursor
+from one connection context from being reused in another.
 
 ### Yoke persisted state
 
@@ -187,7 +192,7 @@ Action:
 
 - perform `full_reconcile`
 - after apply, connect SSE
-- persist `connected.event_id`
+- retain `connected.event_id` for diagnostics; acknowledge the Tower PG cursor only after materialisation commits
 
 ### 2. Routine focus resume, short sleep, reconnect, or network blip
 
@@ -236,7 +241,7 @@ Action:
 - record `sync:last_recovery_reason`
 - show recovery UI
 - run `performSync({ forceFull: true })`
-- reconnect SSE and seed the new cursor from `connected.event_id`
+- reconnect SSE and establish a new acknowledged cursor from the first committed materialisation batch
 
 ### 5. Polling fallback
 
@@ -428,9 +433,9 @@ Yoke:
    disconnect/reconnect.
 2. Split "ensure timers/background sync" from "connect stream." Normal route or
    focus changes should not reopen SSE by default.
-3. Persist `sse:last_event_id` and `sse:last_connected_event_id` in `sync_state`.
-4. Parse `connected.event_id` and use it to seed the cursor.
-5. Advance the cursor for every SSE event type that arrives with an event id.
+3. Persist legacy event ids and context-scoped Tower PG acknowledgement cursors in `sync_state`.
+4. Treat Tower PG `connected` cursors as diagnostics until replay/materialisation reaches a committed boundary.
+5. Advance a Tower PG cursor only after the correlated Dexie materialisation batch commits.
 6. Replace `lastSuccessAt` with separate inbound/outbound/heartbeat timestamps.
 7. Make `catch-up-required` enter explicit `recovery_required` and run
    `performSync({ forceFull: true })`.
@@ -475,7 +480,7 @@ Yoke:
 
 - reconnect receives `catch-up-required`
 - Flight Deck records the reason, shows recovery UI, runs `forceFull`
-- new `connected.event_id` becomes the fresh baseline
+- the first successfully materialised post-recovery batch becomes the fresh acknowledged baseline
 
 ### Manual sync from the menu
 
@@ -498,4 +503,3 @@ This policy is correct when all of the following are true:
    entered for a given session.
 5. Yoke remains a reliable manual reconciliation baseline with comparable
    per-family watermark semantics.
-

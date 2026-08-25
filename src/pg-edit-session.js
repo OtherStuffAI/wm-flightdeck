@@ -1,5 +1,6 @@
 import {
   acquireTowerPgEditLease,
+  getTowerPgEditLease,
   releaseTowerPgEditLease,
   renewTowerPgEditLease,
 } from './api.js';
@@ -73,6 +74,56 @@ export function clearPgEditLeaseSession(store, entityType, recordId) {
   store.pgEditLeaseSessions = next;
 }
 
+export async function inspectPgEditLeaseForRecord(store, record, entityType, options = {}) {
+  if (!isSyncedPgRecord(record)) return null;
+  const recordId = trimText(record?.record_id);
+  if (!recordId || !store) return null;
+  if (!isOnlineForPgEdit(options.env)) {
+    return setPgEditLeaseSession(store, entityType, recordId, {
+      inspectionState: 'offline',
+      inspectedLease: null,
+    });
+  }
+  const context = resolveTowerPgWorkspaceContext(store);
+  if (!context.workspaceId || !context.baseUrl) {
+    return setPgEditLeaseSession(store, entityType, recordId, {
+      inspectionState: 'unknown',
+      inspectedLease: null,
+    });
+  }
+  const key = pgEditLeaseSessionKey(entityType, recordId);
+  store.pgEditLeaseInspectionPromises = store.pgEditLeaseInspectionPromises || {};
+  if (store.pgEditLeaseInspectionPromises[key]) return store.pgEditLeaseInspectionPromises[key];
+  setPgEditLeaseSession(store, entityType, recordId, { inspectionState: 'loading' });
+  let promise;
+  promise = Promise.resolve().then(async () => {
+    try {
+      const result = await getTowerPgEditLease(context.workspaceId, {
+        entityType,
+        entityId: recordId,
+        baseUrl: context.baseUrl,
+        appNpub: context.appNpub,
+      });
+      const inspectedLease = result?.lease || result?.edit_lease || result?.leases?.[0] || null;
+      return setPgEditLeaseSession(store, entityType, recordId, {
+        inspectionState: 'ready',
+        inspectedLease,
+      });
+    } catch {
+      return setPgEditLeaseSession(store, entityType, recordId, {
+        inspectionState: 'unknown',
+        inspectedLease: null,
+      });
+    } finally {
+      if (store.pgEditLeaseInspectionPromises?.[key] === promise) {
+        delete store.pgEditLeaseInspectionPromises[key];
+      }
+    }
+  });
+  store.pgEditLeaseInspectionPromises[key] = promise;
+  return promise;
+}
+
 export function stopPgEditLeaseRenewal(store, record, entityType, options = {}) {
   const key = pgEditLeaseSessionKey(entityType, record?.record_id);
   if (!key || !store?.pgEditLeaseRenewalTimers?.[key]) return false;
@@ -107,33 +158,51 @@ export async function acquirePgEditLeaseForRecord(store, record, entityType, opt
   const existing = getPgEditLeaseSession(store, entityType, recordId);
   if (existing?.lease?.lease_token) return existing.lease;
 
+  const key = pgEditLeaseSessionKey(entityType, recordId);
+  store.pgEditLeaseAcquirePromises = store.pgEditLeaseAcquirePromises || {};
+  if (store.pgEditLeaseAcquirePromises[key]) return store.pgEditLeaseAcquirePromises[key];
+
   const context = resolveTowerPgWorkspaceContext(store);
   if (!context.workspaceId || !context.baseUrl) throw new Error('Tower PG workspace is not ready');
-  try {
-    setPgEditLeaseSession(store, entityType, recordId, { acquireState: 'acquiring', message: '' });
-    const result = await acquireTowerPgEditLease(context.workspaceId, {
-      entity_type: entityType,
-      entity_id: recordId,
-      ttl_seconds: options.ttlSeconds || 120,
-    }, {
-      baseUrl: context.baseUrl,
-      appNpub: context.appNpub,
-    });
-    setPgEditLeaseSession(store, entityType, recordId, {
-      acquireState: 'held',
-      lease: result.lease || null,
-      message: '',
-    });
-    return result.lease || null;
-  } catch (error) {
-    const normalized = normalizeAcquireError(error);
-    setPgEditLeaseSession(store, entityType, recordId, {
-      acquireState: 'blocked',
-      lease: null,
-      message: normalized.userMessage,
-    });
-    throw normalized;
-  }
+  let promise;
+  promise = Promise.resolve().then(async () => {
+    try {
+      setPgEditLeaseSession(store, entityType, recordId, { acquireState: 'acquiring', message: '' });
+      const result = await acquireTowerPgEditLease(context.workspaceId, {
+        entity_type: entityType,
+        entity_id: recordId,
+        ttl_seconds: options.ttlSeconds || 120,
+      }, {
+        baseUrl: context.baseUrl,
+        appNpub: context.appNpub,
+      });
+      setPgEditLeaseSession(store, entityType, recordId, {
+        acquireState: 'held',
+        lease: result.lease || null,
+        message: '',
+      });
+      return result.lease || null;
+    } catch (error) {
+      const normalized = normalizeAcquireError(error);
+      setPgEditLeaseSession(store, entityType, recordId, {
+        acquireState: 'blocked',
+        lease: null,
+        blockedLease: {
+          holder_actor_npub: normalized?.holder_actor_npub || normalized?.holder_npub || null,
+          holder_display_name: normalized?.holder_display_name || normalized?.holder_name || null,
+          expires_at: normalized?.expires_at || null,
+        },
+        message: normalized.userMessage,
+      });
+      throw normalized;
+    } finally {
+      if (store.pgEditLeaseAcquirePromises?.[key] === promise) {
+        delete store.pgEditLeaseAcquirePromises[key];
+      }
+    }
+  });
+  store.pgEditLeaseAcquirePromises[key] = promise;
+  return promise;
 }
 
 export async function renewPgEditLeaseForRecord(store, record, entityType, options = {}) {
@@ -176,11 +245,20 @@ export function startPgEditLeaseRenewal(store, record, entityType, options = {})
     try {
       await renewPgEditLeaseForRecord(store, record, entityType, options);
     } catch (error) {
+      const message = error?.userMessage || error?.message || 'Unable to renew Tower PG edit lease.';
       setPgEditLeaseSession(store, entityType, record.record_id, {
         acquireState: 'blocked',
-        message: error?.userMessage || error?.message || 'Unable to renew Tower PG edit lease.',
+        message,
       });
       stopPgEditLeaseRenewal(store, record, entityType, options);
+      if (entityType === 'document' && store?.selectedDocId === record.record_id) {
+        store.docEditAccessState = 'blocked';
+        store.docEditAccessMessage = store.docEditDraftDirty
+          ? 'Draft preserved — the edit lease expired. Retry edit access before saving.'
+          : message;
+        store.docRichEditorAdapter?.setEditable?.(false);
+        store.cancelDocAutosave?.();
+      }
       if (options.reportError && store) store.error = error?.message || 'Unable to renew Tower PG edit lease.';
     } finally {
       renewing = false;

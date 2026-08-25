@@ -2251,14 +2251,6 @@ button:disabled {
   padding: 0 0.35rem 0.5rem;
 }
 
-.sidebar-workspace-navigation-divider {
-  flex: 0 0 auto;
-  width: auto;
-  margin: 0 0.65rem 0.5rem;
-  border: 0;
-  border-top: 1px solid #cbd5e1;
-}
-
 .sidebar-workspace-overview {
   width: 100%;
   min-width: 0;
@@ -3845,7 +3837,6 @@ button:disabled {
 
 .sidebar-collapsed .sidebar-label,
 .sidebar-collapsed .sidebar-channels,
-.sidebar-collapsed .sidebar-workspace-navigation-divider,
 .sidebar-collapsed .sidebar-scope-navigation,
 .sidebar-collapsed .sidebar-workspace-label-row,
 .sidebar-collapsed .sidebar-workspace-copy,
@@ -10349,6 +10340,58 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   color: #fff;
 }
 
+.doc-edit-status {
+  max-width: 18rem;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-edit-status-acquiring { color: #1d4ed8; }
+.doc-edit-status-editing { color: #047857; }
+.doc-edit-status-blocked,
+.doc-edit-status-offline { color: #b45309; }
+
+.doc-edit-access-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: -0.25rem 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(180, 83, 9, 0.22);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 247, 237, 0.92);
+  color: #92400e;
+  font-size: 0.78rem;
+}
+
+.doc-edit-access-banner-acquiring {
+  border-color: rgba(29, 78, 216, 0.18);
+  background: rgba(239, 246, 255, 0.92);
+  color: #1d4ed8;
+}
+
+.doc-edit-access-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 0.4rem;
+}
+
+.doc-edit-access-actions button {
+  padding: 0.28rem 0.55rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
 .doc-checkout-pill {
   display: inline-flex;
   align-items: center;
@@ -15053,10 +15096,6 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   }
 
   .sidebar.sidebar-mobile-open .sidebar-scope-navigation {
-    display: block;
-  }
-
-  .sidebar.sidebar-mobile-open .sidebar-workspace-navigation-divider {
     display: block;
   }
 

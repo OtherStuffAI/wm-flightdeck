@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   acquirePgEditLeaseForRecord,
+  inspectPgEditLeaseForRecord,
   releasePgEditLeaseForRecord,
   PG_EDIT_CONFLICT_MESSAGE,
   PG_SYNCED_OFFLINE_EDIT_MESSAGE,
@@ -11,6 +12,7 @@ import {
 
 vi.mock('../src/api.js', () => ({
   acquireTowerPgEditLease: vi.fn(),
+  getTowerPgEditLease: vi.fn(),
   releaseTowerPgEditLease: vi.fn(),
   renewTowerPgEditLease: vi.fn(),
 }));
@@ -74,6 +76,48 @@ describe('PG edit sessions', () => {
     }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
     expect(lease).toEqual({ id: 'lease-1', lease_token: 'token-1' });
     expect(target.pgEditLeaseSessions['document:doc-1'].lease.lease_token).toBe('token-1');
+  });
+
+  it('deduplicates simultaneous acquire requests for one record', async () => {
+    const api = await import('../src/api.js');
+    let resolveAcquire;
+    api.acquireTowerPgEditLease.mockReturnValueOnce(new Promise((resolve) => { resolveAcquire = resolve; }));
+    const target = store();
+    const record = { record_id: 'doc-race', pg_backend: true, sync_status: 'synced' };
+
+    const first = acquirePgEditLeaseForRecord(target, record, 'document');
+    const second = acquirePgEditLeaseForRecord(target, record, 'document');
+    await Promise.resolve();
+
+    expect(api.acquireTowerPgEditLease).toHaveBeenCalledTimes(1);
+    resolveAcquire({ lease: { id: 'lease-race', lease_token: 'token-race' } });
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { id: 'lease-race', lease_token: 'token-race' },
+      { id: 'lease-race', lease_token: 'token-race' },
+    ]);
+  });
+
+  it('inspects an active lease without acquiring it', async () => {
+    const api = await import('../src/api.js');
+    api.getTowerPgEditLease.mockResolvedValueOnce({
+      lease: { id: 'lease-other', holder_actor_npub: 'npub1other' },
+    });
+    const target = store();
+
+    const session = await inspectPgEditLeaseForRecord(target, {
+      record_id: 'doc-inspect',
+      pg_backend: true,
+      sync_status: 'synced',
+    }, 'document');
+
+    expect(api.getTowerPgEditLease).toHaveBeenCalledWith('workspace-1', {
+      entityType: 'document',
+      entityId: 'doc-inspect',
+      baseUrl: 'https://tower.example',
+      appNpub: 'flightdeck_pg',
+    });
+    expect(api.acquireTowerPgEditLease).not.toHaveBeenCalled();
+    expect(session).toMatchObject({ inspectionState: 'ready', inspectedLease: { id: 'lease-other' } });
   });
 
   it('maps lease conflicts to a view-mode message', async () => {

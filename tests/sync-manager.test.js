@@ -20,6 +20,8 @@ import {
   startWorkerFlushTimer,
   connectSSE,
   provideSSEToken,
+  rejectSSEToken,
+  acknowledgeSSEBatch,
 } from '../src/sync-worker-client.js';
 import { syncManagerMixin } from '../src/sync-manager.js';
 import { getSyncFamilyHash } from '../src/sync-families.js';
@@ -28,6 +30,7 @@ import { getActiveWorkspaceKeySecretForAuth } from '../src/crypto/workspace-keys
 import { isTowerPgBackendMode } from '../src/backend-mode.js';
 import {
   hydrateTowerPgChannelMessages,
+  hydrateTowerPgChannelAgentActivities,
   hydrateTowerPgDocComments,
   hydrateTowerPgEventUpdates,
   hydrateTowerPgTaskComments,
@@ -40,6 +43,7 @@ vi.mock('../src/backend-mode.js', () => ({
 
 vi.mock('../src/pg-read-hydrator.js', () => ({
   hydrateTowerPgChannelMessages: vi.fn(async () => []),
+  hydrateTowerPgChannelAgentActivities: vi.fn(async () => []),
   hydrateTowerPgDocComments: vi.fn(async () => []),
   hydrateTowerPgEventUpdates: vi.fn(async () => ({ appliedTargets: 0, fallbackEvents: 0, events: 0 })),
   hydrateTowerPgTaskComments: vi.fn(async () => []),
@@ -98,6 +102,8 @@ vi.mock('../src/sync-worker-client.js', () => ({
   stopWorkerFlushTimer: vi.fn(),
   connectSSE: vi.fn(),
   provideSSEToken: vi.fn(),
+  rejectSSEToken: vi.fn(),
+  acknowledgeSSEBatch: vi.fn(),
   disconnectSSE: vi.fn(),
   setSSEStatusCallback: vi.fn(),
   flushNow: vi.fn(),
@@ -1471,14 +1477,16 @@ describe('sync family progress helpers', () => {
       selectedChannelId: 'channel-1',
     });
 
-    fn({ status: 'connected' });
-    await Promise.resolve();
+    await fn({ status: 'connected' });
 
     expect(syncTowerPgWorkspace).toHaveBeenCalled();
     expect(syncTowerPgWorkspace.mock.calls.at(-1)[0]).toBe(store);
+    expect(hydrateTowerPgChannelAgentActivities).toHaveBeenCalledTimes(1);
+    expect(hydrateTowerPgChannelAgentActivities.mock.calls[0][0]).toBe(store);
+    expect(hydrateTowerPgChannelAgentActivities.mock.calls[0][1]).toBe('channel-1');
   });
 
-  it('drops replay events already covered by an in-flight reconnect delta', async () => {
+  it('preserves replay events received while the reconnect workspace delta is in flight', async () => {
     isTowerPgBackendMode.mockReturnValue(true);
     let resolveDelta;
     syncTowerPgWorkspace.mockImplementationOnce(() => new Promise((resolve) => { resolveDelta = resolve; }));
@@ -1495,7 +1503,10 @@ describe('sync family progress helpers', () => {
     await reconnect;
 
     expect(syncTowerPgWorkspace).toHaveBeenCalledTimes(1);
-    expect(hydrateTowerPgEventUpdates).not.toHaveBeenCalled();
+    expect(hydrateTowerPgEventUpdates).toHaveBeenCalledWith(
+      expect.anything(),
+      [{ entity_type: 'task', entity_id: 'task-from-replay' }],
+    );
   });
 
   it('collapses a large SSE replay batch into one workspace delta', async () => {
@@ -1510,6 +1521,53 @@ describe('sync family progress helpers', () => {
 
     expect(syncTowerPgWorkspace).toHaveBeenCalledTimes(1);
     expect(hydrateTowerPgEventUpdates).not.toHaveBeenCalled();
+  });
+
+  it('keeps working and terminal agent activity targeted in a replay burst over the threshold', async () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    const activities = [
+      { entity_type: 'agent_activity', entity_id: 'activity-working', channel_id: 'channel-1', payload: { agent_activity: { state: 'working' } } },
+      { entity_type: 'agent_activity', entity_id: 'activity-terminal', channel_id: 'channel-1', payload: { agent_activity: { state: 'completed' } } },
+    ];
+    const pgEvents = [
+      ...Array.from({ length: 24 }, (_, index) => ({ entity_type: 'task', entity_id: `task-${index}` })),
+      ...activities,
+    ];
+    const { fn } = bindMethod('handleSSEStatus');
+
+    await fn({ status: 'pull-complete', families: ['flightdeck_pg'], pgEvents });
+
+    expect(syncTowerPgWorkspace).toHaveBeenCalledTimes(1);
+    expect(hydrateTowerPgEventUpdates).toHaveBeenCalledWith(expect.anything(), activities);
+    expect(hydrateTowerPgChannelAgentActivities).toHaveBeenCalledWith(expect.anything(), 'channel-1');
+  });
+
+  it('acknowledges a PG cursor only after successful materialisation and retries a failed batch', async () => {
+    vi.useFakeTimers();
+    isTowerPgBackendMode.mockReturnValue(true);
+    hydrateTowerPgEventUpdates
+      .mockRejectedValueOnce(new Error('Dexie commit failed'))
+      .mockResolvedValueOnce({ appliedTargets: 1, fallbackEvents: 0, events: 1 });
+    const { fn } = bindMethod('handleSSEStatus');
+    const message = {
+      status: 'pull-complete',
+      families: ['flightdeck_pg'],
+      pgEvents: [{ entity_type: 'agent_activity', entity_id: 'row-1', channel_id: 'channel-1' }],
+      batchId: 'sse-batch-1',
+      connectionGeneration: 3,
+      requestedCursor: 'cursor-committed',
+      receivedCursor: 'cursor-next',
+    };
+
+    await fn(message);
+    expect(acknowledgeSSEBatch).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(acknowledgeSSEBatch).toHaveBeenCalledWith(expect.objectContaining({
+      batchId: 'sse-batch-1',
+      connectionGeneration: 3,
+      requestedCursor: 'cursor-committed',
+    }));
+    vi.useRealTimers();
   });
 
   it('does not repeat an SSE fallback delta while the cursor is freshly current', async () => {

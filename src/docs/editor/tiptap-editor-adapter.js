@@ -8,6 +8,7 @@ export function createTiptapEditorAdapter({
   document,
   editorState,
   editable = true,
+  onEditIntent = () => {},
   onUpdate = () => {},
   onPaste = () => false,
   placeholder = 'Start writing...',
@@ -20,6 +21,20 @@ export function createTiptapEditorAdapter({
     content: editorState || resolveDocumentProseMirrorState(document || {}),
     editorProps: {
       handlePaste: (_view, event) => onPaste(event, editor) === true,
+      handleDOMEvents: {
+        pointerdown: () => {
+          onEditIntent('pointer');
+          return false;
+        },
+        focus: () => {
+          onEditIntent('focus');
+          return false;
+        },
+        keydown: () => {
+          onEditIntent('keyboard');
+          return false;
+        },
+      },
     },
     onUpdate: ({ editor: activeEditor }) => {
       onUpdate(prosemirrorToFlightDeckContentModel(activeEditor.getJSON()), activeEditor);
@@ -36,6 +51,9 @@ export function createTiptapEditorAdapter({
     },
     setEditable(nextEditable) {
       editor.setEditable(Boolean(nextEditable));
+    },
+    setContent(editorState, { emitUpdate = false } = {}) {
+      editor.commands.setContent(editorState || { type: 'doc', content: [] }, { emitUpdate });
     },
     destroy() {
       editor.destroy();

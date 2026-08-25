@@ -9,6 +9,7 @@ const {
   createTowerPgDocCommentMock,
   downloadStorageObjectMock,
   getTowerPgDocVersionsMock,
+  getTowerPgEditLeaseMock,
   isTowerPgBackendModeMock,
   prepareStorageObjectMock,
   prepareTowerPgStorageObjectMock,
@@ -27,6 +28,7 @@ const {
   deleteTowerPgDocCommentMock: vi.fn(),
   downloadStorageObjectMock: vi.fn(),
   getTowerPgDocVersionsMock: vi.fn(),
+  getTowerPgEditLeaseMock: vi.fn(),
   isTowerPgBackendModeMock: vi.fn(() => false),
   prepareStorageObjectMock: vi.fn(),
   prepareTowerPgStorageObjectMock: vi.fn(),
@@ -57,6 +59,7 @@ vi.mock('../src/api.js', () => ({
   getTowerPgChannelTasks: vi.fn(),
   getTowerPgChannelThreads: vi.fn(),
   getTowerPgDocVersions: getTowerPgDocVersionsMock,
+  getTowerPgEditLease: getTowerPgEditLeaseMock,
   getTowerPgScopeChannels: vi.fn(),
   getTowerPgScopeTasks: vi.fn(),
   getTowerPgWorkspaceScopes: vi.fn(),
@@ -113,11 +116,19 @@ function createStore(overrides = {}) {
     session: { npub: 'npub1owner' },
     currentWorkspace: { creatorNpub: 'npub1owner' },
     docAutosaveState: 'saved',
+    docEditAccessGeneration: 0,
+    docEditAccessState: 'ready',
+    docEditAccessMessage: '',
+    docEditDraftDirty: false,
+    docEditAcquirePromise: null,
+    pgEditLeaseSessions: {},
     error: '',
     loadDocEditorFromSelection: vi.fn(),
     loadDocComments: vi.fn(),
     stopDocCommentsLiveQuery: vi.fn(),
     clearDocCommentConnector: vi.fn(),
+    scheduleDocCommentConnectorUpdate: vi.fn(),
+    scheduleStorageImageHydration: vi.fn(),
     syncRoute: vi.fn(),
     ensureBackgroundSync: vi.fn(),
     containsInlineImageUploadToken: vi.fn(() => false),
@@ -175,6 +186,7 @@ beforeEach(() => {
   updateTowerPgDocCommentMock.mockReset();
   deleteTowerPgDocCommentMock.mockReset();
   getTowerPgDocVersionsMock.mockReset();
+  getTowerPgEditLeaseMock.mockReset();
 });
 
 afterEach(() => {
@@ -1146,6 +1158,175 @@ describe('docsManagerMixin checkout orchestration', () => {
     expect(store.setDocEditorMode).toHaveBeenCalledWith('block');
   });
 
+  it('opens a synced PG document on the rich TipTap surface while lease inspection stays non-blocking', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    let resolveInspection;
+    getTowerPgEditLeaseMock.mockReturnValueOnce(new Promise((resolve) => { resolveInspection = resolve; }));
+    const record = {
+      record_id: 'doc-ready',
+      pg_backend: true,
+      sync_status: 'synced',
+      version: 4,
+      content: 'Authoritative body',
+      content_blocks: [],
+    };
+    const store = createStore({
+      documents: [record],
+      docEditorRichFeatureEnabled: true,
+      loadDocEditorFromSelection: docsManagerMixin.loadDocEditorFromSelection,
+      prefetchFlightDeckDoc: vi.fn(() => new Promise(() => {})),
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        workspaceOwnerNpub: 'npub1owner',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+      },
+    });
+
+    store.openDoc(record.record_id);
+
+    expect(store.docEditorMode).toBe('rich');
+    expect(store.docEditorContent).toBe('Authoritative body');
+    expect(acquireTowerPgEditLeaseMock).not.toHaveBeenCalled();
+    expect(store.docEditLeaseInfo).toBeNull();
+
+    resolveInspection({ lease: { id: 'lease-other', holder_actor_npub: 'npub1other' } });
+    await vi.waitFor(() => expect(store.docEditLeaseInfo?.id).toBe('lease-other'));
+    expect(acquireTowerPgEditLeaseMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps acquisition typing ephemeral, deduplicates intent races, and continues without remounting after success', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval').mockReturnValue('renew-doc-delayed');
+    let resolveAcquire;
+    acquireTowerPgEditLeaseMock.mockReturnValueOnce(new Promise((resolve) => { resolveAcquire = resolve; }));
+    const record = {
+      record_id: 'doc-delayed',
+      pg_backend: true,
+      sync_status: 'synced',
+      version: 7,
+      content: 'Base',
+    };
+    const adapter = {
+      setEditable: vi.fn(),
+      getContentModel: vi.fn(() => ({ content: 'BaseABC' })),
+    };
+    const store = createStore({
+      documents: [record],
+      selectedDocType: 'document',
+      selectedDocId: record.record_id,
+      docEditorMode: 'rich',
+      docEditAccessGeneration: 3,
+      docEditBaseRecordId: record.record_id,
+      docEditBaseRowVersion: 7,
+      docRichEditorAdapter: adapter,
+      scheduleDocAutosave: vi.fn(),
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        workspaceOwnerNpub: 'npub1owner',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+      },
+    });
+
+    const first = store.beginSelectedDocLeaseAcquisition();
+    const second = store.beginSelectedDocLeaseAcquisition();
+    store.docEditorContent = 'BaseABC';
+    store.handleDocRichEditorUpdate();
+    await Promise.resolve();
+
+    expect(store.docEditAccessState).toBe('acquiring');
+    expect(store.docEditDraftDirty).toBe(true);
+    expect(store.docEditorContent).toBe('BaseABC');
+    expect(acquireTowerPgEditLeaseMock).toHaveBeenCalledTimes(1);
+    expect(store.scheduleDocAutosave).not.toHaveBeenCalled();
+
+    resolveAcquire({ lease: { id: 'lease-delayed', lease_token: 'token-delayed' } });
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+
+    expect(store.docEditAccessState).toBe('editing');
+    expect(store.docEditorContent).toBe('BaseABC');
+    expect(store.docRichEditorAdapter).toBe(adapter);
+    expect(adapter.setEditable).toHaveBeenLastCalledWith(true);
+    expect(store.scheduleDocAutosave).toHaveBeenCalledTimes(1);
+    expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 60_000);
+  });
+
+  it('preserves and locks an acquisition draft when Tower denies the lease', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const denial = Object.assign(new Error('edit lease is held'), {
+      status: 409,
+      holder_actor_npub: 'npub1holder',
+      expires_at: '2026-08-25T13:00:00.000Z',
+    });
+    acquireTowerPgEditLeaseMock.mockRejectedValueOnce(denial);
+    const record = { record_id: 'doc-denied', pg_backend: true, sync_status: 'synced', version: 2, content: 'Base' };
+    const adapter = { setEditable: vi.fn(), getContentModel: () => ({ content: 'Base draft' }) };
+    const store = createStore({
+      documents: [record],
+      selectedDocType: 'document',
+      selectedDocId: record.record_id,
+      docEditorMode: 'rich',
+      docEditorContent: 'Base draft',
+      docEditDraftDirty: true,
+      docEditBaseRecordId: record.record_id,
+      docEditBaseRowVersion: 2,
+      docRichEditorAdapter: adapter,
+      scheduleDocAutosave: vi.fn(),
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        workspaceOwnerNpub: 'npub1owner',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+      },
+    });
+
+    await expect(store.beginSelectedDocLeaseAcquisition()).resolves.toBe(false);
+
+    expect(store.docEditAccessState).toBe('blocked');
+    expect(store.docEditorContent).toBe('Base draft');
+    expect(store.docEditLeaseInfo).toMatchObject({ holder_actor_npub: 'npub1holder' });
+    expect(adapter.setEditable).toHaveBeenLastCalledWith(false);
+    expect(store.scheduleDocAutosave).not.toHaveBeenCalled();
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+  });
+
+  it('releases a delayed lease that resolves after document navigation without touching the next document', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    releaseTowerPgEditLeaseMock.mockResolvedValueOnce({ released: true });
+    let resolveAcquire;
+    acquireTowerPgEditLeaseMock.mockReturnValueOnce(new Promise((resolve) => { resolveAcquire = resolve; }));
+    const firstRecord = { record_id: 'doc-first', pg_backend: true, sync_status: 'synced', version: 1 };
+    const secondRecord = { record_id: 'doc-second', pg_backend: true, sync_status: 'synced', version: 9 };
+    const store = createStore({
+      documents: [firstRecord, secondRecord],
+      selectedDocType: 'document',
+      selectedDocId: firstRecord.record_id,
+      docEditorMode: 'rich',
+      docEditAccessGeneration: 1,
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        workspaceOwnerNpub: 'npub1owner',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+      },
+    });
+
+    const acquiring = store.beginSelectedDocLeaseAcquisition();
+    store.selectedDocId = secondRecord.record_id;
+    store.docEditAccessGeneration += 1;
+    store.docEditAccessState = 'ready';
+    resolveAcquire({ lease: { id: 'lease-first', lease_token: 'token-first' } });
+
+    await expect(acquiring).resolves.toBe(false);
+    expect(store.selectedDocId).toBe(secondRecord.record_id);
+    expect(store.docEditAccessState).toBe('ready');
+    expect(releaseTowerPgEditLeaseMock).toHaveBeenCalledWith('workspace-1', 'lease-first', {
+      lease_token: 'token-first',
+    }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
+    expect(store.pgEditLeaseRenewalTimers?.['document:doc-first']).toBeUndefined();
+  });
+
   it('allows delegated workspace-key checkout attempts when local creator differs', async () => {
     acquireRecordCheckoutMock.mockResolvedValueOnce({
       checkout: {
@@ -1351,7 +1532,7 @@ describe('docsManagerMixin checkout orchestration', () => {
     expect(store.isCheckoutRequiredRecordFamily(recordFamilyHash('task'))).toBe(false);
   });
 
-  it('saveAndExitSelectedDocEditMode saves, returns to read mode, and force-releases checkout', async () => {
+  it('saveAndExitSelectedDocEditMode saves, returns to the stable rich surface, and force-releases checkout', async () => {
     const record = { record_id: 'doc-a', sync_status: 'pending', version: 2 };
     const store = createStore({
       documents: [record],
@@ -1370,7 +1551,7 @@ describe('docsManagerMixin checkout orchestration', () => {
     expect(saved).toBe(true);
     expect(store.commitDocBlockEdit).toHaveBeenCalledTimes(1);
     expect(store.saveSelectedDocItem).toHaveBeenCalledWith({ autosave: false });
-    expect(store.setDocEditorMode).toHaveBeenCalledWith('preview');
+    expect(store.setDocEditorMode).toHaveBeenCalledWith('rich');
     expect(store.releaseLockManagedCheckout).toHaveBeenCalledWith(
       record,
       documentFamilyHash,
@@ -1835,34 +2016,19 @@ describe('docsManagerMixin canonical row normalization', () => {
     });
   });
 
-  it('refreshes and retries PG document saves after stale row_version conflicts', async () => {
+  it('preserves the local draft and refuses to overwrite Tower after a stale row_version conflict', async () => {
     const wsDb = openWorkspaceDb('npub1signedinactor');
     await wsDb.open();
     await Promise.all(wsDb.tables.map((table) => table.clear()));
     isTowerPgBackendModeMock.mockReturnValue(true);
     prepareTowerPgStorageObjectMock
-      .mockResolvedValueOnce({ object_id: 'storage-pg-doc-first', upload_url: '' })
-      .mockResolvedValueOnce({ object_id: 'storage-pg-doc-retry', upload_url: '' });
+      .mockResolvedValueOnce({ object_id: 'storage-pg-doc-first', upload_url: '' });
     uploadStorageObjectMock.mockResolvedValue({});
     completeStorageObjectMock.mockResolvedValue({});
     const stale = new Error('Tower PG API 409 PATCH https://tower.example/docs/doc-1: {"code":"stale_row_version"}');
     stale.status = 409;
     stale.responseText = '{"code":"stale_row_version"}';
-    updateTowerPgDocMock
-      .mockRejectedValueOnce(stale)
-      .mockResolvedValueOnce({
-        doc: {
-          id: 'doc-1',
-          workspace_id: 'workspace-1',
-          scope_id: 'scope-1',
-          channel_id: 'channel-1',
-          storage_object_id: 'storage-pg-doc-retry',
-          title: 'Edited title',
-          summary: 'Edited body',
-          metadata: {},
-          row_version: 3,
-        },
-      });
+    updateTowerPgDocMock.mockRejectedValueOnce(stale);
 
     const store = createStore({
       workspaceOwnerNpub: 'npub1signedinactor',
@@ -1893,6 +2059,11 @@ describe('docsManagerMixin canonical row normalization', () => {
       pgEditLeaseSessions: {
         'document:doc-1': { lease: { lease_token: 'lease-token' } },
       },
+      docEditAccessState: 'editing',
+      docEditDraftDirty: true,
+      docEditBaseRecordId: 'doc-1',
+      docEditBaseRowVersion: 1,
+      docRichEditorAdapter: { setEditable: vi.fn() },
       refreshDocuments: vi.fn(async function refreshDocuments() {
         this.patchDocumentLocal({
           ...this.documents.find((item) => item.record_id === 'doc-1'),
@@ -1907,19 +2078,16 @@ describe('docsManagerMixin canonical row normalization', () => {
     store.docEditorTitle = 'Edited title';
     store.docEditorBlocks = [{ id: 'block-1', type: 'markdown', text: 'Edited body', attrs: {} }];
 
-    const saved = await store.saveSelectedDocItem({ autosave: false });
+    await expect(store.saveSelectedDocItem({ autosave: false })).rejects.toBe(stale);
 
-    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(2);
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
     expect(updateTowerPgDocMock.mock.calls[0][2]).toMatchObject({ row_version: 1 });
-    expect(updateTowerPgDocMock.mock.calls[1][2]).toMatchObject({ row_version: 2 });
-    expect(saved).toMatchObject({
-      record_id: 'doc-1',
-      title: 'Edited title',
-      content: 'Edited body',
-      version: 3,
-      sync_status: 'synced',
-    });
-    expect(store.docAutosaveState).toBe('saved');
+    expect(store.selectedDocument).toMatchObject({ title: 'Server title', content: 'Server body', version: 2 });
+    expect(store.docEditorTitle).toBe('Edited title');
+    expect(store.docEditorBlocks).toEqual([{ id: 'block-1', type: 'markdown', text: 'Edited body', attrs: {} }]);
+    expect(store.docEditAccessState).toBe('conflict');
+    expect(store.docEditDraftDirty).toBe(true);
+    expect(store.docAutosaveState).toBe('error');
   });
 
   it('loads PG document versions from the typed Tower route', async () => {

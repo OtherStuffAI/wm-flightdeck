@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   connectSSE,
   provideSSEToken,
+  rejectSSEToken,
   disconnectSSE,
   flushOnly,
   setSSEStatusCallback,
@@ -62,6 +63,8 @@ vi.mock('../src/sync-worker-client.js', () => ({
   stopWorkerFlushTimer: vi.fn(),
   connectSSE: vi.fn(),
   provideSSEToken: vi.fn(),
+  rejectSSEToken: vi.fn(),
+  acknowledgeSSEBatch: vi.fn(),
   disconnectSSE: vi.fn(),
   setSSEStatusCallback: vi.fn(),
   flushNow: vi.fn(),
@@ -73,6 +76,8 @@ vi.mock('../src/auth/nostr.js', () => ({
 }));
 
 vi.mock('../src/pg-read-hydrator.js', () => ({
+  hydrateTowerPgChannelAgentActivities: vi.fn(async () => []),
+  hydrateTowerPgEventUpdates: vi.fn(async () => ({ appliedTargets: 0, fallbackEvents: 0, events: 0 })),
   syncTowerPgWorkspace: vi.fn(async () => ({ pages: 1, changed: 0 })),
 }));
 

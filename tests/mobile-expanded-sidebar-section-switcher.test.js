@@ -64,7 +64,8 @@ describe('expanded left-column section switcher', () => {
 
   it('removes the actual expanded left-column navigation set and its layout space', () => {
     expect(sidebar).toContain('class="sidebar-nav" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen"');
-    expect(sidebar.indexOf('class="sidebar-nav"')).toBeLessThan(sidebar.indexOf('class="sidebar-workspace-navigation-divider"'));
+    expect(sidebar).toMatch(/<\/ul>\s*<section\s+class="sidebar-scope-navigation"/s);
+    expect(sidebar).not.toContain('sidebar-workspace-navigation-divider');
     expect(sidebar).not.toContain('mobile-expanded-section-switcher');
     expect(sidebar.match(/navigateTo\('settings'\)/g)).toHaveLength(1);
     expect(styles).toMatch(/\.sidebar\.sidebar-mobile-open \.sidebar-nav\s*\{[^}]*display:\s*none;/s);

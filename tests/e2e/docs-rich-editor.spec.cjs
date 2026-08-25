@@ -57,24 +57,26 @@ async function seedSelectedDocument(page, options = {}) {
     store.selectedDocType = 'document';
     store.loadDocEditorFromSelection();
 
-    store.acquireSelectedDocCheckout = async () => true;
-    store.getSelectedDocCheckoutSession = () => ({
-      checkout: {
-        state: 'checked_out',
-        holder_npub: 'npub1docsrichtest',
-        lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
-      },
-    });
+    if (seedOptions.enterEdit !== false) {
+      store.acquireSelectedDocCheckout = async () => true;
+      store.getSelectedDocCheckoutSession = () => ({
+        checkout: {
+          state: 'checked_out',
+          holder_npub: 'npub1docsrichtest',
+          lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
+        },
+      });
 
-    const entered = await store.enterSelectedDocEditMode();
-    if (!entered) throw new Error('Document edit mode did not open.');
+      const entered = await store.enterSelectedDocEditMode();
+      if (!entered) throw new Error('Document edit mode did not open.');
+    }
   }, options);
 }
 
-test('default document edit mode mounts the native Tiptap editor', async ({ page }) => {
+test('opening a document mounts the native Tiptap surface without acquiring edit access', async ({ page }) => {
   await page.goto('/');
 
-  await seedSelectedDocument(page);
+  await seedSelectedDocument(page, { enterEdit: false });
 
   await expect(page.locator('.docs-editor-v3')).toBeVisible();
   await expect(page.locator('.doc-title-display')).toHaveText('Tip Tap Test');
@@ -94,6 +96,106 @@ test('default document edit mode mounts the native Tiptap editor', async ({ page
   expect(editorMetrics.width).toBeGreaterThan(300);
   expect(editorMetrics.height).toBeGreaterThan(120);
   expect(editorMetrics.text).toContain('This should open in Tiptap by default.');
+
+  const access = await page.evaluate(() => {
+    const store = window.Alpine.store('chat');
+    return { mode: store.docEditorMode, state: store.docEditAccessState };
+  });
+  expect(access).toEqual({ mode: 'rich', state: 'ready' });
+});
+
+test('typing stays visible during delayed lease acquisition and continues in the same editor after success', async ({ page }) => {
+  await page.goto('/');
+  await seedSelectedDocument(page, { enterEdit: false });
+  await page.evaluate(() => {
+    const store = window.Alpine.store('chat');
+    const now = new Date().toISOString();
+    const document = {
+      record_id: 'doc-rich-delayed',
+      owner_npub: 'npub1docsrichtest',
+      title: 'Delayed lease',
+      content: 'Base',
+      content_blocks: [{ id: 'base', type: 'markdown', raw: 'Base', text: 'Base', attrs: {}, start_line: 1 }],
+      version: 6,
+      pg_backend: true,
+      pg_record_type: 'doc',
+      sync_status: 'synced',
+      record_state: 'active',
+      created_at: now,
+      updated_at: now,
+      shares: [],
+      group_ids: [],
+    };
+    store.navSection = 'docs';
+    store.documents = [document];
+    store.selectedDocId = document.record_id;
+    store.selectedDocType = 'document';
+    store.loadDocEditorFromSelection();
+    store.__leaseAcquireCalls = 0;
+    store.__saveCalls = 0;
+    store.scheduleDocAutosave = () => { store.__autosaveScheduled = (store.__autosaveScheduled || 0) + 1; };
+    store.saveSelectedDocItem = async () => { store.__saveCalls += 1; return document; };
+    store.acquireSelectedDocCheckout = () => {
+      store.__leaseAcquireCalls += 1;
+      return new Promise((resolve) => {
+        window.__resolveDelayedDocLease = () => {
+          store.pgEditLeaseSessions = {
+            ...(store.pgEditLeaseSessions || {}),
+            [`document:${document.record_id}`]: {
+              acquireState: 'held',
+              lease: { id: 'lease-delayed', lease_token: 'token-delayed' },
+            },
+          };
+          resolve(true);
+        };
+      });
+    };
+  });
+
+  const editor = page.locator('.doc-rich-editor .ProseMirror');
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('ABC');
+
+  await expect(page.locator('.doc-edit-status')).toHaveText('Acquiring edit access…');
+  await expect(editor).toContainText('BaseABC');
+  const acquiring = await page.evaluate(() => {
+    const store = window.Alpine.store('chat');
+    const node = document.querySelector('.doc-rich-editor .ProseMirror');
+    node.dataset.delayedLeaseProbe = 'same-editor';
+    return {
+      state: store.docEditAccessState,
+      acquireCalls: store.__leaseAcquireCalls,
+      saveCalls: store.__saveCalls,
+      content: store.docRichEditorAdapter.editor.getText(),
+    };
+  });
+  expect(acquiring).toEqual({ state: 'acquiring', acquireCalls: 1, saveCalls: 0, content: 'BaseABC' });
+
+  await page.evaluate(() => window.__resolveDelayedDocLease());
+  await expect(page.locator('.doc-edit-status')).toContainText('Editing · saved');
+  await expect(editor).toHaveAttribute('data-delayed-lease-probe', 'same-editor');
+  await expect(editor).toContainText('BaseABC');
+  const editing = await page.evaluate(() => {
+    const store = window.Alpine.store('chat');
+    return {
+      state: store.docEditAccessState,
+      acquireCalls: store.__leaseAcquireCalls,
+      saveCalls: store.__saveCalls,
+      autosaveScheduled: store.__autosaveScheduled,
+      content: store.docRichEditorAdapter.editor.getText(),
+      selectionFrom: store.docRichEditorAdapter.editor.state.selection.from,
+    };
+  });
+  expect(editing).toMatchObject({
+    state: 'editing',
+    acquireCalls: 1,
+    saveCalls: 0,
+    content: 'BaseABC',
+  });
+  expect(editing.autosaveScheduled).toBeGreaterThanOrEqual(1);
+  expect(editing.selectionFrom).toBeGreaterThan(1);
 });
 
 test('rich document edit mode displays stored images while editing', async ({ page }) => {
@@ -180,6 +282,7 @@ test('rich-editor selection becomes a saved visible quote and line anchor', asyn
   await page.setViewportSize({ width: 1280, height: 820 });
   await page.goto('/');
   await seedSelectedDocument(page);
+  await expect(page.locator('.doc-rich-editor .ProseMirror')).toBeVisible();
 
   const before = await page.evaluate(() => {
     const store = window.Alpine.store('chat');
@@ -261,6 +364,7 @@ test('rich document paste shows an upload placeholder before the image appears',
   await page.goto('/');
 
   await seedSelectedDocument(page);
+  await expect(page.locator('.doc-rich-editor .ProseMirror')).toBeVisible();
 
   await page.evaluate(() => {
     const store = window.Alpine.store('chat');

@@ -117,7 +117,6 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(styles).toMatch(/\.sidebar-collapsed \.sidebar-scope-navigation[\s\S]*display:\s*none;/);
     const mobile = styles.slice(styles.indexOf('@media (max-width: 768px)'));
     expect(mobile).toMatch(/\.sidebar\.sidebar-mobile-open \.sidebar-scope-navigation\s*\{[^}]*display:\s*block;/s);
-    expect(mobile).toMatch(/\.sidebar\.sidebar-mobile-open \.sidebar-workspace-navigation-divider\s*\{[^}]*display:\s*block;/s);
   });
 
   it('keeps the shared top bar available for the expanded-column section picker', () => {
@@ -127,9 +126,9 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(mobile).toMatch(/\.global-pg-channel-bar\.global-pg-channel-bar-sidebar-expanded\s*\{[^}]*display:\s*flex;/s);
   });
 
-  it('separates Setup from workspace navigation with an expanded-desktop-only divider', () => {
-    expect(html).toMatch(/<span class="sidebar-label">Setup<\/span>[\s\S]*<\/ul>\s*<hr\s+class="sidebar-workspace-navigation-divider"[\s\S]*<section\s+class="sidebar-scope-navigation"/s);
-    expect(styles).toMatch(/\.sidebar-workspace-navigation-divider\s*\{[^}]*border-top:\s*1px solid #cbd5e1;/s);
-    expect(styles).toMatch(/\.sidebar-collapsed \.sidebar-workspace-navigation-divider,[\s\S]*display:\s*none;/s);
+  it('places Home directly below Setup without a dedicated divider in desktop or mobile layouts', () => {
+    expect(html).toMatch(/<span class="sidebar-label">Setup<\/span>[\s\S]*<\/ul>\s*<section\s+class="sidebar-scope-navigation"/s);
+    expect(html).not.toContain('sidebar-workspace-navigation-divider');
+    expect(styles).not.toContain('sidebar-workspace-navigation-divider');
   });
 });

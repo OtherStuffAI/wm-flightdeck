@@ -48,6 +48,8 @@ import {
   stopWorkerFlushTimer,
   connectSSE,
   provideSSEToken,
+  rejectSSEToken,
+  acknowledgeSSEBatch,
   disconnectSSE,
   setSSEStatusCallback,
 } from './sync-worker-client.js';
@@ -72,6 +74,7 @@ import { outboundComment } from './translators/comments.js';
 import {
   hydrateTowerPgChannelDocumentsAndFiles,
   hydrateTowerPgChannelMessages,
+  hydrateTowerPgChannelAgentActivities,
   hydrateTowerPgChannelTasks,
   hydrateTowerPgChannels,
   hydrateTowerPgDailyNoteTarget,
@@ -111,6 +114,19 @@ const PG_FULL_SYNC_STEPS = Object.freeze([
 ]);
 const PG_FULL_SYNC_CHILD_CONCURRENCY = 4;
 const PG_SSE_TARGETED_EVENT_LIMIT = 25;
+const PG_SSE_TARGETED_ONLY_ENTITY_TYPES = new Set([
+  'agent_activity',
+  'response_activity',
+  'reaction',
+  'resource_view_state',
+  'wapp_activity_item',
+  'wapp_activity_mute',
+  'personal_agent_settings',
+  'workroom',
+  'workroom_event',
+  'workroom_link',
+  'workroom_participant',
+]);
 const WAPP_FAMILY_FRESH_MS = 30_000;
 const COLLECTION_FAMILY_FRESH_MS = 30_000;
 const DETAIL_FAMILY_FRESH_MS = 15_000;
@@ -2444,6 +2460,7 @@ export const syncManagerMixin = {
         connectionKey,
         reason: 'unexpected-stream-target',
       });
+      rejectSSEToken(requestId, connectionKey, 'unexpected-stream-target');
       return false;
     }
 
@@ -2462,6 +2479,7 @@ export const syncManagerMixin = {
         error: err?.name || 'Error',
         errorCode: err?.code || null,
       });
+      rejectSSEToken(requestId, connectionKey, err?.code || err?.name || 'signing-failed');
       return false;
     }
 
@@ -2509,7 +2527,7 @@ export const syncManagerMixin = {
 
     if (status === 'pull-complete') {
       if (this.isEncryptedRecordSyncDisabled) {
-        return this.queueTowerPgSSEHydration(message?.pgEvents || []);
+        return this.queueTowerPgSSEHydration(message?.pgEvents || [], message);
       }
       this.refreshStateForSyncFamilyHashes(message?.families || [], {
         refreshSyncStatus: false,
@@ -2551,8 +2569,9 @@ export const syncManagerMixin = {
     }
   },
 
-  queueTowerPgSSEHydration(pgEvents = []) {
+  queueTowerPgSSEHydration(pgEvents = [], batch = null, options = {}) {
     if (!Array.isArray(this.pendingTowerPgSSEEvents)) this.pendingTowerPgSSEEvents = [];
+    if (!Array.isArray(this.pendingTowerPgSSEBatches)) this.pendingTowerPgSSEBatches = [];
     const events = Array.isArray(pgEvents) ? pgEvents : [];
     for (const event of events) {
       if (event?.entity_type === 'message' && event?.entity_id) {
@@ -2570,14 +2589,23 @@ export const syncManagerMixin = {
       });
     }
     this.pendingTowerPgSSEEvents.push(...events);
-    if (events.length === 0) this.towerPgSSEFallbackRefreshPending = true;
+    if (batch?.batchId) {
+      this.pendingTowerPgSSEBatches.push({
+        batchId: batch.batchId,
+        connectionGeneration: batch.connectionGeneration,
+        requestedCursor: batch.requestedCursor || null,
+        receivedCursor: batch.receivedCursor || null,
+        receivedAt: batch.receivedAt || null,
+      });
+    }
+    if (events.length === 0 && options.drainOnly !== true) this.towerPgSSEFallbackRefreshPending = true;
     if (this.towerPgSSEHydrationPromise) return this.towerPgSSEHydrationPromise;
 
     this.towerPgSSEHydrationPromise = this.drainTowerPgSSEHydrationQueue()
       .finally(() => {
         this.towerPgSSEHydrationPromise = null;
-        if (this.pendingTowerPgSSEEvents?.length || this.towerPgSSEFallbackRefreshPending) {
-          this.queueTowerPgSSEHydration();
+        if (!this.towerPgSSEHydrationRetryTimer && (this.pendingTowerPgSSEEvents?.length || this.towerPgSSEFallbackRefreshPending)) {
+          this.queueTowerPgSSEHydration([], null, { drainOnly: true });
         }
       });
     return this.towerPgSSEHydrationPromise;
@@ -2586,6 +2614,7 @@ export const syncManagerMixin = {
   async drainTowerPgSSEHydrationQueue() {
     while (this.pendingTowerPgSSEEvents?.length || this.towerPgSSEFallbackRefreshPending) {
       const events = this.pendingTowerPgSSEEvents.splice(0);
+      const batches = this.pendingTowerPgSSEBatches.splice(0);
       const fallbackRefreshRequested = this.towerPgSSEFallbackRefreshPending;
       this.towerPgSSEFallbackRefreshPending = false;
       try {
@@ -2595,8 +2624,11 @@ export const syncManagerMixin = {
           messageIds: events.filter((event) => event?.entity_type === 'message').map((event) => event?.entity_id).filter(Boolean),
         });
         const replayBurst = events.length > PG_SSE_TARGETED_EVENT_LIMIT;
-        const eventResult = events.length > 0 && !replayBurst
-          ? await hydrateTowerPgEventUpdates(this, events)
+        const targetedOnlyEvents = replayBurst
+          ? events.filter((event) => PG_SSE_TARGETED_ONLY_ENTITY_TYPES.has(String(event?.entity_type || '').trim()))
+          : events;
+        const eventResult = targetedOnlyEvents.length > 0
+          ? await hydrateTowerPgEventUpdates(this, targetedOnlyEvents)
           : { fallbackEvents: 0 };
         const deltaRequested = fallbackRefreshRequested
           || replayBurst
@@ -2607,13 +2639,16 @@ export const syncManagerMixin = {
         if (ranWorkspaceDelta) {
           await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? syncTowerPgWorkspace(this));
           this.towerPgLastReplayDeltaAt = Date.now();
-          // A reconnect delta materializes the workspace through Tower's current
-          // cursor. Events replayed while that request was in flight describe
-          // the same catch-up window; hydrating every replay target would turn
-          // one delta into hundreds of follow-up requests.
-          if (Array.isArray(this.pendingTowerPgSSEEvents)) {
-            this.pendingTowerPgSSEEvents.length = 0;
+          const activityChannelIds = new Set(events
+            .filter((event) => String(event?.entity_type || '').trim() === 'agent_activity')
+            .map((event) => String(event?.channel_id || event?.payload?.channel_id || event?.payload?.agent_activity?.channel_id || '').trim())
+            .filter(Boolean));
+          if (fallbackRefreshRequested && this.selectedChannelId) {
+            activityChannelIds.add(String(this.selectedChannelId));
           }
+          await Promise.all([...activityChannelIds].map((channelId) => (
+            hydrateTowerPgChannelAgentActivities(this, channelId)
+          )));
         }
         const refreshWappActivity = events.some((event) => (
           String(event?.entity_type || '').trim() === 'wapp_activity_item'
@@ -2634,11 +2669,39 @@ export const syncManagerMixin = {
           hydrationStartedAt,
           hydrationCompletedAt: new Date().toISOString(),
           messageIds: events.filter((event) => event?.entity_type === 'message').map((event) => event?.entity_id).filter(Boolean),
+          materialisationBatchIds: batches.map((entry) => entry.batchId),
+          renderState: {
+            selectedChannelId: this.selectedChannelId || null,
+            visibleAgentActivities: Array.isArray(this.activeThreadAgentActivities) ? this.activeThreadAgentActivities.length : null,
+          },
         });
+        for (const batch of batches) {
+          acknowledgeSSEBatch({
+            ...batch,
+            committedAt: new Date().toISOString(),
+          });
+        }
+        this.towerPgSSEHydrationRetryAttempt = 0;
       } catch (error) {
+        this.pendingTowerPgSSEEvents.unshift(...events);
+        this.pendingTowerPgSSEBatches.unshift(...batches);
+        if (fallbackRefreshRequested) this.towerPgSSEFallbackRefreshPending = true;
+        const attempt = Number(this.towerPgSSEHydrationRetryAttempt || 0) + 1;
+        this.towerPgSSEHydrationRetryAttempt = attempt;
+        const delayMs = Math.min(500 * (2 ** Math.min(attempt - 1, 6)), 30_000);
         flightDeckLog('warn', 'sse', 'failed to refresh PG records after SSE event', {
           error: error?.message || String(error),
+          materialisationBatchIds: batches.map((entry) => entry.batchId),
+          attempt,
+          delayMs,
         });
+        if (!this.towerPgSSEHydrationRetryTimer) {
+          this.towerPgSSEHydrationRetryTimer = setTimeout(() => {
+            this.towerPgSSEHydrationRetryTimer = null;
+            this.queueTowerPgSSEHydration([], null, { drainOnly: true });
+          }, delayMs);
+        }
+        return;
       }
     }
   },

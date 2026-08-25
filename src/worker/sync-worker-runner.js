@@ -5,7 +5,7 @@ import {
   pruneOnLogin,
   checkStaleness,
 } from './sync-worker.js';
-import { getPendingWrites } from '../db.js';
+import { getPendingWrites, getSyncState, setSyncState } from '../db.js';
 import { setBaseUrl } from '../api.js';
 import { setExtensionSignerBridge } from '../auth/nostr.js';
 import { importDecryptedKeys, setActiveSessionNpub } from '../crypto/group-keys.js';
@@ -31,6 +31,7 @@ const SSE_CONNECT_TYPE = 'sync-worker:sse-connect';
 const SSE_DISCONNECT_TYPE = 'sync-worker:sse-disconnect';
 const SSE_STATUS_TYPE = 'sync-worker:sse-status';
 const SSE_TOKEN_TYPE = 'sync-worker:sse-token';
+const SSE_ACK_TYPE = 'sync-worker:sse-ack';
 const FLUSH_NOW_TYPE = 'sync-worker:flush-now';
 
 let nextAuthRequestId = 1;
@@ -58,13 +59,20 @@ let ssePgMode = false;
 let sseConnectionState = 'disconnected';
 let sseLastEventId = null;
 let sseLastPgCursor = null;
+let sseLastReceivedPgCursor = null;
+let sseConnectionGeneration = 0;
+let sseContextGeneration = 0;
+let sseNextBatchId = 1;
+const ssePendingBatches = new Map();
 let sseReconnectTimer = null;
 let sseReconnectAttempts = 0;
 const SSE_DEBOUNCE_MS = 300;
 const SSE_ECHO_TTL_MS = 30_000;
 const SSE_FALLBACK_PROBE_MS = 60_000;
+const SSE_TOKEN_REQUEST_TIMEOUT_MS = 10_000;
 let sseDebounceTimer = null;
 let sseFallbackProbeTimer = null;
+let sseTokenRequestTimer = null;
 let sseLastFailureReason = null;
 const sseTokenRequests = createSSETokenRequestTracker();
 const sseStaleFamilies = new Set();
@@ -163,9 +171,13 @@ function buildSSEConnectionKey(ownerNpub, viewerNpub, backendUrl, workspaceDbKey
   });
 }
 
-function closeSSE({ resetContext = false } = {}) {
+function closeSSE({ resetContext = false, preserveWork = false } = {}) {
   sseTokenRequests.clear();
-  if (sseDebounceTimer) {
+  if (sseTokenRequestTimer) {
+    clearTimeout(sseTokenRequestTimer);
+    sseTokenRequestTimer = null;
+  }
+  if (!preserveWork && sseDebounceTimer) {
     clearTimeout(sseDebounceTimer);
     sseDebounceTimer = null;
   }
@@ -181,7 +193,7 @@ function closeSSE({ resetContext = false } = {}) {
     eventSource.close();
     eventSource = null;
   }
-  sseStaleFamilies.clear();
+  if (!preserveWork) sseStaleFamilies.clear();
   if (resetContext) {
     sseOwnerNpub = null;
     sseViewerNpub = null;
@@ -194,8 +206,35 @@ function closeSSE({ resetContext = false } = {}) {
     sseConnectionState = 'disconnected';
     sseLastEventId = null;
     sseLastPgCursor = null;
+    sseLastReceivedPgCursor = null;
+    ssePendingBatches.clear();
     sseReconnectAttempts = 0;
     sseLastFailureReason = null;
+  }
+}
+
+function pgSSECursorStateKey() {
+  if (!ssePgMode || !ssePgWorkspaceId || !sseBackendUrl || !sseViewerNpub) return null;
+  let backendOrigin = '';
+  try { backendOrigin = new URL(sseBackendUrl).origin; } catch { return null; }
+  return [
+    'sse_pg_ack_cursor:v1',
+    encodeURIComponent(backendOrigin),
+    encodeURIComponent(ssePgWorkspaceId),
+    encodeURIComponent(sseOwnerNpub || ''),
+    encodeURIComponent(sseViewerNpub),
+  ].join(':');
+}
+
+async function restoreCommittedPgCursor(contextGeneration) {
+  const key = pgSSECursorStateKey();
+  if (!key) return;
+  try {
+    const cursor = await getSyncState(key);
+    if (contextGeneration !== sseContextGeneration || !cursor) return;
+    sseLastPgCursor = String(cursor);
+  } catch {
+    // A missing/corrupt local cursor falls back to bounded workspace catch-up.
   }
 }
 
@@ -210,6 +249,22 @@ function requestSSEToken(extra = {}) {
     lastEventId: sseLastEventId,
   });
   const request = sseTokenRequests.request(sseConnectionKey, signingUrl);
+  if (sseTokenRequestTimer) clearTimeout(sseTokenRequestTimer);
+  sseTokenRequestTimer = setTimeout(() => {
+    sseTokenRequestTimer = null;
+    const failed = sseTokenRequests.fail(request);
+    if (!failed || failed.connectionKey !== sseConnectionKey) return;
+    sseLastFailureReason = {
+      reason: 'token-request-timeout',
+      at: new Date().toISOString(),
+    };
+    postSSEStatus('token-failed', {
+      phase: 'signing-timeout',
+      reason: 'token-request-timeout',
+      requestId: failed.requestId,
+    });
+    scheduleReconnect({ reason: 'token-request-timeout' });
+  }, SSE_TOKEN_REQUEST_TIMEOUT_MS);
   sseConnectionState = 'token-needed';
   postSSEStatus('token-needed', {
     ...extra,
@@ -219,10 +274,41 @@ function requestSSEToken(extra = {}) {
 }
 
 function openSSEWithToken(message) {
+  if (message?.ok === false || message?.error) {
+    const failed = sseTokenRequests.fail(message);
+    if (!failed || failed.connectionKey !== sseConnectionKey) return;
+    if (sseTokenRequestTimer) {
+      clearTimeout(sseTokenRequestTimer);
+      sseTokenRequestTimer = null;
+    }
+    sseLastFailureReason = {
+      reason: 'token-request-failed',
+      code: String(message?.errorCode || 'signing-failed'),
+      at: new Date().toISOString(),
+    };
+    postSSEStatus('token-failed', {
+      phase: 'signing-failed',
+      reason: 'token-request-failed',
+      requestId: failed.requestId,
+    });
+    scheduleReconnect({ reason: 'token-request-failed' });
+    return;
+  }
   const accepted = sseTokenRequests.accept(message);
   if (!accepted || accepted.connectionKey !== sseConnectionKey) return;
+  if (sseTokenRequestTimer) {
+    clearTimeout(sseTokenRequestTimer);
+    sseTokenRequestTimer = null;
+  }
 
   const source = new EventSource(accepted.eventSourceUrl);
+  sseConnectionGeneration += 1;
+  source.sseConnectionGeneration = sseConnectionGeneration;
+  for (const [batchId, batch] of ssePendingBatches) {
+    if (Number(batch.connectionGeneration) !== Number(sseConnectionGeneration)) {
+      ssePendingBatches.delete(batchId);
+    }
+  }
   eventSource = source;
 
   source.addEventListener('record-changed', (event) => {
@@ -256,7 +342,7 @@ function openSSEWithToken(message) {
       readyState: Number(source.readyState),
       at: new Date().toISOString(),
     };
-    closeSSE();
+    closeSSE({ preserveWork: true });
     scheduleReconnect({ reason: 'eventsource-error' });
   };
 
@@ -267,7 +353,7 @@ function openSSEWithToken(message) {
   });
 }
 
-function connectSSE(ownerNpub, viewerNpub, backendUrl, workspaceDbKey, options = {}) {
+async function connectSSE(ownerNpub, viewerNpub, backendUrl, workspaceDbKey, options = {}) {
   const connectionKey = buildSSEConnectionKey(
     ownerNpub,
     viewerNpub,
@@ -298,7 +384,7 @@ function connectSSE(ownerNpub, viewerNpub, backendUrl, workspaceDbKey, options =
       : 'context-switch';
 
   const contextChanged = Boolean(sseConnectionKey && connectionKey !== sseConnectionKey);
-  closeSSE();
+  closeSSE({ preserveWork: !contextChanged });
 
   if (contextChanged) {
     sseLastEventId = null;
@@ -313,6 +399,12 @@ function connectSSE(ownerNpub, viewerNpub, backendUrl, workspaceDbKey, options =
   ssePgMode = Boolean(options?.pgMode);
   ssePgWorkspaceId = String(options?.workspaceId || '').trim() || null;
   sseConnectionKey = connectionKey;
+  sseContextGeneration += 1;
+  const contextGeneration = sseContextGeneration;
+
+  if (contextChanged) ssePendingBatches.clear();
+  if (ssePgMode && !sseLastPgCursor) await restoreCommittedPgCursor(contextGeneration);
+  if (contextGeneration !== sseContextGeneration || connectionKey !== sseConnectionKey) return;
 
   requestSSEToken({
     connectionKey,
@@ -387,11 +479,15 @@ function handleConnected(event) {
   sseConnectionState = 'connected';
   let data = null;
   try { data = event?.data ? JSON.parse(event.data) : null; } catch { data = null; }
-  if (ssePgMode && data?.cursor) updateSSECursor('pg', data.cursor);
+  if (ssePgMode && data?.cursor) sseLastReceivedPgCursor = String(data.cursor);
   else if (event?.lastEventId) updateSSECursor('legacy', event.lastEventId);
   postSSEStatus('connected', {
     phase: 'stream-open',
     reason: 'eventsource-open',
+    connectionGeneration: eventSource?.sseConnectionGeneration || sseConnectionGeneration,
+    requestedCursor: sseLastPgCursor,
+    receivedCursor: sseLastReceivedPgCursor,
+    acknowledgedCursor: sseLastPgCursor,
   });
 }
 
@@ -432,13 +528,15 @@ function handleRecordChanged(event) {
 function handleFlightDeckPgEvent(event) {
   let data;
   try { data = JSON.parse(event.data); } catch { return; }
-  if (data?.cursor) updateSSECursor('pg', data.cursor);
+  if (data?.cursor) sseLastReceivedPgCursor = String(data.cursor);
   else if (event.lastEventId) updateSSECursor('legacy', event.lastEventId);
 
   data.browser_received_at = new Date().toISOString();
   sseStaleFamilies.add({
     family: 'flightdeck_pg',
     event: data,
+    cursor: data?.cursor ? String(data.cursor) : null,
+    connectionGeneration: eventSource?.sseConnectionGeneration || sseConnectionGeneration,
   });
   if (sseDebounceTimer) clearTimeout(sseDebounceTimer);
   sseDebounceTimer = setTimeout(flushSSEStaleFamilies, SSE_DEBOUNCE_MS);
@@ -451,6 +549,7 @@ async function flushSSEStaleFamilies() {
   const pgEvents = staleEntries
     .map((entry) => entry && typeof entry === 'object' ? entry.event : null)
     .filter(Boolean);
+  const pgEntries = staleEntries.filter((entry) => entry && typeof entry === 'object' && entry.event);
   const families = [...new Set(staleEntries
     .map((entry) => entry && typeof entry === 'object' ? entry.family : entry)
     .filter(Boolean))];
@@ -469,9 +568,81 @@ async function flushSSEStaleFamilies() {
         },
       );
     }
-    postSSEStatus('pull-complete', { families, pgEvents });
+    const batchId = pgEvents.length > 0 ? `sse-batch-${sseNextBatchId++}` : null;
+    const lastPgEntry = pgEntries.at(-1) || null;
+    const batch = batchId ? {
+      batchId,
+      connectionKey: sseConnectionKey,
+      connectionGeneration: lastPgEntry?.connectionGeneration || sseConnectionGeneration,
+      cursor: lastPgEntry?.cursor || null,
+      receivedAt: pgEvents[0]?.browser_received_at || null,
+    } : null;
+    if (batch) ssePendingBatches.set(batchId, batch);
+    postSSEStatus('pull-complete', {
+      families,
+      pgEvents,
+      ...batch,
+      requestedCursor: sseLastPgCursor,
+      receivedCursor: batch?.cursor || sseLastReceivedPgCursor,
+      acknowledgedCursor: sseLastPgCursor,
+    });
   } catch (error) {
-    // Non-fatal — next SSE event will retry
+    for (const entry of staleEntries) sseStaleFamilies.add(entry);
+    if (!sseDebounceTimer) {
+      sseDebounceTimer = setTimeout(flushSSEStaleFamilies, Math.min(2_000, SSE_FALLBACK_PROBE_MS));
+    }
+  }
+}
+
+async function acknowledgeSSEBatch(message) {
+  const batchId = String(message?.batchId || '').trim();
+  const batch = ssePendingBatches.get(batchId);
+  if (
+    !batch
+    || batch.connectionKey !== sseConnectionKey
+    || Number(message?.connectionGeneration) !== Number(batch.connectionGeneration)
+    || Number(batch.connectionGeneration) !== Number(sseConnectionGeneration)
+  ) return;
+  if (!batch.cursor) {
+    ssePendingBatches.delete(batchId);
+    return;
+  }
+  const acknowledgedCursor = String(batch.cursor);
+  const key = pgSSECursorStateKey();
+  try {
+    if (key) await setSyncState(key, acknowledgedCursor);
+  } catch {
+    sseLastFailureReason = {
+      reason: 'cursor-persist-failed',
+      at: new Date().toISOString(),
+    };
+    postSSEStatus('cursor-ack-failed', {
+      phase: 'cursor-persist-failed',
+      reason: 'cursor-persist-failed',
+      batchId,
+      connectionGeneration: batch.connectionGeneration,
+    });
+    closeSSE({ preserveWork: true });
+    scheduleReconnect({ reason: 'cursor-persist-failed' });
+    return;
+  }
+  sseLastPgCursor = acknowledgedCursor;
+  ssePendingBatches.delete(batchId);
+  postSSEStatus('cursor-acknowledged', {
+    phase: 'materialisation-committed',
+    batchId,
+    connectionGeneration: batch.connectionGeneration,
+    requestedCursor: message?.requestedCursor || null,
+    receivedCursor: batch.cursor,
+    acknowledgedCursor: sseLastPgCursor,
+    receivedAt: batch.receivedAt,
+    committedAt: message?.committedAt || new Date().toISOString(),
+  });
+  if (sseTokenRequests.getPending()) {
+    requestSSEToken({
+      phase: 'cursor-changed',
+      reason: 'cursor-acknowledged-before-token',
+    });
   }
 }
 
@@ -662,6 +833,10 @@ self.addEventListener('message', async (event) => {
   }
   if (message.type === SSE_TOKEN_TYPE) {
     openSSEWithToken(message);
+    return;
+  }
+  if (message.type === SSE_ACK_TYPE) {
+    await acknowledgeSSEBatch(message);
     return;
   }
   if (message.type === SSE_DISCONNECT_TYPE) {

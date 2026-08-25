@@ -10,6 +10,7 @@ const AUTH_RESPONSE_TYPE = 'sync-worker:auth-response';
 const BOOTSTRAP_KEYS_TYPE = 'sync-worker:bootstrap-keys';
 const SSE_STATUS_TYPE = 'sync-worker:sse-status';
 const SSE_TOKEN_TYPE = 'sync-worker:sse-token';
+const SSE_ACK_TYPE = 'sync-worker:sse-ack';
 
 const MAX_RECOVERY_ATTEMPTS = 2;
 const RECOVERY_DELAY_MS = 500;
@@ -365,6 +366,32 @@ export function provideSSEToken(requestId, connectionKey, token) {
       requestId,
       connectionKey,
       token,
+    });
+  } catch { /* ignore */ }
+}
+
+export function rejectSSEToken(requestId, connectionKey, errorCode = 'signing-failed') {
+  if (!workerInstance) return;
+  try {
+    workerInstance.postMessage({
+      type: SSE_TOKEN_TYPE,
+      requestId,
+      connectionKey,
+      ok: false,
+      errorCode: String(errorCode || 'signing-failed'),
+    });
+  } catch { /* ignore */ }
+}
+
+export function acknowledgeSSEBatch(batch = {}) {
+  if (!workerInstance) return;
+  try {
+    workerInstance.postMessage({
+      type: SSE_ACK_TYPE,
+      batchId: batch.batchId,
+      connectionGeneration: batch.connectionGeneration,
+      requestedCursor: batch.requestedCursor || null,
+      committedAt: batch.committedAt || new Date().toISOString(),
     });
   } catch { /* ignore */ }
 }

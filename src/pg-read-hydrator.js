@@ -57,6 +57,7 @@ import {
   replacePgResponseActivitiesForChannel,
   replacePgResponseActivitiesForTarget,
   replacePgAgentActivitiesForChannel,
+  getAgentActivitiesForChannel,
   mergeAgentActivityCommentary,
   replacePgTasksForChannel,
   replacePgWorkroomsForChannel,
@@ -1910,7 +1911,10 @@ export async function hydrateTowerPgChannelAgentActivities(store, channelId, dep
   if (!context.workspaceId || !context.workspaceOwnerNpub || !context.baseUrl || !targetChannelId) return [];
   const readActivities = deps.getTowerPgAgentActivities || getTowerPgAgentActivities;
   const replaceActivities = deps.replacePgAgentActivitiesForChannel || replacePgAgentActivitiesForChannel;
+  const readLocalActivities = deps.getAgentActivitiesForChannel
+    || (deps.replacePgAgentActivitiesForChannel ? async () => [] : getAgentActivitiesForChannel);
   const mergeCommentary = deps.mergeAgentActivityCommentary || mergeAgentActivityCommentary;
+  const requestSnapshot = await readLocalActivities(targetChannelId);
   const result = await readActivities(context.workspaceId, {
     channelId: targetChannelId,
     baseUrl: context.baseUrl,
@@ -1919,7 +1923,36 @@ export async function hydrateTowerPgChannelAgentActivities(store, channelId, dep
   const activities = (Array.isArray(result?.agent_activities) ? result.agent_activities : [])
     .map(mapPgAgentActivity)
     .filter((activity) => activity?.record_id);
-  await replaceActivities(targetChannelId, activities);
+  const currentContext = resolveTowerPgWorkspaceContext(store);
+  if (
+    currentContext.workspaceId !== context.workspaceId
+    || currentContext.workspaceOwnerNpub !== context.workspaceOwnerNpub
+    || currentContext.baseUrl !== context.baseUrl
+  ) {
+    return activities;
+  }
+  const pagination = result?.pagination && typeof result.pagination === 'object' ? result.pagination : null;
+  const authoritative = Boolean(
+    result
+    && typeof result === 'object'
+    && Object.prototype.hasOwnProperty.call(result, 'agent_activities')
+    && Array.isArray(result.agent_activities)
+    && result.partial !== true
+    && result.complete !== false
+    && result.truncated !== true
+    && !result.next_cursor
+    && result.has_more !== true
+    && (!pagination || (
+      !pagination.next_cursor
+      && pagination.has_more !== true
+      && pagination.complete !== false
+      && pagination.partial !== true
+    ))
+  );
+  await replaceActivities(targetChannelId, activities, {
+    authoritative,
+    requestSnapshot,
+  });
   const rawActivities = Array.isArray(result?.agent_activities) ? result.agent_activities : [];
   const commentary = rawActivities.flatMap((rawActivity) => {
     const activity = mapPgAgentActivity(rawActivity);

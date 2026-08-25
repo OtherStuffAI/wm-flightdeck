@@ -106,6 +106,18 @@ export function createSSETokenRequestTracker() {
       pending = null;
       return accepted;
     },
+    fail({ requestId, connectionKey } = {}) {
+      if (
+        !pending
+        || requestId !== pending.requestId
+        || connectionKey !== pending.connectionKey
+      ) {
+        return null;
+      }
+      const failed = { ...pending };
+      pending = null;
+      return failed;
+    },
     clear() {
       pending = null;
     },

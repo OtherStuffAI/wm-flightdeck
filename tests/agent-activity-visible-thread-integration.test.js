@@ -138,4 +138,28 @@ describe('agent activity hydration/SSE to visible thread', () => {
     expect(target.activeThreadAgentActivities).toEqual([]);
     expect(target.messages.at(-1)).toMatchObject({ record_id: 'message-final', body: 'Final reply' });
   });
+
+  it('recovers a missed terminal by authoritative absence without touching the final thread message', async () => {
+    const target = store();
+    const db = openWorkspaceDb(DB_KEY);
+    await db.open();
+    await hydrateTowerPgChannelAgentActivities(target, CHANNEL_ID, {
+      getTowerPgAgentActivities: async () => ({ agent_activities: [rawActivity({
+        state: 'working', sequence: 2, summary: 'Still working',
+        commentary_history: [
+          { activity_id: 'activity-1', turn_id: 'turn-1', sequence: 2, state: 'working', visibility: 'user_visible', body: 'Still working' },
+        ],
+      })] }),
+    });
+    target.messages.push({ record_id: 'message-final', parent_message_id: TRIGGER_ID, channel_id: CHANNEL_ID, body: 'Final reply' });
+
+    await hydrateTowerPgChannelAgentActivities(target, CHANNEL_ID, {
+      getTowerPgAgentActivities: async () => ({ agent_activities: [] }),
+    });
+
+    target.applyAgentActivities(await getAgentActivitiesForChannel(CHANNEL_ID));
+    expect(target.activeThreadAgentActivities).toEqual([]);
+    expect(await getAgentActivityCommentaryForChannel(CHANNEL_ID)).toEqual([]);
+    expect(target.messages.at(-1)).toMatchObject({ record_id: 'message-final', body: 'Final reply' });
+  });
 });

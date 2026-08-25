@@ -33,6 +33,27 @@ Online behavior:
 - If the row version is stale, the UI reloads Tower source of truth and shows a conflict/stale-state message.
 - Lease release is best effort on save, cancel, close, or route change.
 
+### Instant document edit intent
+
+The document UI refines the original view-first rule without weakening Tower's
+write contract:
+
+- A selected document renders through TipTap immediately in a read/select-ready
+  state. Opening the document may inspect the active lease in the background,
+  but does not acquire or renew one.
+- Pointer, focus, keyboard, title, or explicit Edit intent starts one
+  deduplicated acquire request. TipTap remains mounted while that request is in
+  flight, so input can be shown as an ephemeral editor draft.
+- An acquisition draft is held only in the editor state. It does not update the
+  canonical Dexie document, queue a write, create a version, or autosave until
+  the lease succeeds.
+- Denial, offline failure, renewal failure, and stale row versions make the
+  editor safe/read-only while preserving the visible draft. Copy, discard, and
+  retry actions provide deliberate recovery.
+- A stale `row_version` is a conflict, not an automatic local-wins retry. The
+  newer Tower row is refreshed into the canonical cache while the editor draft
+  remains separate until the user chooses how to proceed.
+
 ## Record State Vocabulary
 
 The app should make these states explicit in PG mode. The exact property names can follow the existing codebase, but the semantics must be testable.

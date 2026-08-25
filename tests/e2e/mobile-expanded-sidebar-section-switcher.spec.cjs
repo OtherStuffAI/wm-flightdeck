@@ -24,7 +24,6 @@ const renderedStyles = [
   sourceRule('.sidebar {'),
   sourceRule('.sidebar-nav {'),
   sourceRule('.sidebar-scope-navigation {'),
-  sourceRule('.sidebar-workspace-navigation-divider {'),
   sourceRule('.sidebar-workspace-overview {'),
   sourceRule('.sidebar-scope-group + .sidebar-scope-group {'),
   sourceRule('.sidebar-scope-heading {'),
@@ -58,7 +57,6 @@ async function renderExpandedComposition(page, { width, height }) {
       <div class="app-layout">
         <nav class="sidebar" aria-label="Expanded left column">
           <ul class="sidebar-nav" style="display:none" aria-label="Section navigation"><li>Flight Deck</li><li>Chat</li><li>Tasks</li><li>Docs</li><li>Files</li><li>Setup</li></ul>
-          <hr class="sidebar-workspace-navigation-divider" />
           <section class="sidebar-scope-navigation" aria-label="Workspace scopes and channels">
             <button class="sidebar-workspace-overview">Home</button>
             <section class="sidebar-scope-group"><h2 class="sidebar-scope-heading"><button class="sidebar-scope-heading-control">Dev Ops</button></h2><div class="sidebar-scope-channel-list"><div class="sidebar-scope-channel-row"><button class="sidebar-scope-channel"># Mini</button></div><div class="sidebar-scope-channel-row"><button class="sidebar-scope-channel"># Servers</button></div></div></section>
@@ -116,6 +114,7 @@ test('rendered narrow expanded composition keeps Setup reachable and active', as
 
   await expect(sidebar.locator('.sidebar-nav')).toBeHidden();
   await expect(sidebar.locator('.sidebar-scope-navigation')).toBeVisible();
+  await expect(sidebar.locator('hr')).toHaveCount(0);
   await expect(topSections).toHaveCount(1);
   await expect(topSections.locator('.expanded-sidebar-section-switcher-btn')).toHaveCount(6);
   await expect(topSections.locator('.expanded-sidebar-section-switcher-btn')).toHaveText(['Deck', 'Chat', 'Tasks', 'Docs', 'Files', 'Setup']);
@@ -154,6 +153,7 @@ test('rendered wide laptop expanded composition shows Setup in the labelled top 
 
   await expect(sidebar.locator('.sidebar-nav')).toBeHidden();
   await expect(sidebar.locator('.sidebar-scope-navigation')).toBeVisible();
+  await expect(sidebar.locator('hr')).toHaveCount(0);
   await expect(topSections).toHaveCount(1);
   await expect(topSections.locator('.expanded-sidebar-section-switcher-btn:visible')).toHaveText(['Deck', 'Chat', 'Tasks', 'Docs', 'Files', 'Setup']);
   await expect(fullScreen).toBeVisible();

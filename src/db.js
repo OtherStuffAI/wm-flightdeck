@@ -1901,12 +1901,17 @@ export async function getAgentActivityCommentaryForChannel(channelId) {
   return wsDb().agent_activity_commentary.where('channel_id').equals(id).sortBy('sequence');
 }
 
-export async function replacePgAgentActivitiesForChannel(channelId, activities = []) {
+export async function replacePgAgentActivitiesForChannel(channelId, activities = [], options = {}) {
   const id = String(channelId || '').trim();
   if (!id) return 0;
   const rows = (Array.isArray(activities) ? activities : []).map(sanitizeForStorage).filter((row) => row?.record_id);
+  const requestSnapshot = (Array.isArray(options.requestSnapshot) ? options.requestSnapshot : [])
+    .map(sanitizeForStorage)
+    .filter((row) => row?.record_id);
+  const snapshotById = new Map(requestSnapshot.map((row) => [row.record_id, row]));
+  const authoritativeIds = new Set(rows.map((row) => row.record_id));
   const db = wsDb();
-  return db.transaction('rw', db.agent_activities, async () => {
+  return db.transaction('rw', db.agent_activities, db.agent_activity_commentary, async () => {
     let changed = 0;
     for (const row of rows) {
       const current = await db.agent_activities.get(row.record_id);
@@ -1920,6 +1925,20 @@ export async function replacePgAgentActivitiesForChannel(channelId, activities =
           ...row,
           created_at: current?.created_at || row.created_at || null,
         });
+        changed += 1;
+      }
+    }
+    if (options.authoritative === true) {
+      const currentRows = await db.agent_activities.where('channel_id').equals(id).toArray();
+      for (const current of currentRows) {
+        if (current?.pg_backend !== true || authoritativeIds.has(current.record_id)) continue;
+        const started = snapshotById.get(current.record_id);
+        if (!started) continue;
+        const sameLifecycle = String(started.activity_id || '') === String(current.activity_id || '')
+          && String(started.turn_id || '') === String(current.turn_id || '');
+        if (!sameLifecycle || Number(current.sequence) > Number(started.sequence)) continue;
+        await db.agent_activities.delete(current.record_id);
+        if (current.turn_id) await db.agent_activity_commentary.where('turn_id').equals(current.turn_id).delete();
         changed += 1;
       }
     }

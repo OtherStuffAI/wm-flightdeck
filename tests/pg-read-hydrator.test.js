@@ -2573,11 +2573,44 @@ describe('PG read hydrator', () => {
     });
 
     expect(activities).toEqual([expect.objectContaining({ activity_id: 'activity-1', turn_id: 'turn-1', created_at: '2026-08-10T00:00:00.000Z', sequence: 3 })]);
-    expect(replacePgAgentActivitiesForChannel).toHaveBeenCalledWith('channel-1', activities);
+    expect(replacePgAgentActivitiesForChannel).toHaveBeenCalledWith('channel-1', activities, {
+      authoritative: true,
+      requestSnapshot: [],
+    });
     expect(mergeAgentActivityCommentary).toHaveBeenCalledWith([
       expect.objectContaining({ turn_id: 'turn-1', sequence: 2, body: 'Checking code' }),
       expect.objectContaining({ turn_id: 'turn-1', sequence: 3, body: 'Running tests' }),
     ]);
+  });
+
+  it.each([
+    ['malformed', {}, false],
+    ['partial', { agent_activities: [], partial: true }, false],
+    ['paginated', { agent_activities: [], next_cursor: 'next-page' }, false],
+    ['complete empty', { agent_activities: [] }, true],
+  ])('guards %s agent-activity absence hydration', async (_label, response, authoritative) => {
+    const replacePgAgentActivitiesForChannel = vi.fn(async () => 0);
+    const requestSnapshot = [{ record_id: 'row-existing', activity_id: 'activity-1', turn_id: 'turn-1', sequence: 1 }];
+    await hydrateTowerPgChannelAgentActivities(store(), 'channel-1', {
+      getTowerPgAgentActivities: vi.fn(async () => response),
+      getAgentActivitiesForChannel: vi.fn(async () => requestSnapshot),
+      replacePgAgentActivitiesForChannel,
+      mergeAgentActivityCommentary: vi.fn(async () => 0),
+    });
+    expect(replacePgAgentActivitiesForChannel).toHaveBeenCalledWith('channel-1', [], {
+      authoritative,
+      requestSnapshot,
+    });
+  });
+
+  it('does not reconcile authoritative absence when activity hydration fails', async () => {
+    const replacePgAgentActivitiesForChannel = vi.fn();
+    await expect(hydrateTowerPgChannelAgentActivities(store(), 'channel-1', {
+      getTowerPgAgentActivities: vi.fn(async () => { throw new Error('Tower unavailable'); }),
+      getAgentActivitiesForChannel: vi.fn(async () => [{ record_id: 'row-existing' }]),
+      replacePgAgentActivitiesForChannel,
+    })).rejects.toThrow('Tower unavailable');
+    expect(replacePgAgentActivitiesForChannel).not.toHaveBeenCalled();
   });
 
   it('applies only the newest SSE activity snapshot and retains terminal activity as a tombstone', async () => {

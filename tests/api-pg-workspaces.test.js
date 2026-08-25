@@ -838,10 +838,15 @@ describe('Tower PG API helpers', () => {
     );
   });
 
-  it('calls Tower PG edit lease acquire, renew, and release routes', async () => {
+  it('calls Tower PG edit lease inspect, acquire, renew, and release routes', async () => {
     const api = await import('../src/api.js');
     api.setBaseUrl('https://tower.example');
 
+    await api.getTowerPgEditLease('workspace-1', {
+      entityType: 'document',
+      entityId: 'doc-1',
+      appNpub: 'flightdeck_pg',
+    });
     await api.acquireTowerPgEditLease('workspace-1', {
       entity_type: 'task',
       entity_id: 'task-1',
@@ -855,6 +860,11 @@ describe('Tower PG API helpers', () => {
 
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
       1,
+      'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/edit-leases?entity_type=document&entity_id=doc-1',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(
+      2,
       'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/edit-leases/acquire',
       expect.objectContaining({
         method: 'POST',
@@ -862,7 +872,7 @@ describe('Tower PG API helpers', () => {
       }),
     );
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
-      2,
+      3,
       'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/edit-leases/lease-1/renew',
       expect.objectContaining({
         method: 'POST',
@@ -870,13 +880,40 @@ describe('Tower PG API helpers', () => {
       }),
     );
     expect(globalThis.fetch).toHaveBeenNthCalledWith(
-      3,
+      4,
       'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/edit-leases/lease-1/release',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ lease_token: 'token-1' }),
       }),
     );
+  });
+
+  it('preserves lease-holder details from acquire conflicts for recovery UI', async () => {
+    const api = await import('../src/api.js');
+    api.setBaseUrl('https://tower.example');
+    globalThis.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 409,
+      text: async () => JSON.stringify({
+        code: 'edit_lease_held',
+        error: 'edit lease is held',
+        holder_actor_npub: 'npub1holder',
+        holder_display_name: 'Lease holder',
+        expires_at: '2026-08-25T13:00:00.000Z',
+      }),
+    }));
+
+    await expect(api.acquireTowerPgEditLease('workspace-1', {
+      entity_type: 'document',
+      entity_id: 'doc-1',
+    }, { appNpub: 'flightdeck_pg' })).rejects.toMatchObject({
+      status: 409,
+      code: 'edit_lease_held',
+      holder_actor_npub: 'npub1holder',
+      holder_display_name: 'Lease holder',
+      expires_at: '2026-08-25T13:00:00.000Z',
+    });
   });
 
   it('reads and creates Tower PG document comments with browser NIP-98 auth', async () => {

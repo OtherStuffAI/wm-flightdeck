@@ -8,7 +8,11 @@ vi.mock('../src/worker/sync-worker.js', () => ({
   checkStaleness: vi.fn(),
 }));
 
-vi.mock('../src/db.js', () => ({ getPendingWrites: vi.fn(async () => []) }));
+vi.mock('../src/db.js', () => ({
+  getPendingWrites: vi.fn(async () => []),
+  getSyncState: vi.fn(async () => null),
+  setSyncState: vi.fn(async () => 1),
+}));
 vi.mock('../src/api.js', () => ({ setBaseUrl: vi.fn() }));
 vi.mock('../src/auth/nostr.js', () => ({ setExtensionSignerBridge: vi.fn() }));
 vi.mock('../src/crypto/group-keys.js', () => ({
@@ -78,6 +82,12 @@ describe('sync worker SSE handshake integration', () => {
     return posted.filter((message) => message.type === 'sync-worker:sse-status' && message.status === status).at(-1);
   }
 
+  async function flushAsyncConnect() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
   it('signs the newest legacy event id again on reconnect before adding token', () => {
     dispatch({
       type: 'sync-worker:sse-connect',
@@ -120,7 +130,7 @@ describe('sync worker SSE handshake integration', () => {
     expect(MockEventSource.instances[1].url).toBe(`${reconnect.signingUrl}&token=reconnect+token`);
   });
 
-  it('signs the newest PG cursor again on reconnect', () => {
+  it('signs only the acknowledged PG cursor again on reconnect', async () => {
     dispatch({
       type: 'sync-worker:sse-connect',
       ownerNpub: 'npub1owner',
@@ -129,6 +139,7 @@ describe('sync worker SSE handshake integration', () => {
       workspaceDbKey: 'workspace-db',
       options: { pgMode: true, workspaceId: 'workspace-1' },
     });
+    await flushAsyncConnect();
     const initial = latestStatus('token-needed');
     dispatch({
       type: 'sync-worker:sse-token', requestId: initial.requestId,
@@ -136,13 +147,77 @@ describe('sync worker SSE handshake integration', () => {
     });
     const source = MockEventSource.instances[0];
     source.emit('connected', { data: JSON.stringify({ cursor: 'opaque cursor/7' }) });
+    source.emit('flightdeck_pg.event', { data: JSON.stringify({ cursor: 'opaque cursor/7', entity_type: 'agent_activity', entity_id: 'row-1' }) });
+    await vi.advanceTimersByTimeAsync(300);
+    const batch = latestStatus('pull-complete');
+    dispatch({
+      type: 'sync-worker:sse-ack',
+      batchId: batch.batchId,
+      connectionGeneration: batch.connectionGeneration,
+      requestedCursor: batch.requestedCursor,
+    });
+    await flushAsyncConnect();
+    const { setSyncState } = await import('../src/db.js');
+    expect(setSyncState).toHaveBeenCalledWith(
+      'sse_pg_ack_cursor:v1:https%3A%2F%2Ftower.example.com:workspace-1:npub1owner:npub1viewer',
+      'opaque cursor/7',
+    );
     source.readyState = 2;
     source.onerror();
 
-    vi.advanceTimersByTime(1_000);
+    await vi.advanceTimersByTimeAsync(1_000);
     expect(latestStatus('token-needed').signingUrl).toBe(
       'https://tower.example.com/api/v4/flightdeck-pg/workspaces/workspace-1/events/stream?cursor=opaque+cursor%2F7',
     );
+  });
+
+  it('preserves an event received before disconnect and replays from the last committed cursor after failed materialisation', async () => {
+    dispatch({
+      type: 'sync-worker:sse-connect', ownerNpub: 'npub1owner', viewerNpub: 'npub1viewer',
+      backendUrl: 'https://tower.example.com', workspaceDbKey: 'workspace-db',
+      options: { pgMode: true, workspaceId: 'workspace-1' },
+    });
+    await flushAsyncConnect();
+    const initial = latestStatus('token-needed');
+    dispatch({ type: 'sync-worker:sse-token', requestId: initial.requestId, connectionKey: initial.connectionKey, token: 'initial' });
+    const source = MockEventSource.instances[0];
+    source.emit('flightdeck_pg.event', {
+      data: JSON.stringify({ cursor: 'cursor-uncommitted', entity_type: 'agent_activity', entity_id: 'row-1' }),
+    });
+    source.readyState = 2;
+    source.onerror();
+
+    await vi.advanceTimersByTimeAsync(300);
+    expect(latestStatus('pull-complete')).toMatchObject({
+      receivedCursor: 'cursor-uncommitted',
+      acknowledgedCursor: null,
+      pgEvents: [expect.objectContaining({ entity_id: 'row-1' })],
+    });
+    await vi.advanceTimersByTimeAsync(700);
+    expect(latestStatus('token-needed').signingUrl).toBe(
+      'https://tower.example.com/api/v4/flightdeck-pg/workspaces/workspace-1/events/stream',
+    );
+  });
+
+  it('times out and retries a missing signing response, and retries an explicit failure', async () => {
+    dispatch({
+      type: 'sync-worker:sse-connect', ownerNpub: 'npub1owner', viewerNpub: 'npub1viewer',
+      backendUrl: 'https://tower.example.com', workspaceDbKey: 'workspace-db', options: {},
+    });
+    const first = latestStatus('token-needed');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(latestStatus('token-failed')).toMatchObject({ reason: 'token-request-timeout' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    const retry = latestStatus('token-needed');
+    expect(retry.requestId).not.toBe(first.requestId);
+
+    dispatch({
+      type: 'sync-worker:sse-token', requestId: retry.requestId,
+      connectionKey: retry.connectionKey, ok: false, errorCode: 'signer-rejected',
+    });
+    expect(latestStatus('token-failed')).toMatchObject({ reason: 'token-request-failed' });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(latestStatus('token-needed').requestId).not.toBe(retry.requestId);
   });
 
   it('discards stale and duplicate token responses across a context switch', () => {

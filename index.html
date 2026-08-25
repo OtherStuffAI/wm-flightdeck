@@ -1038,11 +1038,6 @@
             <span class="sidebar-label">Setup</span>
           </li>
         </ul>
-        <hr
-          class="sidebar-workspace-navigation-divider"
-          x-cloak
-          x-show="(!$store.chat.navCollapsed || $store.chat.mobileNavOpen) && (!$store.chat.scopesLoaded || $store.chat.currentWorkspaceKey || $store.chat.activeWorkspaceOwnerNpub || $store.chat.sidebarScopeChannelGroups.length > 0)"
-        />
         <section
           class="sidebar-scope-navigation"
           aria-label="Workspace scopes and channels"
@@ -4776,26 +4771,34 @@
                     <span class="doc-sync-indicator" :title="$store.chat.docSyncStatusLabel">
                       <span class="doc-sync-dot" :class="$store.chat.docSyncStatusClass"></span>
                     </span>
+                    <span
+                      class="doc-edit-status"
+                      :class="`doc-edit-status-${$store.chat.selectedDocEditStatusTone}`"
+                      role="status"
+                      aria-live="polite"
+                      x-show="$store.chat.selectedDocEditStatusLabel"
+                      x-text="$store.chat.selectedDocEditStatusLabel"
+                    ></span>
                     <div class="doc-mode-switcher">
                       <button
                         type="button"
                         class="doc-mode-chip"
-                        :class="{ 'doc-mode-chip-active': $store.chat.docEditorMode === 'preview' }"
-                        @click="$store.chat.setDocReadMode()"
-                      >Read</button>
-                      <button
-                        type="button"
-                        class="doc-mode-chip"
-                        :class="{ 'doc-mode-chip-active': $store.chat.docEditorMode !== 'preview' }"
-                        :disabled="$store.chat.docEditorMode === 'preview'
-                          ? (!$store.chat.canCurrentActorEditSelectedLockManagedRecord || $store.chat.selectedDocCheckoutSessionState?.acquireState === 'acquiring')
-                          : $store.chat.docRichImageUploadCount > 0"
-                        @click="$store.chat.docEditorMode === 'preview'
-                          ? $store.chat.enterSelectedDocEditMode('rich')
-                          : $store.chat.saveAndExitSelectedDocEditMode()"
-                        x-text="$store.chat.docEditorMode === 'preview'
-                          ? ($store.chat.selectedDocCheckoutSessionState?.acquireState === 'acquiring' ? 'Checking out…' : 'Edit')
-                          : ($store.chat.docRichImageUploadCount > 0 ? 'Uploading…' : 'Save')"
+                        :class="{ 'doc-mode-chip-active': $store.chat.docEditAccessState === 'editing' }"
+                        :disabled="$store.chat.docEditAccessState === 'acquiring'
+                          || $store.chat.docEditAccessState === 'conflict'
+                          || $store.chat.docRichImageUploadCount > 0"
+                        @click="$store.chat.docEditAccessState === 'editing'
+                          ? $store.chat.saveAndExitSelectedDocEditMode()
+                          : ($store.chat.docEditAccessState === 'blocked'
+                            ? $store.chat.retrySelectedDocEditAccess()
+                            : $store.chat.beginSelectedDocLeaseAcquisition())"
+                        x-text="$store.chat.docRichImageUploadCount > 0
+                          ? 'Uploading…'
+                          : ($store.chat.docEditAccessState === 'editing'
+                            ? 'Save'
+                            : ($store.chat.docEditAccessState === 'acquiring'
+                              ? 'Acquiring…'
+                              : ($store.chat.docEditAccessState === 'blocked' ? 'Retry' : 'Edit')))"
                       >Edit</button>
                     </div>
                     <button
@@ -4879,6 +4882,20 @@
                         <button type="button" class="doc-actions-delete" @click="$store.chat.deleteSelectedDocItem(); open = false">Delete document</button>
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                <div
+                  class="doc-edit-access-banner"
+                  :class="`doc-edit-access-banner-${$store.chat.selectedDocEditStatusTone}`"
+                  x-show="$store.chat.docEditAccessMessage || ['blocked', 'conflict'].includes($store.chat.docEditAccessState)"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span x-text="$store.chat.docEditAccessMessage || $store.chat.selectedDocEditStatusLabel"></span>
+                  <div class="doc-edit-access-actions" x-show="$store.chat.docEditDraftDirty">
+                    <button type="button" @click="$store.chat.copySelectedDocDraft()">Copy draft</button>
+                    <button type="button" @click="$store.chat.discardSelectedDocDraft()">Discard draft</button>
                   </div>
                 </div>
 
@@ -4973,7 +4990,7 @@
                         <div
                           class="doc-rich-editor"
                           x-init="$nextTick(() => $store.chat.mountDocRichEditor($el))"
-                          x-effect="$store.chat.docEditorMode; if ($store.chat.docEditorMode === 'rich') $nextTick(() => $store.chat.mountDocRichEditor($el))"
+                          x-effect="$store.chat.docEditorMode; $store.chat.selectedDocument?.version; $store.chat.observeSelectedDocAuthoritativeVersion(); if ($store.chat.docEditorMode === 'rich') $nextTick(() => $store.chat.mountDocRichEditor($el))"
                         ></div>
                       </template>
                       <template x-if="$store.chat.docEditorMode !== 'source' && $store.chat.docEditorMode !== 'rich'">

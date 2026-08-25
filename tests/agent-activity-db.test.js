@@ -102,4 +102,53 @@ describe('agent activity db', () => {
     ]);
     expect(await getAgentActivitiesForChannel('channel-1')).toHaveLength(2);
   });
+
+  it('removes authoritative absences and their owning commentary', async () => {
+    const existing = row({ pg_backend: true });
+    await upsertAgentActivity(existing);
+    await mergeAgentActivityCommentary([{
+      history_key: 'workspace-1\u0000https://tower.example\u0000turn-1\u00001',
+      workspace_id: 'workspace-1', backend_url: 'https://tower.example', turn_id: 'turn-1',
+      activity_id: 'activity-1', channel_id: 'channel-1', sequence: 1, body: 'Thinking',
+    }]);
+
+    await replacePgAgentActivitiesForChannel('channel-1', [], {
+      authoritative: true,
+      requestSnapshot: [existing],
+    });
+
+    expect(await getAgentActivitiesForChannel('channel-1')).toEqual([]);
+    expect(await getAgentActivityCommentaryForChannel('channel-1')).toEqual([]);
+  });
+
+  it('does not let a request-start absence snapshot delete a newer concurrent SSE turn', async () => {
+    const started = row({ pg_backend: true, sequence: 1 });
+    await upsertAgentActivity(started);
+    await upsertAgentActivity(row({ pg_backend: true, sequence: 2, summary: 'Newer SSE state' }));
+
+    await replacePgAgentActivitiesForChannel('channel-1', [], {
+      authoritative: true,
+      requestSnapshot: [started],
+    });
+
+    expect(await getAgentActivitiesForChannel('channel-1')).toEqual([
+      expect.objectContaining({ sequence: 2, summary: 'Newer SSE state' }),
+    ]);
+  });
+
+  it('does not remove a newer activity lifecycle that reused the local record id', async () => {
+    const started = row({ pg_backend: true, sequence: 3 });
+    await upsertAgentActivity(started);
+    await clearAgentActivity(started.record_id);
+    await upsertAgentActivity(row({ pg_backend: true, activity_id: 'activity-2', turn_id: 'turn-2', sequence: 1 }));
+
+    await replacePgAgentActivitiesForChannel('channel-1', [], {
+      authoritative: true,
+      requestSnapshot: [started],
+    });
+
+    expect(await getAgentActivitiesForChannel('channel-1')).toEqual([
+      expect.objectContaining({ activity_id: 'activity-2', turn_id: 'turn-2' }),
+    ]);
+  });
 });
