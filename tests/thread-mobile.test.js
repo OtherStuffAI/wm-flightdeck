@@ -178,6 +178,7 @@ describe('Thread mobile responsive behavior', () => {
       const backdropDecl = extractDeclarations(mobileBlock, '.mobile-sidebar-backdrop');
       const sidebarDecl = extractDeclarations(mobileBlock, '.sidebar');
       const switcherDecl = extractDeclarations(mobileBlock, '.mobile-scope-switcher');
+      const contextControlsDecl = extractDeclarations(mobileBlock, '.mobile-scope-context-controls');
       const triggerDecl = extractDeclarations(mobileBlock, '.mobile-scope-trigger');
       const resultsDecl = extractDeclarations(mobileBlock, '.mobile-scope-results');
       const headerZ = Number(headerDecl.match(/z-index\s*:\s*(\d+)/)?.[1]);
@@ -186,8 +187,9 @@ describe('Thread mobile responsive behavior', () => {
       const switcherZ = Number(switcherDecl.match(/z-index\s*:\s*(\d+)/)?.[1]);
       const resultsZ = Number(resultsDecl.match(/z-index\s*:\s*(\d+)/)?.[1]);
 
-      expect(switcherDecl).toMatch(/display\s*:\s*grid/);
-      expect(switcherDecl).toMatch(/grid-template-columns\s*:\s*38px minmax\(0,\s*1fr\) 38px/);
+      expect(switcherDecl).toMatch(/display\s*:\s*block/);
+      expect(contextControlsDecl).toMatch(/display\s*:\s*grid/);
+      expect(contextControlsDecl).toMatch(/grid-template-columns\s*:\s*38px minmax\(0,\s*1fr\) 38px/);
       expect(backdropDecl).toMatch(/top\s*:\s*var\(--mobile-nav-drawer-top\)/);
       expect(sidebarDecl).toMatch(/top\s*:\s*var\(--mobile-nav-drawer-top\)/);
       expect(sidebarDecl).toMatch(/height\s*:\s*calc\(100dvh - var\(--mobile-nav-drawer-top\)\)/);

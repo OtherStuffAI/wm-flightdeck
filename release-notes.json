@@ -790,6 +790,13 @@
       "notes": [
         "Show each scope's channel creation shortcut only when the current workspace permissions make creation available there."
       ]
+    },
+    {
+      "buildNumber": 1815,
+      "label": "Clear mobile sidebar selectors",
+      "notes": [
+        "Show labelled Deck, Chat, Tasks, Docs, and Files controls above the open mobile sidebar while keeping the existing scope, channel, and compact controls when it is closed."
+      ]
     }
   ]
 }

@@ -121,7 +121,7 @@ describe('expanded sidebar scope/channel navigation', () => {
   });
 
   it('hides the horizontal work-context bar only for expanded desktop rails', () => {
-    expect(html).toContain(":class=\"{ 'global-pg-channel-bar-sidebar-expanded': !$store.chat.navCollapsed }\"");
+    expect(html).toContain("'global-pg-channel-bar-sidebar-expanded': !$store.chat.navCollapsed");
     expect(styles).toMatch(/@media \(min-width: 769px\)\s*\{[\s\S]*?\.global-pg-channel-bar\.global-pg-channel-bar-sidebar-expanded\s*\{[^}]*display:\s*none;/s);
     const mobile = styles.slice(styles.indexOf('@media (max-width: 768px)'));
     expect(mobile).toMatch(/\.global-pg-channel-bar\.global-pg-channel-bar-sidebar-expanded\s*\{[^}]*display:\s*flex;/s);
