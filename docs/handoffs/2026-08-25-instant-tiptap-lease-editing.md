@@ -117,4 +117,3 @@ Perform a browser/Playwright pass for the delayed acquisition interaction if it 
 - Comment on the Flight Deck task at meaningful milestones: confirmed implementation path; main change complete; validation/commit handoff.
 - Completion comment must include files changed, focused/full test evidence, build/version, browser validation status, commit, limitations, and the originating message reference.
 - Move the task to `review` only when the implementation and required validation are actually complete.
-
