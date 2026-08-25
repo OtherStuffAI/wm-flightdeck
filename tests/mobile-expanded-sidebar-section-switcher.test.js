@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { createShellState } from '../src/shell-state.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
@@ -42,19 +43,23 @@ describe('expanded left-column section switcher', () => {
       ['tasks', 'Tasks'],
       ['docs', 'Docs'],
       ['files', 'Files'],
+      ['settings', 'Setup'],
     ]) {
       expect(expandedSwitcher).toContain(`navigateTo('${section}')`);
       expect(expandedSwitcher).toContain(`$store.chat.navSection === '${section}' ? 'page' : null`);
       expect(expandedSwitcher).toMatch(new RegExp(`>${label}<\\/span>`));
     }
 
-    expect(expandedSwitcher.match(/class="expanded-sidebar-section-icon"/g)).toHaveLength(5);
+    expect(expandedSwitcher.match(/class="expanded-sidebar-section-icon"/g)).toHaveLength(6);
+    expect(expandedSwitcher.match(/navigateTo\('settings'\)/g)).toHaveLength(1);
+    expect(expandedSwitcher).toContain('class="expanded-sidebar-section-switcher-btn expanded-sidebar-section-switcher-btn-mobile-only" x-show="$store.chat.mobileNavOpen"');
   });
 
   it('removes the actual expanded left-column navigation set and its layout space', () => {
     expect(sidebar).toContain('class="sidebar-nav" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen"');
     expect(sidebar.indexOf('class="sidebar-nav"')).toBeLessThan(sidebar.indexOf('class="sidebar-workspace-navigation-divider"'));
     expect(sidebar).not.toContain('mobile-expanded-section-switcher');
+    expect(sidebar.match(/navigateTo\('settings'\)/g)).toHaveLength(1);
     expect(styles).toMatch(/\.sidebar\.sidebar-mobile-open \.sidebar-nav\s*\{[^}]*display:\s*none;/s);
     expect(styles).not.toMatch(/global-pg-channel-bar-sidebar-expanded\s*\{[^}]*display:\s*none;/s);
   });
@@ -81,10 +86,32 @@ describe('expanded left-column section switcher', () => {
     expect(navigateTo).not.toContain('this.navCollapsed = true;');
   });
 
+  it('selects canonical settings, closes the mobile drawer, and keeps the settings deep-link route', () => {
+    const shell = createShellState();
+    Object.assign(shell, {
+      mobileNavOpen: true,
+      navCollapsed: true,
+      clearInactiveSectionData: vi.fn(),
+      syncRoute: vi.fn(),
+      startWorkspaceLiveQueries: vi.fn(),
+      ensureBackgroundSync: vi.fn(),
+    });
+
+    shell.navigateTo('settings');
+
+    expect(shell.navSection).toBe('settings');
+    expect(shell.mobileNavOpen).toBe(false);
+    expect(shell.navCollapsed).toBe(true);
+    expect(shell.syncRoute).toHaveBeenCalledTimes(1);
+    expect(shell.getRoutePath('settings')).toMatch(/\/settings$/);
+  });
+
   it('keeps touch, keyboard focus, active state, and horizontal overflow behavior', () => {
     expect(styles).toMatch(/\.expanded-sidebar-section-switcher\s*\{[^}]*overflow-x:\s*auto;[^}]*touch-action:\s*pan-x;/s);
     expect(styles).toMatch(/\.expanded-sidebar-section-switcher-btn\s*\{[^}]*min-height:\s*44px;/s);
     expect(styles).toMatch(/\.expanded-sidebar-section-switcher-btn:focus-visible\s*\{[^}]*outline:\s*2px solid #2563eb;/s);
     expect(styles).toMatch(/\.expanded-sidebar-section-switcher-btn-active\s*\{[^}]*background:\s*#eff6ff;/s);
+    expect(styles).toMatch(/\.expanded-sidebar-section-switcher-btn-mobile-only\s*\{[^}]*display:\s*none;/s);
+    expect(styles).toMatch(/@media \(max-width: 768px\)[\s\S]*\.expanded-sidebar-section-switcher-btn-mobile-only\s*\{[^}]*display:\s*inline-flex;/s);
   });
 });

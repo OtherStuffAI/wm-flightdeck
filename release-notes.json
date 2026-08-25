@@ -804,6 +804,13 @@
       "notes": [
         "Move the labelled Deck, Chat, Tasks, Docs, and Files picker into the horizontal top bar when the left column is open, leaving the column for workspace scopes and channels."
       ]
+    },
+    {
+      "buildNumber": 1818,
+      "label": "Restore mobile Setup selector",
+      "notes": [
+        "Reach Setup from the labelled horizontal section picker while the mobile left column is open."
+      ]
     }
   ]
 }
