@@ -462,6 +462,59 @@ describe('docsManagerMixin comment drawer', () => {
     expect(store.docEditorBlocks).toMatchObject([{ raw: '# Fresh' }]);
   });
 
+  it('keeps an inline storage preview read-only and unsaveable while the typed body hydrates', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    acquireTowerPgEditLeaseMock.mockClear();
+    updateTowerPgDocMock.mockClear();
+    const preview = 'x'.repeat(8_192);
+    let resolvePrefetch;
+    const prefetchFlightDeckDoc = vi.fn(() => new Promise((resolve) => {
+      resolvePrefetch = resolve;
+    }));
+    const remote = {
+      record_id: 'doc-storage-preview',
+      title: 'Storage preview',
+      content: preview,
+      content_blocks: [],
+      editor_state: null,
+      content_storage_object_id: 'object-storage-preview',
+      content_storage_status: 'remote',
+      content_size_bytes: 12_000,
+      pg_backend: true,
+      pg_record_type: 'doc',
+      sync_status: 'synced',
+      scope_id: 'scope-1',
+      record_state: 'active',
+      version: 7,
+    };
+    const store = createStore({
+      documents: [remote],
+      prefetchFlightDeckDoc,
+      loadDocEditorFromSelection: docsManagerMixin.loadDocEditorFromSelection,
+      getEffectiveDocShares: vi.fn(() => []),
+      destroyDocRichEditor: vi.fn(),
+      scheduleDocCommentConnectorUpdate: vi.fn(),
+      scheduleStorageImageHydration: vi.fn(),
+      inspectSelectedDocEditLease: vi.fn(),
+      docEditorRichFeatureEnabled: true,
+      workspaceOwnerNpub: 'npub1owner',
+    });
+
+    store.openDoc(remote.record_id);
+
+    expect(store.docEditorContent).toBe(preview);
+    expect(store.isSelectedDocContentReadyForEditor()).toBe(false);
+    expect(store.isSelectedDocRichEditorEditable()).toBe(false);
+    await expect(store.beginSelectedDocLeaseAcquisition()).resolves.toBe(false);
+    await expect(store.saveSelectedPgDocItem(remote, 'npub1owner', { autosave: false })).resolves.toBeNull();
+    expect(store.docEditAccessMessage).toBe('Save paused until the complete document finishes loading.');
+    expect(acquireTowerPgEditLeaseMock).not.toHaveBeenCalled();
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+
+    resolvePrefetch(null);
+    await Promise.resolve();
+  });
+
   it('does not replace an active pasted draft when document hydration finishes late', async () => {
     isTowerPgBackendModeMock.mockReturnValue(true);
     let resolvePrefetch;
@@ -2068,11 +2121,12 @@ describe('docsManagerMixin canonical row normalization', () => {
     const remote = {
       ...record,
       version: 44,
-      content: '',
+      content: 'x'.repeat(8_192),
       content_blocks: [],
       editor_state: null,
       content_storage_object_id: 'object-v44',
       content_storage_status: 'remote',
+      content_size_bytes: 12_000,
     };
     store.documents = [remote];
 
@@ -2091,6 +2145,27 @@ describe('docsManagerMixin canonical row normalization', () => {
     expect(store.observeSelectedDocAuthoritativeVersion()).toBe(true);
     expect(store.docEditorContent).toBe(source);
     expect(store.docEditBaseRowVersion).toBe(44);
+  });
+
+  it('recognizes explicit local editor models on fresh storage-backed remote rows', () => {
+    const contentModel = richDocContentModel('Authoritative local body');
+    const base = {
+      content: 'Authoritative local body',
+      content_storage_object_id: 'object-local',
+      content_storage_status: 'remote',
+      content_size_bytes: 30_000,
+    };
+
+    expect(isDocumentContentReadyForEditor({
+      ...base,
+      content_blocks: [],
+      editor_state: contentModel.editor_state,
+    })).toBe(true);
+    expect(isDocumentContentReadyForEditor({
+      ...base,
+      content_blocks: contentModel.content_blocks,
+      editor_state: null,
+    })).toBe(true);
   });
 
   it('conflict-stops a stale dirty buffer at save time before storage upload or PATCH', async () => {

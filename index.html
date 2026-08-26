@@ -4803,6 +4803,7 @@
                         :class="{ 'doc-mode-chip-active': $store.chat.docEditAccessState === 'editing' }"
                         :disabled="$store.chat.docEditAccessState === 'acquiring'
                           || $store.chat.docEditAccessState === 'conflict'
+                          || !$store.chat.isSelectedDocContentReadyForEditor()
                           || $store.chat.docRichImageUploadCount > 0"
                         @click="$store.chat.docEditAccessState === 'editing'
                           ? $store.chat.saveAndExitSelectedDocEditMode()
@@ -4811,11 +4812,13 @@
                             : $store.chat.beginSelectedDocLeaseAcquisition())"
                         x-text="$store.chat.docRichImageUploadCount > 0
                           ? 'Uploading…'
+                          : (!$store.chat.isSelectedDocContentReadyForEditor()
+                            ? 'Loading…'
                           : ($store.chat.docEditAccessState === 'editing'
                             ? 'Save'
                             : ($store.chat.docEditAccessState === 'acquiring'
                               ? 'Acquiring…'
-                              : ($store.chat.docEditAccessState === 'blocked' ? 'Retry' : 'Edit')))"
+                              : ($store.chat.docEditAccessState === 'blocked' ? 'Retry' : 'Edit'))))"
                       >Edit</button>
                     </div>
                     <button

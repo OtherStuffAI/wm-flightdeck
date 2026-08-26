@@ -1986,6 +1986,7 @@ export function initApp() {
 
     get selectedDocEditStatusLabel() {
       if (!isTowerPgBackendMode() || !isSyncedPgRecord(this.selectedDocument)) return '';
+      if (!this.isSelectedDocContentReadyForEditor()) return 'Loading complete document…';
       if (this.docEditAccessState === 'acquiring') return 'Acquiring edit access…';
       if (this.docEditAccessState === 'editing') return `Editing · ${this.docSyncStatusLabel.toLowerCase()}`;
       if (this.docEditAccessState === 'conflict') return 'Draft preserved — document changed in Tower';

@@ -122,7 +122,9 @@ function isPgStaleRowVersionError(error) {
 export function isDocumentContentReadyForEditor(item = {}) {
   if (!item?.content_storage_object_id) return true;
   if (item.content_storage_status === 'loaded') return true;
-  if (String(item.content || '').length > 0) return true;
+  // Storage-backed collection rows may carry only the inline preview in
+  // `content`. A local editor model is the explicit signal that a fresh local
+  // submission still owns the complete body while its storage status is remote.
   if (Array.isArray(item.content_blocks) && item.content_blocks.length > 0) return true;
   return item.editor_state?.type === 'doc';
 }
@@ -1175,7 +1177,13 @@ export const docsManagerMixin = {
       return isCheckoutHeld(this.getSelectedDocCheckoutSession()?.checkout);
     }
     if (!isSyncedPgRecord(item)) return true;
+    if (!isDocumentContentReadyForEditor(item)) return false;
     return ['ready', 'acquiring', 'editing'].includes(String(this.docEditAccessState || 'ready'));
+  },
+
+  isSelectedDocContentReadyForEditor() {
+    const item = this.selectedDocument;
+    return Boolean(item && isDocumentContentReadyForEditor(item));
   },
 
   handleDocRichEditorUpdate() {
@@ -1197,6 +1205,7 @@ export const docsManagerMixin = {
       this.docEditAccessState = 'editing';
       return true;
     }
+    if (!isDocumentContentReadyForEditor(item)) return false;
     if (this.docEditAccessState === 'editing' || this.docEditAccessState === 'acquiring') return true;
     if (this.docEditAccessState === 'blocked' || this.docEditAccessState === 'conflict') return false;
     void this.beginSelectedDocLeaseAcquisition();
@@ -1221,6 +1230,11 @@ export const docsManagerMixin = {
     if (!item) return false;
     if (!isTowerPgBackendMode() || !isSyncedPgRecord(item)) {
       return this.enterSelectedDocEditMode(options.mode || 'rich');
+    }
+    if (!isDocumentContentReadyForEditor(item)) {
+      this.docEditAccessMessage = 'Loading the complete document before editing…';
+      this.docRichEditorAdapter?.setEditable?.(false);
+      return false;
     }
     if (this.docEditAccessState === 'editing') return true;
     const recordId = String(item.record_id || '');
@@ -3635,6 +3649,12 @@ export const docsManagerMixin = {
 
   async saveSelectedPgDocItem(item, ownerNpub, options = {}) {
     const autosave = options.autosave === true;
+    if (isSyncedPgRecord(item) && !isDocumentContentReadyForEditor(item)) {
+      this.docAutosaveState = 'error';
+      this.docEditAccessMessage = 'Save paused until the complete document finishes loading.';
+      if (!autosave) this.error = this.docEditAccessMessage;
+      return null;
+    }
     const nextTitle = this.docEditorTitle.trim() || 'Untitled document';
     const itemVersion = Number(item.version || item.row_version || 0);
     const baseVersion = Number(this.docEditBaseRowVersion || 0);
