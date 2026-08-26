@@ -60,6 +60,17 @@ export function avatarConnectionTitle(store = {}) {
   return ENCRYPTED_STATUS_TITLES[store.syncStatus] || 'Unknown';
 }
 
+export function avatarControlTitle(store = {}) {
+  const startupProgress = store.startupSyncProgress || {};
+  if (startupProgress.visible && startupProgress.stage === 'error') {
+    return 'Update stalled — open progress and retry';
+  }
+  if (startupProgress.visible && startupProgress.active) {
+    return 'Receiving updates — open progress';
+  }
+  return avatarConnectionTitle(store);
+}
+
 export const avatarStatusMixin = {
   get avatarConnectionStatus() {
     return resolveAvatarConnectionStatus(this);
@@ -71,5 +82,9 @@ export const avatarStatusMixin = {
 
   get avatarConnectionTitle() {
     return avatarConnectionTitle(this);
+  },
+
+  get avatarControlTitle() {
+    return avatarControlTitle(this);
   },
 };

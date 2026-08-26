@@ -72,7 +72,7 @@
   </template>
   <aside
     class="startup-sync-status"
-    x-show="$store.chat.startupSyncProgress.visible"
+    x-show="$store.chat.startupSyncProgress.visible && $store.chat.startupSyncProgress.stage === 'error'"
     x-cloak
     role="status"
     aria-live="polite"
@@ -248,6 +248,7 @@
             'avatar-status-syncing': $store.chat.avatarConnectionStatus === 'syncing',
             'avatar-status-local-only': $store.chat.avatarConnectionStatus === 'local-only',
             'avatar-status-error': $store.chat.avatarConnectionStatus === 'error',
+            'avatar-status-receiving': $store.chat.startupSyncProgress.visible && $store.chat.startupSyncProgress.active,
             'sync-status-synced': !$store.chat.isTowerPgMode && $store.chat.syncStatus === 'synced',
             'sync-status-unsynced': !$store.chat.isTowerPgMode && $store.chat.syncStatus === 'unsynced',
             'sync-status-stale': !$store.chat.isTowerPgMode && $store.chat.syncStatus === 'stale',
@@ -258,7 +259,11 @@
           }"
           type="button"
           @click="$store.chat.showAvatarMenu = !$store.chat.showAvatarMenu"
-          :title="$store.chat.avatarConnectionTitle"
+          :title="$store.chat.avatarControlTitle"
+          :aria-label="$store.chat.avatarControlTitle"
+          aria-haspopup="true"
+          :aria-expanded="$store.chat.showAvatarMenu ? 'true' : 'false'"
+          aria-controls="profile-avatar-menu"
         >
           <template x-if="$store.chat.avatarUrl">
             <img class="chat-post-avatar" :src="$store.chat.avatarUrl" alt="" @error="$store.chat.handleAvatarImageError($event)" />
@@ -267,9 +272,20 @@
             <span class="avatar-fallback" x-text="$store.chat.avatarFallback"></span>
           </template>
         </button>
-        <div class="avatar-menu" x-show="$store.chat.showAvatarMenu" @click.outside="$store.chat.showAvatarMenu = false">
+        <div id="profile-avatar-menu" class="avatar-menu" x-show="$store.chat.showAvatarMenu" @click.outside="$store.chat.showAvatarMenu = false">
           <div class="avatar-menu-header">
             <span class="avatar-menu-name" x-text="$store.chat.displayName"></span>
+          </div>
+          <div class="avatar-menu-section startup-sync-progress-panel" x-show="$store.chat.startupSyncProgress.visible">
+            <span class="avatar-menu-label">Workspace updates</span>
+            <div class="startup-sync-progress-heading">
+              <span class="startup-sync-progress-indicator" :class="{ 'is-active': $store.chat.startupSyncProgress.active }" aria-hidden="true"></span>
+              <strong x-text="$store.chat.startupSyncProgressLabel()"></strong>
+            </div>
+            <span class="startup-sync-progress-meta" x-show="$store.chat.startupSyncProgressMeta()" x-text="$store.chat.startupSyncProgressMeta()"></span>
+            <span class="startup-sync-progress-copy" x-show="$store.chat.startupSyncProgress.active">Cached workspace remains available while Flight Deck updates.</span>
+            <span class="sync-error-text" x-show="$store.chat.startupSyncProgress.stage === 'error'" x-text="$store.chat.startupSyncProgress.error"></span>
+            <button class="startup-sync-retry" type="button" x-show="$store.chat.startupSyncProgress.stage === 'error'" @click="$store.chat.retryStartupSync()">Retry updates</button>
           </div>
           <div class="avatar-menu-section sync-status-panel">
             <span class="avatar-menu-label" x-text="$store.chat.isTowerPgMode ? 'Backend' : 'Sync Status'"></span>

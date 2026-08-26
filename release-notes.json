@@ -934,6 +934,13 @@
       "notes": [
         "Replace unavailable Nostr profile images with stable initials across chat, threads, comments, assignees, and identity controls, then recover automatically when the profile URL changes."
       ]
+    },
+    {
+      "buildNumber": 1842,
+      "label": "Background workspace update progress",
+      "notes": [
+        "Keep long workspace updates behind an orange profile-avatar ring, with receive, apply, and page progress available from the profile menu without covering workspace content."
+      ]
     }
   ]
 }

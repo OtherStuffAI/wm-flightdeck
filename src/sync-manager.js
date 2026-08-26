@@ -484,6 +484,16 @@ export const syncManagerMixin = {
     return 'Updating…';
   },
 
+  startupSyncProgressMeta() {
+    const progress = this.startupSyncProgress || {};
+    const details = [];
+    const page = Number(progress.page || 0);
+    const applied = Number(progress.applied || 0);
+    if (page > 0) details.push(`Page ${page}`);
+    if (applied > 0) details.push(`${applied.toLocaleString()} ${applied === 1 ? 'change' : 'changes'} applied`);
+    return details.join(' · ');
+  },
+
   commandTowerWorkspace(name, input = {}, options = {}) {
     const service = this.getTowerSyncService();
     if (!service) throw new Error('TowerSyncService is unavailable for the active workspace');

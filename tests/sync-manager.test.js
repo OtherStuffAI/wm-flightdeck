@@ -1750,6 +1750,7 @@ describe('PG workspace startup progress', () => {
       vi.advanceTimersByTime(1);
       expect(store.startupSyncProgress).toMatchObject({ active: true, visible: true, stage: 'receiving', page: 1 });
       expect(syncManagerMixin.startupSyncProgressLabel.call(store)).toBe('Receiving changes…');
+      expect(syncManagerMixin.startupSyncProgressMeta.call(store)).toBe('Page 1');
 
       resolveSync({ applied: 4, pages: 1 });
       await pending;
@@ -1757,6 +1758,30 @@ describe('PG workspace startup progress', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('keeps user-dismissed avatar detail closed while later pages update', () => {
+    const { fn, store } = bindMethod('updateStartupSyncProgress');
+    store.showAvatarMenu = false;
+    store.startupSyncProgress = {
+      active: true,
+      visible: true,
+      stage: 'receiving',
+      startedAt: Date.now(),
+      elapsedMs: 1_500,
+      page: 1,
+      applied: 25,
+      cursorPresent: true,
+      fullSnapshot: false,
+      error: null,
+    };
+
+    fn({ stage: 'receiving', page: 2, applied: 50, hasMore: true });
+
+    expect(store.showAvatarMenu).toBe(false);
+    expect(store.startupSyncProgress).toMatchObject({ active: true, visible: true, page: 2, applied: 50 });
+    expect(syncManagerMixin.startupSyncProgressLabel.call(store)).toBe('Receiving changes (page 2)…');
+    expect(syncManagerMixin.startupSyncProgressMeta.call(store)).toBe('Page 2 · 50 changes applied');
   });
 
   it('keeps a failed update visible with a retry action state', async () => {

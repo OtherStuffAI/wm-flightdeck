@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   avatarConnectionLabel,
   avatarConnectionTitle,
+  avatarControlTitle,
   resolveAvatarConnectionStatus,
 } from '../src/components/avatar-status.js';
 
@@ -57,5 +58,27 @@ describe('avatar status component state', () => {
     expect(resolveAvatarConnectionStatus(store)).toBe('unsynced');
     expect(avatarConnectionLabel(store)).toBe('Pending');
     expect(avatarConnectionTitle(store)).toBe('Local changes pending');
+  });
+
+  it('announces eligible startup receive progress through the existing avatar control', () => {
+    expect(avatarControlTitle({
+      isTowerPgMode: true,
+      avatarConnectionStatus: 'tower-pg-connected',
+      startupSyncProgress: { active: true, visible: true, stage: 'receiving' },
+    })).toBe('Receiving updates — open progress');
+
+    expect(avatarControlTitle({
+      isTowerPgMode: true,
+      avatarConnectionStatus: 'tower-pg-connected',
+      startupSyncProgress: { active: true, visible: false, stage: 'receiving' },
+    })).toBe('Tower Connected (PG)');
+  });
+
+  it('keeps startup update failures discoverable from the avatar control', () => {
+    expect(avatarControlTitle({
+      isTowerPgMode: true,
+      avatarConnectionStatus: 'error',
+      startupSyncProgress: { active: false, visible: true, stage: 'error' },
+    })).toBe('Update stalled — open progress and retry');
   });
 });
