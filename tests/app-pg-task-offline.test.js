@@ -6,6 +6,7 @@ import {
   openWorkspaceDb,
   replacePgCommentsForTarget,
   setSyncState,
+  upsertResourceViewState,
   upsertTask,
 } from '../src/db.js';
 
@@ -762,6 +763,76 @@ describe('app PG task offline drafts', () => {
     expect(store.tasks[0]).toEqual(reviewTask);
     expect(await getTaskById(reviewTask.record_id)).toEqual(reviewTask);
     expect(store.error).toBe('Tower rejected the state update.');
+  });
+
+  it('keeps the viewer\'s normal background done path read before Tower reconciliation', async () => {
+    const ownerNpub = 'npub1pgworkspace-normal-close';
+    const workspaceKey = 'workspace-1';
+    const wsDb = openWorkspaceDb(workspaceKey);
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    let resolveUpdate;
+    updateTowerPgTaskFromLocalMock.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveUpdate = () => resolve({
+        record_id: 'task-normal-close', title: 'Live close regression', state: 'done',
+        activity_version: 12, version: 6, sync_status: 'synced', record_state: 'active',
+        pg_backend: true, pg_channel_id: 'channel-1',
+        pg_updated_by_actor_id: 'actor-viewer', pg_updated_by_actor_npub: 'npub1viewer',
+        updated_at: '2026-08-26T11:32:38.813Z',
+      });
+    }));
+
+    const { initApp } = await import('../src/app.js');
+    initApp();
+    const store = alpineStoreMock.mock.calls.find(([name]) => name === 'chat')?.[1];
+    expect(store).toBeTruthy();
+
+    const task = {
+      record_id: 'task-normal-close', owner_npub: ownerNpub,
+      title: 'Live close regression', state: 'review', activity_version: 11,
+      version: 5, sync_status: 'synced', record_state: 'active', pg_backend: true,
+      pg_channel_id: 'channel-1', pg_updated_by_actor_id: 'actor-other',
+      updated_at: '2026-08-26T08:44:03.599Z',
+    };
+    await upsertTask(task);
+    await upsertResourceViewState({
+      record_id: 'task:task-normal-close', resource_type: 'task', resource_id: 'task-normal-close',
+      viewer_actor_id: 'actor-viewer', channel_id: 'channel-1', activity_version: 11,
+      viewed_activity_version: 10, row_version: 2, sync_status: 'synced',
+      updated_at: '2026-08-26T08:44:03.599Z',
+    });
+    Object.assign(store, {
+      session: { npub: 'npub1viewer' },
+      ownerNpub,
+      currentWorkspaceOwnerNpub: ownerNpub,
+      selectedWorkspaceKey: workspaceKey,
+      knownWorkspaces: [{
+        workspaceKey, workspaceId: 'workspace-1', workspaceOwnerNpub: ownerNpub,
+        directHttpsUrl: 'https://tower.example', appNpub: 'flightdeck_pg', pgBackendMode: true,
+        pgMe: { actor: { actor_id: 'actor-viewer', npub: 'npub1viewer' } },
+      }],
+      backendUrl: 'https://tower.example',
+      tasks: [task],
+      editingTask: { ...task },
+      taskDetailMode: 'view',
+      activeTaskId: task.record_id,
+      _unreadTaskItems: { [task.record_id]: true },
+      _unreadChannels: { 'channel-1': true },
+    });
+
+    await store.applyTaskDetailQuickAction('done');
+
+    expect(store.tasks[0]).toMatchObject({
+      state: 'done', sync_status: 'pending',
+      pg_updated_by_actor_id: 'actor-viewer',
+      pg_updated_by_actor_npub: 'npub1viewer',
+    });
+    expect(store._unreadTaskItems).toEqual({});
+    expect(store._unreadChannels).toEqual({});
+
+    await waitForCondition(() => updateTowerPgTaskFromLocalMock.mock.calls.length === 1);
+    resolveUpdate();
+    await waitForCondition(() => store.pgTaskWriteInFlight === false);
   });
 
   it('archives PG bulk task updates locally before background Tower writes finish', async () => {

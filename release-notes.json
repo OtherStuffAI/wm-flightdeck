@@ -977,6 +977,13 @@
       "notes": [
         "Keep task updates and comments authored by the signed-in person from creating unread Inbox attention for that same person, while retaining other people's activity as unread."
       ]
+    },
+    {
+      "buildNumber": 1848,
+      "label": "Reliable self-authored task closing",
+      "notes": [
+        "Keep tasks closed by the signed-in person read in Inbox and channel attention through background writes, live hydration, and overlapping read-state refreshes."
+      ]
     }
   ]
 }

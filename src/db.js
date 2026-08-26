@@ -282,23 +282,36 @@ export async function upsertResourceViewState(row) {
 export async function replaceResourceViewStates(rows) {
   const incoming = Array.isArray(rows) ? rows : [];
   await wsDb().transaction('rw', wsDb().resource_view_states, async () => {
-    const pending = (await wsDb().resource_view_states.toArray())
-      .filter((row) => row.sync_status === 'pending');
+    const existing = await wsDb().resource_view_states.toArray();
+    const existingById = new Map(existing.map((row) => [row.record_id, row]));
     await wsDb().resource_view_states.clear();
     for (const row of incoming) {
       const value = sanitizeForStorage(row);
-      await wsDb().resource_view_states.put(value);
+      const current = existingById.get(value.record_id);
+      const currentRowVersion = Number(current?.row_version || 0);
+      const incomingRowVersion = Number(value?.row_version || 0);
+      const currentActivityVersion = Number(current?.activity_version || 0);
+      const incomingActivityVersion = Number(value?.activity_version || 0);
+      const currentViewedVersion = Number(current?.viewed_activity_version || 0);
+      const incomingViewedVersion = Number(value?.viewed_activity_version || 0);
+      const currentIsNewer = current && (
+        currentRowVersion > incomingRowVersion
+        || currentActivityVersion > incomingActivityVersion
+        || currentViewedVersion > incomingViewedVersion
+      );
+      const merged = {
+        ...(currentIsNewer ? value : current),
+        ...(currentIsNewer ? current : value),
+        record_id: value.record_id,
+        activity_version: Math.max(currentActivityVersion, incomingActivityVersion),
+        viewed_activity_version: Math.max(currentViewedVersion, incomingViewedVersion),
+        row_version: Math.max(currentRowVersion, incomingRowVersion),
+      };
+      await wsDb().resource_view_states.put(merged);
+      existingById.delete(value.record_id);
     }
-    for (const row of pending) {
-      const current = await wsDb().resource_view_states.get(row.record_id);
-      if (!current || Number(row.viewed_activity_version || 0) > Number(current.viewed_activity_version || 0)) {
-        await wsDb().resource_view_states.put({
-          ...current,
-          ...row,
-          activity_version: Math.max(Number(current?.activity_version || 0), Number(row.activity_version || 0)),
-          viewed_activity_version: Math.max(Number(current?.viewed_activity_version || 0), Number(row.viewed_activity_version || 0)),
-        });
-      }
+    for (const row of existingById.values()) {
+      if (row.sync_status === 'pending') await wsDb().resource_view_states.put(row);
     }
   });
 }

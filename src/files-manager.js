@@ -842,6 +842,7 @@ export const filesManagerMixin = {
 
   applyFileComments(comments = []) {
     this.fileComments = Array.isArray(comments) ? comments : [];
+    this.scheduleTowerPgUnreadProjectionRefresh?.();
   },
 
   applyFileFolders(folders = []) {

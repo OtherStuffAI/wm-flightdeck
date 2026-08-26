@@ -91,6 +91,14 @@ function taskCommentsFor(comments = [], taskId = '') {
   ));
 }
 
+function hasHydratedTaskAttentionActivity(task, latestActivity, state) {
+  if (!task || !latestActivity) return false;
+  const taskActivityVersion = Number(task.activity_version || 0);
+  const stateActivityVersion = Number(state?.activity_version || 0);
+  return stateActivityVersion <= 0
+    || taskActivityVersion >= stateActivityVersion;
+}
+
 function usesTowerResourceViewState(store) {
   return isTowerPgBackendMode()
     && Boolean(store?.isTowerPgMode || store?.currentWorkspace?.pgBackendMode || store?.pgBackendMode);
@@ -522,7 +530,7 @@ export const unreadStoreMixin = {
           viewerNpub: this.currentViewerNpub || this.session?.npub,
           workspaceMembers: this.pgWorkspaceMembers,
         });
-        if (!selfAuthored) {
+        if (!selfAuthored && hasHydratedTaskAttentionActivity(task, latestActivity, state)) {
           taskItems[state.resource_id] = true;
           createsAttention = true;
         }
@@ -539,9 +547,38 @@ export const unreadStoreMixin = {
     this._unreadDocs = Object.keys(docItems).length > 0;
   },
 
+  async recomputeTowerPgUnreadProjection() {
+    if (!usesTowerResourceViewState(this)) return false;
+    if (!isWorkspaceDbOpenForKey(this.currentWorkspaceKey)) return false;
+    this.applyTowerPgResourceViewStates(await getResourceViewStates());
+    return true;
+  },
+
+  scheduleTowerPgUnreadProjectionRefresh() {
+    if (!usesTowerResourceViewState(this)) return null;
+    this._towerPgUnreadProjectionRefreshRequested = true;
+    if (this._towerPgUnreadProjectionRefreshPromise) {
+      return this._towerPgUnreadProjectionRefreshPromise;
+    }
+    this._towerPgUnreadProjectionRefreshPromise = Promise.resolve()
+      .then(async () => {
+        do {
+          this._towerPgUnreadProjectionRefreshRequested = false;
+          await this.recomputeTowerPgUnreadProjection();
+        } while (this._towerPgUnreadProjectionRefreshRequested);
+      })
+      .catch(() => false)
+      .finally(() => {
+        this._towerPgUnreadProjectionRefreshPromise = null;
+      });
+    return this._towerPgUnreadProjectionRefreshPromise;
+  },
+
   async refreshTowerPgResourceViewStates() {
     const context = resolveTowerPgWorkspaceContext(this);
     if (!context.workspaceId || !context.baseUrl) return;
+    const refreshGeneration = Number(this._towerPgResourceViewStateRefreshGeneration || 0) + 1;
+    this._towerPgResourceViewStateRefreshGeneration = refreshGeneration;
     const localBefore = await getResourceViewStates();
     for (const pending of localBefore.filter((state) => state.sync_status === 'pending')) {
       try {
@@ -565,7 +602,9 @@ export const unreadStoreMixin = {
       const rows = (Array.isArray(result?.states) ? result.states : [])
         .map((state) => mapTowerResourceViewState(state))
         .filter(Boolean);
-      await replaceResourceViewStates(rows);
+      if (this._towerPgResourceViewStateRefreshGeneration === refreshGeneration) {
+        await replaceResourceViewStates(rows);
+      }
     } catch {
       // Offline rendering continues from Dexie.
     }

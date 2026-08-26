@@ -2401,7 +2401,12 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
     } else if (entityType === 'audio_note' && channelId) {
       audioChannels.add(channelId);
     } else if (entityType === 'task_comment' && trimText(payload.task_id)) {
-      taskCommentTargets.add(trimText(payload.task_id));
+      const taskId = trimText(payload.task_id);
+      taskCommentTargets.add(taskId);
+      // Task activity_version is the completeness boundary for actor-aware
+      // attention. Hydrate it with the comments so an older local comment
+      // cannot be promoted while the corresponding task event is still queued.
+      taskIds.add(taskId);
     } else if (entityType === 'doc_comment' && (trimText(payload.doc_id) || trimText(event?.entity_id))) {
       docCommentTargets.add(trimText(payload.doc_id) || trimText(event?.entity_id));
     } else if (entityType === 'daily_note' && (trimText(payload.owner_actor_id) || channelId) && trimText(payload.note_date)) {

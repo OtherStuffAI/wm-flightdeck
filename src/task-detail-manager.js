@@ -258,6 +258,7 @@ export const taskDetailManagerMixin = {
     if (typeof this.refreshReactionsForVisibleTargets === 'function') {
       this.refreshReactionsForVisibleTargets().catch(() => {});
     }
+    await this.recomputeTowerPgUnreadProjection?.();
   },
 
   async addTaskComment(taskId) {
@@ -314,6 +315,10 @@ export const taskDetailManagerMixin = {
         sync_status: 'pending',
         pg_backend: true,
         pg_record_type: 'task_comment',
+        pg_created_by_actor_id: this.currentPgActorId || null,
+        pg_updated_by_actor_id: this.currentPgActorId || null,
+        pg_created_by_actor_npub: this.currentViewerNpub || this.session.npub,
+        pg_updated_by_actor_npub: this.currentViewerNpub || this.session.npub,
         pg_workspace_id: pgContext.workspaceId,
         pg_channel_id: task?.pg_channel_id || null,
         pg_thread_id: task?.pg_thread_id || null,

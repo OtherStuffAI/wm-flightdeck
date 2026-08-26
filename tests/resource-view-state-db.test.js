@@ -70,7 +70,7 @@ describe('resource view-state Dexie materialization', () => {
 
   it('suppresses matching-actor task updates but keeps different-actor updates unread', () => {
     const matchingStore = {
-      tasks: [{ record_id: 'task-a', updated_at: '2026-01-01T00:02:00.000Z', pg_updated_by_actor_id: 'actor-viewer' }],
+      tasks: [{ record_id: 'task-a', activity_version: 4, updated_at: '2026-01-01T00:02:00.000Z', pg_updated_by_actor_id: 'actor-viewer' }],
       taskComments: [],
       _unreadThreadItems: {}, _unreadTaskItems: {}, _unreadDocItems: {}, _unreadChannels: {},
     };
@@ -81,7 +81,7 @@ describe('resource view-state Dexie materialization', () => {
 
     const differentStore = {
       ...matchingStore,
-      tasks: [{ record_id: 'task-a', updated_at: '2026-01-01T00:02:00.000Z', pg_updated_by_actor_id: 'actor-other' }],
+      tasks: [{ record_id: 'task-a', activity_version: 4, updated_at: '2026-01-01T00:02:00.000Z', pg_updated_by_actor_id: 'actor-other' }],
     };
     unreadStoreMixin.applyTowerPgResourceViewStates.call(differentStore, [state()]);
     expect(differentStore._unreadTaskItems).toEqual({ 'task-a': true });
@@ -91,7 +91,7 @@ describe('resource view-state Dexie materialization', () => {
 
   it('suppresses matching-actor task comments but keeps different-actor comments unread', () => {
     const store = {
-      tasks: [{ record_id: 'task-a', updated_at: '2026-01-01T00:01:00.000Z', pg_updated_by_actor_id: 'actor-other' }],
+      tasks: [{ record_id: 'task-a', activity_version: 4, updated_at: '2026-01-01T00:01:00.000Z', pg_updated_by_actor_id: 'actor-other' }],
       taskComments: [{
         record_id: 'comment-a', target_record_id: 'task-a', pg_record_type: 'task_comment',
         updated_at: '2026-01-01T00:02:00.000Z', pg_created_by_actor_id: 'actor-viewer',
@@ -112,6 +112,83 @@ describe('resource view-state Dexie materialization', () => {
     expect(await getResourceViewState('task', 'task-a')).toMatchObject({
       viewed_activity_version: 4, sync_status: 'pending',
     });
+  });
+
+  it('never regresses a newer synced watermark when an older snapshot finishes later', async () => {
+    await upsertResourceViewState(state({
+      activity_version: 12,
+      viewed_activity_version: 12,
+      row_version: 3,
+      sync_status: 'synced',
+    }));
+
+    await replaceResourceViewStates([state({
+      activity_version: 12,
+      viewed_activity_version: 11,
+      row_version: 2,
+      sync_status: 'synced',
+    })]);
+
+    expect(await getResourceViewState('task', 'task-a')).toMatchObject({
+      activity_version: 12,
+      viewed_activity_version: 12,
+      row_version: 3,
+      sync_status: 'synced',
+    });
+  });
+
+  it('recomputes actor-aware attention after view state arrives before task and comment hydration', async () => {
+    await upsertResourceViewState(state({
+      activity_version: 12,
+      viewed_activity_version: 11,
+      row_version: 3,
+    }));
+    const store = {
+      isTowerPgMode: true,
+      currentWorkspaceKey: 'resource-view-state-db-workspace',
+      currentWorkspace: {
+        pgBackendMode: true,
+        workspaceId: 'workspace-1',
+        directHttpsUrl: 'https://tower.example',
+      },
+      currentPgActorId: 'actor-viewer',
+      currentViewerNpub: 'npub1viewer',
+      tasks: [],
+      taskComments: [],
+      pgWorkspaceMembers: [],
+      _unreadThreadItems: {}, _unreadTaskItems: { 'task-a': true },
+      _unreadDocItems: {}, _unreadChannels: { 'channel-a': true },
+      applyTowerPgResourceViewStates: unreadStoreMixin.applyTowerPgResourceViewStates,
+    };
+
+    unreadStoreMixin.applyTowerPgResourceViewStates.call(store, await getResourceViewStates());
+    expect(store._unreadTaskItems).toEqual({});
+    expect(store._unreadChannels).toEqual({});
+
+    store.tasks = [{
+      record_id: 'task-a', activity_version: 11,
+      updated_at: '2026-08-26T11:30:00.000Z', pg_updated_by_actor_id: 'actor-other',
+    }];
+    await unreadStoreMixin.recomputeTowerPgUnreadProjection.call(store);
+    expect(store._unreadTaskItems).toEqual({});
+
+    store.taskComments = [{
+      record_id: 'comment-a', target_record_id: 'task-a', pg_record_type: 'task_comment',
+      updated_at: '2026-08-26T11:32:00.000Z', pg_created_by_actor_id: 'actor-viewer',
+    }];
+    await unreadStoreMixin.recomputeTowerPgUnreadProjection.call(store);
+    expect(store._unreadTaskItems).toEqual({});
+    expect(store._unreadChannels).toEqual({});
+
+    store.taskComments = [{ ...store.taskComments[0], pg_created_by_actor_id: 'actor-other' }];
+    await unreadStoreMixin.recomputeTowerPgUnreadProjection.call(store);
+    expect(store._unreadTaskItems).toEqual({});
+    expect(store._unreadChannels).toEqual({});
+
+    store.tasks = [{ ...store.tasks[0], activity_version: 12 }];
+    await unreadStoreMixin.recomputeTowerPgUnreadProjection.call(store);
+    expect(store._unreadTaskItems).toEqual({ 'task-a': true });
+    expect(store._unreadChannels).toEqual({ 'channel-a': true });
   });
 
   it('removes inaccessible/deleted synced descendants while preserving offline writes', async () => {

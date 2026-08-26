@@ -1636,6 +1636,10 @@ describe('PG read hydrator', () => {
     const getTowerPgTaskComments = vi.fn(async (_workspaceId, taskId) => ({
       comments: [{ id: `comment-${taskId}`, task_id: taskId, body: 'Comment' }],
     }));
+    const getTowerPgTask = vi.fn(async (_workspaceId, taskId) => ({
+      task: { id: taskId, channel_id: 'channel-task', title: 'Commented task', activity_version: 2 },
+    }));
+    const upsertTask = vi.fn(async () => 'task-1');
     const getTowerPgDocComments = vi.fn(async (_workspaceId, docId) => ({
       comments: [{ id: `doc-comment-${docId}`, doc_id: docId, body: 'Doc comment' }],
     }));
@@ -1669,6 +1673,7 @@ describe('PG read hydrator', () => {
       getTowerPgChannelFileFolders,
       getTowerPgChannelAudioNotes,
       getTowerPgTaskComments,
+      getTowerPgTask,
       getTowerPgDocComments,
       getTowerPgDailyNotes,
       getTowerPgReactions,
@@ -1677,11 +1682,12 @@ describe('PG read hydrator', () => {
       replacePgAudioNotesForChannel,
       replacePgCommentsForTarget,
       getCommentsByTarget,
+      upsertTask,
       replacePgDailyNotesForOwnerAndDate,
       replacePgReactionsForTarget,
     });
 
-    expect(result).toEqual({ channels: 0, appliedTargets: 6, fallbackEvents: 1, events: 9 });
+    expect(result).toEqual({ channels: 0, appliedTargets: 7, fallbackEvents: 1, events: 9 });
     expect(replacePgDocumentsForChannel).toHaveBeenCalledWith('channel-doc', [
       expect.objectContaining({ record_id: 'doc-channel-doc' }),
       expect.objectContaining({ record_id: 'file-channel-doc' }),
@@ -1692,6 +1698,7 @@ describe('PG read hydrator', () => {
     expect(target.applyFileFolders).not.toHaveBeenCalled();
     expect(replacePgAudioNotesForChannel).toHaveBeenCalledWith('channel-audio', [expect.objectContaining({ record_id: 'audio-channel-audio' })]);
     expect(replacePgCommentsForTarget).toHaveBeenCalledWith('task-1', [expect.objectContaining({ record_id: 'comment-task-1' })]);
+    expect(upsertTask).toHaveBeenCalledWith(expect.objectContaining({ record_id: 'task-1', activity_version: 2 }));
     expect(replacePgCommentsForTarget).toHaveBeenCalledWith('doc-1', [expect.objectContaining({ record_id: 'doc-comment-doc-1' })]);
     expect(target.applyDocComments).not.toHaveBeenCalled();
     expect(replacePgDailyNotesForOwnerAndDate).toHaveBeenCalledWith('owner-actor-1', '2026-06-13', [expect.objectContaining({ record_id: 'daily-owner-actor-1' })]);

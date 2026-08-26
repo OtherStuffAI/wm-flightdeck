@@ -110,3 +110,19 @@ export function latestTaskActivity(task = {}, comments = []) {
 
   return latest;
 }
+
+export function withTaskActivityAuthor(task = {}, {
+  actorId = '',
+  actorNpub = '',
+} = {}) {
+  const normalizedActorId = text(actorId);
+  const normalizedActorNpub = text(actorNpub);
+  return {
+    ...task,
+    ...(normalizedActorId ? { pg_updated_by_actor_id: normalizedActorId } : {}),
+    ...(normalizedActorNpub ? {
+      pg_updated_by_actor_npub: normalizedActorNpub,
+      updated_by_npub: normalizedActorNpub,
+    } : {}),
+  };
+}

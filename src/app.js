@@ -60,6 +60,7 @@ import { notificationsManagerMixin } from './notifications-manager.js';
 import { wappPublishingManagerMixin } from './wapp-publishing-manager.js';
 import { wappManagementManagerMixin } from './wapp-management-manager.js';
 import { taskDetailManagerMixin } from './task-detail-manager.js';
+import { withTaskActivityAuthor } from './task-attention-actor.js';
 import { openTaskLinkFromChat } from './task-link-navigation.js';
 import {
   mapPgDailyNoteToLocal,
@@ -5029,6 +5030,7 @@ export function initApp() {
       );
       this.normalizeTaskFilterTags();
       this.updatePageTitle();
+      await this.recomputeTowerPgUnreadProjection?.();
     },
 
     async refreshTasks() {
@@ -5880,7 +5882,7 @@ export function initApp() {
           ? patch.assigned_to_npubs
           : [patch.assigned_to_npub])
         : this.getTaskAssigneeNpubs(task);
-      const updated = toRaw(this.withTaskAssigneeNpubs({
+      let updated = toRaw(this.withTaskAssigneeNpubs({
         ...task,
         ...patch,
         version: nextVersion,
@@ -5891,9 +5893,16 @@ export function initApp() {
       if (updated.state === 'done' || updated.state === 'archive') {
         Object.assign(updated, this.withTaskAssigneeNpubs(updated, []));
       }
+      if (isTowerPgBackendMode()) {
+        updated = withTaskActivityAuthor(updated, {
+          actorId: this.currentPgActorId,
+          actorNpub: this.currentViewerNpub || this.session?.npub,
+        });
+      }
 
       await upsertTask(updated);
       this.tasks = this.tasks.map((entry) => entry.record_id === taskId ? updated : entry);
+      await this.recomputeTowerPgUnreadProjection?.();
 
       if (this.editingTask?.record_id === taskId) {
         this.replaceEditingTaskFromRecord(updated, { force: true });
@@ -6573,19 +6582,26 @@ export function initApp() {
         : {
           scope_policy_group_ids: null,
         };
-      const updated = toRaw({
+      let updated = toRaw({
         ...draft,
         ...scopePolicyPatch,
         version: nextVersion,
         sync_status: 'pending',
         updated_at: new Date().toISOString(),
       });
+      if (isTowerPgBackendMode()) {
+        updated = withTaskActivityAuthor(updated, {
+          actorId: this.currentPgActorId,
+          actorNpub: this.currentViewerNpub || this.session?.npub,
+        });
+      }
 
       this.taskDetailSaving = true;
       try {
         if (isTowerPgBackendMode()) {
           await upsertTask(updated);
           this.tasks = this.tasks.map(t => t.record_id === updated.record_id ? updated : t);
+          await this.recomputeTowerPgUnreadProjection?.();
           this.replaceEditingTaskFromRecord(updated, { force: true });
 
           if (isUnsyncedLocalPgRecord(taskForSave)) {
