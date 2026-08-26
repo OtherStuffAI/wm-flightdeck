@@ -10,9 +10,12 @@ Using **Mark done** must move the task to `done`, clear its unread/view-state as
 
 - Flight Deck task and reporting target: @[Replace Mark read with Mark done for review tasks in Inbox](mention:task:f24522f7-cd39-430b-bda6-d7acfde0721a).
 - Pete's request: @[Message](mention:message:7de3b794-915a-4011-909b-ff681130f969) in the Flight Deck features channel.
+- Pete's tested regression report: @[Follow-up](mention:message:7fdfe8a0-f8e5-4640-b031-f6640896c629).
 - Originating thread: `83cf8466-a1f5-4a90-98ca-63a8a1c48653`.
 - Screenshot storage object: `5789110f-958e-4f01-8c04-da53465f466f`.
+- Regression screenshot storage object: `5c8d74ed-cbb0-47e2-85a6-752d4cca761b`.
 - The screenshot shows pink unread Inbox cards labelled `TASK · REVIEW` with the actions **Mark read** and **Open task**.
+- The regression screenshot shows a just-completed `TASK · DONE` row at the very top of Inbox with `Task updated`, proving the terminal task state update is being reintroduced into the Inbox projection instead of being excluded.
 
 ## Current implementation pointers
 
@@ -33,6 +36,14 @@ Treat these as pointers, not a prescribed design. Inspect the current task-state
 6. Chat and document cards retain **Mark read** unchanged.
 7. The card remains keyboard accessible and the action must not open the task as a side effect.
 8. Avoid changing the bulk **Mark all ... as read** menu unless current code requires a narrowly justified adjustment; Pete asked for the individual review-task action.
+
+## Follow-up regression to fix
+
+Pete tested the implementation and found that **Mark done** moves the task to `done`, but the resulting task update is immediately rendered as a new top-of-Inbox item. Completion must be terminal for Inbox: a task in `done`, `archive`, or another established terminal state must not appear in the Inbox task projection regardless of its recent activity timestamp or unread/view-state event ordering.
+
+Current strongest hypothesis: `buildAutopilotOverviewTasks()` emits every live task and `buildAutopilotOverviewInbox()` then includes every supplied task row without filtering terminal states. The attention-feed path already excludes terminal tasks, so inspect and align the Inbox projection at the correct shared boundary. Do not solve this with a transient local hide or a timing delay; the rule must remain correct after Tower materialization, SSE refresh, reload, and workspace/context changes.
+
+Add regression coverage that starts with a review task, applies/receives the accepted `done` state, rebuilds the Inbox projection, and proves the terminal task is absent even when it has the newest activity and unread flag. Also prove active task states remain eligible and the task still appears on the task board's Done column.
 
 ## Validation
 

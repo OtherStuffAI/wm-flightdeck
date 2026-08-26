@@ -894,6 +894,32 @@
       "label": "Validation build",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1836,
+      "label": "Completed tasks stay out of Inbox",
+      "notes": [
+        "Keep done, archived, completed, and cancelled task updates out of Inbox even when they are the newest unread activity, while retaining completed tasks on the task board."
+      ]
+    },
+    {
+      "buildNumber": 1837,
+      "label": "Consistent Inbox and Feed cards",
+      "notes": [
+        "Use the same thin border on all four sides of Inbox and Feed cards."
+      ]
+    },
+    {
+      "buildNumber": 1838,
+      "label": "Validation build",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1839,
+      "label": "Final validation build",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }

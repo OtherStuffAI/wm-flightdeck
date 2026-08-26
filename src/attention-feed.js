@@ -21,7 +21,15 @@ export const ATTENTION_LANE_ORDER = Object.freeze([
   },
 ]);
 
-const TERMINAL_TASK_STATES = new Set(['done', 'complete', 'completed', 'archived', 'cancelled']);
+const TERMINAL_TASK_STATES = new Set([
+  'done',
+  'archive',
+  'archived',
+  'complete',
+  'completed',
+  'cancelled',
+  'canceled',
+]);
 const ACTIVE_TASK_STATES = new Set(['ready', 'in_progress', 'review', 'blocked']);
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
 const UPCOMING_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
@@ -63,6 +71,10 @@ function isoOf(record = {}) {
 
 function isLive(record = {}) {
   return record && record.record_state !== 'deleted';
+}
+
+export function isTerminalTaskState(value) {
+  return TERMINAL_TASK_STATES.has(String(value || '').trim().toLowerCase());
 }
 
 function nowDate(value) {
@@ -296,7 +308,7 @@ export function buildAttentionFeed(input = {}) {
   for (const task of tasks) {
     const state = String(task.state || '').trim();
     const assigneeNpubs = Array.isArray(task.assigned_to_npubs) ? task.assigned_to_npubs : [];
-    if (TERMINAL_TASK_STATES.has(state)) continue;
+    if (isTerminalTaskState(state)) continue;
     if (viewerNpub && assigneeNpubs.includes(viewerNpub)) {
       pushUnique(groups, seen, buildTaskItem(task, 'needs_you', {
         reason: state === 'review' ? 'Ready for your review' : 'Assigned to you',
@@ -423,7 +435,7 @@ function buildScheduleTimingItems(schedule, now) {
 }
 
 function buildTaskTimingItem(task, now) {
-  if (!isLive(task) || TERMINAL_TASK_STATES.has(String(task.state || '').trim())) return null;
+  if (!isLive(task) || isTerminalTaskState(task.state)) return null;
   const dueDate = parseDateOnly(task.scheduled_for);
   if (!dueDate) return null;
   const delta = dueDate - now;

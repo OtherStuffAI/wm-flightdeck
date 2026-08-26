@@ -135,6 +135,13 @@ describe('WApp publishing UI contract', () => {
     expect(styles).toMatch(/\.wapp-update-card \.wapp-update-summary\s*\{[^}]*-webkit-line-clamp:\s*3;/s);
   });
 
+  it('uses the same thin border on every Feed card edge', () => {
+    const cardRule = styles.match(/\.wapp-update-card\s*\{([^}]*)\}/s)?.[1] || '';
+
+    expect(cardRule).toMatch(/border:\s*1px solid rgba\(148, 163, 184, 0\.28\);/);
+    expect(styles).not.toMatch(/\.wapp-update-card[^\{]*\{[^}]*(?:border-left|border-inline-start)\s*:/s);
+  });
+
   it('requires explicit channel selection and supports background-only installation administration', () => {
     const modal = html.slice(html.indexOf('wapp-publishing-editor-backdrop'), html.indexOf('x-show="$store.chat.dailyNoteEditorOpen"'));
     expect(html).toContain('openNewWappPublishingEditor()');

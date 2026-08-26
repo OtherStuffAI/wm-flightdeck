@@ -81,6 +81,7 @@ describe('flight deck summary template', () => {
     expect(styles).toMatch(/\.flightdeck-summary-panel-inbox\s*\{[^}]*min-height:\s*0;[^}]*box-shadow:\s*none;/s);
     expect(styles).not.toMatch(/\.flightdeck-summary-panel-inbox\s*\{[^}]*(?:border-top|border-top-left-radius|border-top-right-radius):/s);
     expect(styles).toMatch(/\.flightdeck-summary-panel\s*\{[^}]*border:\s*1px solid[^}]*border-radius:\s*8px;[^}]*box-shadow:\s*inset 0 3px 0/s);
+    expect(styles).toMatch(/\.flightdeck-summary-panel-inbox \.flightdeck-summary-card::before\s*\{[^}]*content:\s*none;/s);
   });
 
   it('uses two desktop columns with Feed above Recent Channels in the right stack', () => {

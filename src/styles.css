@@ -4763,7 +4763,6 @@ button:disabled {
 .wapp-update-card {
   padding: 0.65rem 0.7rem;
   border: 1px solid rgba(148, 163, 184, 0.28);
-  border-left: 3px solid #c4b5fd;
   border-radius: 8px;
   background: #fff;
   color: #0f172a;
@@ -4771,13 +4770,6 @@ button:disabled {
 
 .wapp-update-card.wapp-update-unread {
   background: #faf7ff;
-  border-left-color: #7c3aed;
-}
-
-.wapp-update-card.wapp-update-priority-high,
-.wapp-update-card.wapp-update-priority-warning,
-.wapp-update-card.wapp-update-priority-urgent {
-  border-left-color: #dc2626;
 }
 
 .wapp-update-card.wapp-update-retained {
@@ -5354,6 +5346,10 @@ button:disabled {
 
 .flightdeck-summary-card::before {
   background: var(--flightdeck-summary-card-accent);
+}
+
+.flightdeck-summary-panel-inbox .flightdeck-summary-card::before {
+  content: none;
 }
 
 .flightdeck-summary-card .attention-card-icon {

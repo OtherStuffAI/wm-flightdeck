@@ -17,6 +17,7 @@ import {
   sliceAutopilotOverviewInbox,
 } from '../src/autopilot-overview-manager.js';
 import { buildPgChannelTaskBoardId } from '../src/pg-record-context.js';
+import { computeBoardColumns } from '../src/task-board-state.js';
 import { recordFamilyHash } from '../src/translators/chat.js';
 import { channelsManagerMixin } from '../src/channels-manager.js';
 
@@ -170,6 +171,76 @@ describe('autopilot overview manager', () => {
     ]);
     expect(rows.filter((row) => row.inboxKind === 'chat' && row.id === 'thread-a')).toHaveLength(1);
     expect(rows.find((row) => row.id === 'thread-a')?.latestMessage).toBe('Newest reply');
+  });
+
+  it('keeps accepted terminal task updates out of Inbox while retaining active tasks and the Done board column', () => {
+    const task = {
+      record_id: 'task-review',
+      title: 'Review the Inbox action',
+      state: 'review',
+      updated_at: '2026-08-26T00:00:00.000Z',
+    };
+
+    const reviewRows = buildAutopilotOverviewTasks({
+      tasks: [task],
+      unreadTaskMap: { 'task-review': true },
+    });
+    expect(buildAutopilotOverviewInbox({ tasks: reviewRows })).toEqual([
+      expect.objectContaining({
+        recordId: 'task-review',
+        taskState: 'review',
+        inboxKind: 'task',
+        isUnread: true,
+      }),
+    ]);
+
+    const acceptedDoneTask = {
+      ...task,
+      state: 'done',
+      updated_at: '2026-08-26T00:10:00.000Z',
+    };
+    const doneRows = buildAutopilotOverviewTasks({
+      tasks: [acceptedDoneTask],
+      unreadTaskMap: { 'task-review': true },
+    });
+    const inbox = buildAutopilotOverviewInbox({
+      threads: [{ id: 'older-thread', latestMessageUpdatedAt: '2026-08-26T00:05:00.000Z' }],
+      tasks: doneRows,
+    });
+
+    expect(doneRows).toHaveLength(1);
+    expect(doneRows[0]).toEqual(expect.objectContaining({
+      recordId: 'task-review',
+      taskState: 'done',
+      isUnread: true,
+      activityAt: '2026-08-26T00:10:00.000Z',
+    }));
+    expect(inbox.map((row) => row.recordId)).not.toContain('task-review');
+    expect(inbox.map((row) => row.id)).toEqual(['older-thread']);
+
+    const activeStates = ['new', 'ready', 'in_progress', 'review', 'blocked'];
+    const activeRows = activeStates.map((state, index) => ({
+      id: `task:active-${state}`,
+      recordId: `active-${state}`,
+      taskState: state,
+      activityAt: `2026-08-26T00:0${index}:00.000Z`,
+    }));
+    expect(buildAutopilotOverviewInbox({ tasks: activeRows }).map((row) => row.taskState).sort())
+      .toEqual([...activeStates].sort());
+
+    const terminalStates = ['done', 'archive', 'archived', 'complete', 'completed', 'cancelled', 'canceled'];
+    const terminalRows = terminalStates.map((state) => ({
+      id: `task:terminal-${state}`,
+      recordId: `terminal-${state}`,
+      taskState: state,
+      isUnread: true,
+      activityAt: '2026-08-26T00:20:00.000Z',
+    }));
+    expect(buildAutopilotOverviewInbox({ tasks: terminalRows })).toEqual([]);
+
+    const doneColumn = computeBoardColumns([], [acceptedDoneTask], [])
+      .find((column) => column.state === 'done');
+    expect(doneColumn?.tasks).toEqual([acceptedDoneTask]);
   });
 
   it('matches partial local Inbox text across every card family and historical thread bodies', () => {

@@ -3,6 +3,7 @@ import {
   parsePgTaskBoardId,
 } from './pg-record-context.js';
 import { resolveChannelLabel } from './channel-labels.js';
+import { isTerminalTaskState } from './attention-feed.js';
 import { recordFamilyHash } from './translators/chat.js';
 import {
   resolveHorizontalSwipe,
@@ -561,11 +562,13 @@ export function buildAutopilotOverviewInbox({ threads = [], files = [], document
       inboxKind: 'document',
       inboxActivityAt: row.activityAt || '',
     })),
-    ...(Array.isArray(tasks) ? tasks : []).map((row) => ({
-      ...row,
-      inboxKind: 'task',
-      inboxActivityAt: row.activityAt || '',
-    })),
+    ...(Array.isArray(tasks) ? tasks : [])
+      .filter((row) => !isTerminalTaskState(row?.taskState || row?.state))
+      .map((row) => ({
+        ...row,
+        inboxKind: 'task',
+        inboxActivityAt: row.activityAt || '',
+      })),
   ].sort((left, right) => {
     const ts = timestampMs(right.inboxActivityAt) - timestampMs(left.inboxActivityAt);
     if (ts !== 0) return ts;
