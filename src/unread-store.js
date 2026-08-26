@@ -839,6 +839,39 @@ export const unreadStoreMixin = {
     return false;
   },
 
+  async markDeckReviewTaskDone(taskId) {
+    const id = String(taskId || '').trim();
+    const task = this.tasks?.find?.((item) => item.record_id === id);
+    if (!task || String(task.state || '').trim() !== 'review') return false;
+
+    let acceptedTask = null;
+    try {
+      acceptedTask = await this.applyTaskPatch(id, { state: 'done' }, {
+        silent: true,
+        sync: true,
+        backgroundPg: false,
+        intent: 'move',
+        rollbackOnFailure: true,
+      });
+    } catch (error) {
+      this.error = error?.message || 'Failed to mark task done.';
+      return false;
+    }
+    if (!acceptedTask || String(acceptedTask.state || '').trim() !== 'done') return false;
+
+    try {
+      const markedRead = await this.markTaskRead(id);
+      if (markedRead === false) {
+        this.error = 'Task was marked done, but its Inbox read state could not be cleared.';
+        return false;
+      }
+      return true;
+    } catch (error) {
+      this.error = error?.message || 'Task was marked done, but its Inbox read state could not be cleared.';
+      return false;
+    }
+  },
+
   /**
    * Mark all tasks as read — advances tasks:nav cursor to now,
    * which clears every per-task unread indicator at once.

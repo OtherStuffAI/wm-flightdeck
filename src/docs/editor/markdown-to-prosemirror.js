@@ -19,6 +19,7 @@ function marksForToken(token = {}) {
   const marks = [];
   if (token.type === 'strong') marks.push({ type: 'bold' });
   if (token.type === 'em') marks.push({ type: 'italic' });
+  if (token.type === 'del') marks.push({ type: 'strike' });
   if (token.type === 'codespan') marks.push({ type: 'code' });
   if (token.type === 'link') marks.push({ type: 'link', attrs: { href: token.href, title: token.title || null } });
   return marks;
@@ -122,11 +123,22 @@ function inlineContent(tokens = [], inheritedMarks = []) {
   return out;
 }
 
+function listItemContentFromToken(token = {}) {
+  if (!token || token.type === 'space' || token.type === 'checkbox') return null;
+  if (token.type === 'text' || token.type === 'paragraph') {
+    const inlineTokens = Array.isArray(token.tokens) ? token.tokens : [token];
+    const inline = inlineContent(inlineTokens.filter((child) => child?.type !== 'checkbox'));
+    return inline.length > 0 ? { type: 'paragraph', content: inline } : paragraphFromText(token.text || '');
+  }
+  return nodeFromToken(token);
+}
+
 function listItemFromToken(item = {}, taskList = false) {
   const attrs = taskList ? { checked: item.checked === true } : {};
-  const children = [];
-  const inline = inlineContent(item.tokens || []);
-  children.push(inline.length > 0 ? { type: 'paragraph', content: inline } : paragraphFromText(item.text || ''));
+  const children = (item.tokens || []).map(listItemContentFromToken).filter(Boolean);
+  if (children.length === 0 || children[0]?.type !== 'paragraph') {
+    children.unshift(paragraphFromText(item.text || ''));
+  }
   return { type: taskList ? 'taskItem' : 'listItem', attrs, content: children };
 }
 

@@ -5935,7 +5935,9 @@ export function initApp() {
             await replaceLocalTaskWithAcceptedPgTask(this, updated.record_id, createdTask);
             return createdTask;
           } catch (error) {
-            const failedTask = { ...updated, sync_status: 'failed', updated_at: new Date().toISOString() };
+            const failedTask = options.rollbackOnFailure
+              ? task
+              : { ...updated, sync_status: 'failed', updated_at: new Date().toISOString() };
             await upsertTask(failedTask);
             this.tasks = this.tasks.map((entry) => entry.record_id === taskId ? failedTask : entry);
             if (this.editingTask?.record_id === taskId) this.replaceEditingTaskFromRecord(failedTask, { force: true });
@@ -5951,8 +5953,12 @@ export function initApp() {
           if (releasePatchPgLease) await releasePgEditLeaseForRecord(this, task, 'task');
           return acceptedTask;
         } catch (error) {
-          await upsertTask({ ...updated, sync_status: 'failed', updated_at: new Date().toISOString() });
-          this.tasks = this.tasks.map((entry) => entry.record_id === taskId ? { ...updated, sync_status: 'failed' } : entry);
+          const failedTask = options.rollbackOnFailure
+            ? task
+            : { ...updated, sync_status: 'failed', updated_at: new Date().toISOString() };
+          await upsertTask(failedTask);
+          this.tasks = this.tasks.map((entry) => entry.record_id === taskId ? failedTask : entry);
+          if (this.editingTask?.record_id === taskId) this.replaceEditingTaskFromRecord(failedTask, { force: true });
           this.error = error?.message || 'Failed to update PG task';
           if (releasePatchPgLease) await releasePgEditLeaseForRecord(this, task, 'task');
           return null;

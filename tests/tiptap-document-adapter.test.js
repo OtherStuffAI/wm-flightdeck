@@ -89,4 +89,61 @@ describe('Tiptap document adapter', () => {
     expect(model.content).toBe('');
     expect(model.content_blocks).toEqual([]);
   });
+
+  it('round-trips rich ordered-list items without accumulating Markdown escapes', () => {
+    const source = [
+      '1. **Uncertainty:** Sentence ending with punctuation.',
+      '2. **Path:** Keep C:\\docs\\draft.md and literal \\*asterisks\\*.',
+      '3. **Marks:** _italic_, ~~strike~~, `code`, [link](https://example.com), and @[Operator A](mention:person:npub1operator-a).',
+    ].join('\n');
+    const contentBlocks = [{ id: 'ordered-list-a', type: 'list', text: source }];
+
+    const imported = markdownToProseMirrorDoc(source, { contentBlocks });
+    const listItems = imported.content[0].content;
+    const boldPrefix = listItems[0].content[0].content[0];
+    expect(boldPrefix).toMatchObject({
+      type: 'text',
+      text: 'Uncertainty:',
+      marks: [{ type: 'bold' }],
+    });
+
+    const first = prosemirrorToFlightDeckContentModel(imported);
+    expect(first.content).toContain('**Uncertainty:** Sentence ending with punctuation\\.');
+    expect(first.content).not.toContain('\\*\\*Uncertainty');
+    expect(first.content).toContain('C:\\\\docs\\\\draft\\.md');
+    expect(first.content).toContain('~~strike~~');
+    expect(first.content).toContain('`code`');
+    expect(first.content).toContain('[link](https://example.com)');
+    expect(first.content).toContain('@[Operator A](mention:person:npub1operator-a)');
+    expect(first.content_blocks).toEqual([expect.objectContaining({
+      id: 'ordered-list-a',
+      type: 'list',
+      text: first.content,
+    })]);
+
+    let canonical = first;
+    for (let cycle = 0; cycle < 4; cycle += 1) {
+      const reopened = markdownToProseMirrorDoc(canonical.content, {
+        contentBlocks: canonical.content_blocks,
+      });
+      const next = prosemirrorToFlightDeckContentModel(reopened);
+      expect(next.content).toBe(first.content);
+      expect(next.content_blocks).toEqual(first.content_blocks);
+      canonical = next;
+    }
+  });
+
+  it('preserves rich marks in task and nested list-item block tokens', () => {
+    const source = [
+      '- [x] **Done:** keep _detail_ and ~~old wording~~.',
+      '- [ ] **Todo:**',
+      '  1. Follow [the plan](https://example.com/plan).',
+    ].join('\n');
+
+    const model = prosemirrorToFlightDeckContentModel(markdownToProseMirrorDoc(source));
+
+    expect(model.content).toContain('- [x] **Done:** keep _detail_ and ~~old wording~~\\.');
+    expect(model.content).toContain('- [ ] **Todo:**');
+    expect(model.content).toContain('1. Follow [the plan](https://example.com/plan)\\.');
+  });
 });

@@ -706,6 +706,64 @@ describe('app PG task offline drafts', () => {
     expect(store.editingTask.record_id).toBe('task-classic-2');
   });
 
+  it('restores a review task when an awaited PG done-state write is rejected', async () => {
+    const wsDb = openWorkspaceDb('npub1pgworkspace-review-rollback');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    updateTowerPgTaskFromLocalMock.mockRejectedValueOnce(new Error('Tower rejected the state update.'));
+
+    const { initApp } = await import('../src/app.js');
+    initApp();
+    const store = alpineStoreMock.mock.calls.find(([name]) => name === 'chat')?.[1];
+    expect(store).toBeTruthy();
+
+    const reviewTask = {
+      record_id: 'task-review-rollback',
+      owner_npub: 'npub1pgworkspace-review-rollback',
+      title: 'Review task',
+      state: 'review',
+      version: 4,
+      sync_status: 'synced',
+      record_state: 'active',
+      pg_backend: true,
+      pg_channel_id: 'channel-1',
+      updated_at: '2026-08-26T00:00:00.000Z',
+    };
+    await upsertTask(reviewTask);
+    Object.assign(store, {
+      session: { npub: 'npub1owner' },
+      ownerNpub: 'npub1pgworkspace-review-rollback',
+      currentWorkspaceOwnerNpub: 'npub1pgworkspace-review-rollback',
+      selectedWorkspaceKey: 'workspace-1',
+      knownWorkspaces: [{
+        workspaceKey: 'workspace-1',
+        workspaceId: 'workspace-1',
+        workspaceOwnerNpub: 'npub1pgworkspace-review-rollback',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+        pgBackendMode: true,
+      }],
+      backendUrl: 'https://tower.example',
+      tasks: [reviewTask],
+      editingTask: null,
+    });
+
+    await expect(store.applyTaskPatch(reviewTask.record_id, { state: 'done' }, {
+      backgroundPg: false,
+      rollbackOnFailure: true,
+    })).resolves.toBeNull();
+
+    expect(updateTowerPgTaskFromLocalMock).toHaveBeenCalledWith(
+      store,
+      expect.objectContaining({ record_id: reviewTask.record_id, state: 'done' }),
+      reviewTask,
+      { state: 'done' },
+    );
+    expect(store.tasks[0]).toEqual(reviewTask);
+    expect(await getTaskById(reviewTask.record_id)).toEqual(reviewTask);
+    expect(store.error).toBe('Tower rejected the state update.');
+  });
+
   it('archives PG bulk task updates locally before background Tower writes finish', async () => {
     const wsDb = openWorkspaceDb('npub1pgworkspace-bulk-failed');
     await wsDb.open();

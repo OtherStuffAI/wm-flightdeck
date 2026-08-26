@@ -880,6 +880,14 @@
       "notes": [
         "Resume live workspace updates from the browser's materialised Tower cursor on first reload instead of replaying the workspace history from the beginning."
       ]
+    },
+    {
+      "buildNumber": 1834,
+      "label": "Inbox review and document editing fixes",
+      "notes": [
+        "Mark unread review tasks done directly from Inbox, moving them to Done and clearing their unread state while leaving other Inbox read actions unchanged.",
+        "Keep rich Markdown list items stable across repeated document open and autosave cycles without accumulating visible escape characters."
+      ]
     }
   ]
 }

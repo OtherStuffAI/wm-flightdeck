@@ -7,7 +7,7 @@ const INDEX_PATH = resolve(process.cwd(), 'index.html');
 const STYLES_PATH = resolve(process.cwd(), 'src/styles.css');
 
 describe('Deck card Mark read action', () => {
-  it('renders independently focusable actions only for unread chat, task, and document cards', () => {
+  it('renders Mark done only for review tasks in Inbox while preserving other read actions', () => {
     const html = readFileSync(INDEX_PATH, 'utf8');
     const summary = html.slice(
       html.indexOf('data-testid="flightdeck-summary-inbox"'),
@@ -29,6 +29,16 @@ describe('Deck card Mark read action', () => {
       summary.indexOf('data-testid="deck-recent-channels"'),
     );
     expect(fileCard).not.toContain('attention-card-mark-read');
+
+    const inboxTask = summary.slice(
+      summary.indexOf("item.inboxKind === 'task'"),
+      summary.indexOf("item.inboxKind === 'document'"),
+    );
+    expect(inboxTask).toContain('<template x-if="item.taskState === \'review\'">');
+    expect(inboxTask).toContain('markDeckReviewTaskDone(item.recordId)');
+    expect(inboxTask).toContain('>Mark done</button>');
+    expect(inboxTask).toContain('<template x-if="item.taskState !== \'review\'">');
+    expect(inboxTask).toContain("markDeckResourceRead('task', item.recordId)");
   });
 
   it('keeps card keyboard opening guarded while retaining the normal Open affordances', () => {
@@ -71,6 +81,61 @@ describe('Deck card Mark read action', () => {
     expect(store.markTaskRead).toHaveBeenCalledWith('task-1');
     expect(store.markDocRead).toHaveBeenCalledOnce();
     expect(store.markDocRead).toHaveBeenCalledWith('doc-1');
+  });
+
+  it('marks a review task done before clearing its read state', async () => {
+    const calls = [];
+    const store = {
+      tasks: [{ record_id: 'task-review', state: 'review' }],
+      applyTaskPatch: vi.fn(async () => {
+        calls.push('state');
+        return { record_id: 'task-review', state: 'done' };
+      }),
+      markTaskRead: vi.fn(async () => {
+        calls.push('read');
+        return true;
+      }),
+    };
+
+    await expect(unreadStoreMixin.markDeckReviewTaskDone.call(store, 'task-review')).resolves.toBe(true);
+    expect(calls).toEqual(['state', 'read']);
+    expect(store.applyTaskPatch).toHaveBeenCalledWith('task-review', { state: 'done' }, expect.objectContaining({
+      backgroundPg: false,
+      rollbackOnFailure: true,
+    }));
+  });
+
+  it('does not clear read state or claim success when the done-state write fails', async () => {
+    const store = {
+      tasks: [{ record_id: 'task-review', state: 'review' }],
+      applyTaskPatch: vi.fn(async () => null),
+      markTaskRead: vi.fn(),
+      error: 'Tower rejected the task state update.',
+    };
+
+    await expect(unreadStoreMixin.markDeckReviewTaskDone.call(store, 'task-review')).resolves.toBe(false);
+    expect(store.tasks[0].state).toBe('review');
+    expect(store.markTaskRead).not.toHaveBeenCalled();
+    expect(store.error).toBe('Tower rejected the task state update.');
+  });
+
+  it('ignores non-review tasks and surfaces a read-state failure after an accepted done write', async () => {
+    const nonReviewStore = {
+      tasks: [{ record_id: 'task-ready', state: 'ready' }],
+      applyTaskPatch: vi.fn(),
+      markTaskRead: vi.fn(),
+    };
+    await expect(unreadStoreMixin.markDeckReviewTaskDone.call(nonReviewStore, 'task-ready')).resolves.toBe(false);
+    expect(nonReviewStore.applyTaskPatch).not.toHaveBeenCalled();
+
+    const readFailureStore = {
+      tasks: [{ record_id: 'task-review', state: 'review' }],
+      applyTaskPatch: vi.fn(async () => ({ record_id: 'task-review', state: 'done' })),
+      markTaskRead: vi.fn(async () => false),
+      error: '',
+    };
+    await expect(unreadStoreMixin.markDeckReviewTaskDone.call(readFailureStore, 'task-review')).resolves.toBe(false);
+    expect(readFailureStore.error).toContain('Inbox read state could not be cleared');
   });
 
   it('marks one Tower thread through resource view state and preserves the legacy channel fallback', async () => {

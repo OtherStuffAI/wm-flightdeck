@@ -96,6 +96,7 @@ import {
 } from '../src/translators/docs.js';
 import { FLIGHTDECK_PROSEMIRROR_CONTENT_FORMAT } from '../src/docs/editor/prosemirror-flightdeck-schema.js';
 import { createDocumentEditorState } from '../src/docs/editor/document-editor-store.js';
+import { markdownToProseMirrorDoc } from '../src/docs/editor/markdown-to-prosemirror.js';
 import { prosemirrorToFlightDeckContentModel } from '../src/docs/editor/prosemirror-to-flightdeck.js';
 import {
   cacheGroupKey,
@@ -1947,6 +1948,37 @@ describe('docsManagerMixin canonical row normalization', () => {
     expect(store.docEditorContent).toBe(model.content);
     expect(store.docEditDraftDirty).toBe(false);
     expect(store.observeSelectedDocAuthoritativeVersion()).toBe(false);
+  });
+
+  it('does not save an unchanged PG Markdown hydration with rich ordered-list items', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const source = [
+      '1. **Uncertainty:** Sentence ending with punctuation.',
+      '2. **Path:** Keep C:\\docs\\draft.md.',
+    ].join('\n');
+    const hydratedModel = prosemirrorToFlightDeckContentModel(markdownToProseMirrorDoc(source));
+    const reopenedModel = createDocumentEditorState({
+      content: hydratedModel.content,
+      content_blocks: hydratedModel.content_blocks,
+      editor_state: null,
+      pg_backend: true,
+      pg_record_type: 'doc',
+    }).contentModel;
+    const { store } = createSyncedPgDocSaveStore({
+      content: hydratedModel.content,
+      currentModel: reopenedModel,
+    });
+
+    await expect(store.saveSelectedDocItem({ autosave: true })).resolves.toMatchObject({
+      content: hydratedModel.content,
+      version: 43,
+    });
+
+    expect(reopenedModel.content).toBe(hydratedModel.content);
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+    expect(store.prepareDocumentContentForEnvelope).not.toHaveBeenCalled();
+    expect(store.docEditDraftDirty).toBe(false);
+    expect(store.docAutosaveState).toBe('saved');
   });
 
   it('still enters safe conflict when a genuinely newer external row arrives over a dirty draft', () => {
