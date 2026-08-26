@@ -140,15 +140,67 @@ describe('profile resolution', () => {
     expect(fn('npub1a')).toBe('https://cached.example.com/a.png');
   });
 
-  it('getSenderAvatar uses Fountain cache for Satellite CDN profile pictures', () => {
+  it('getSenderAvatar preserves the Nostr profile URL without an undocumented proxy rewrite', () => {
     const npub = 'npub1alice0000000000000000000000000000000000000000000000000000000';
     const satelliteUrl = 'https://cdn.satellite.earth/avatar.png';
     const { fn } = bindMethod('getSenderAvatar', {
       addressBookPeople: [{ npub, avatar_url: satelliteUrl }],
     });
-    expect(fn(npub)).toBe(
-      `https://images.fountain.fm/profile/${encodeURIComponent(npub)}/large?original=${encodeURIComponent(satelliteUrl)}`,
-    );
+    expect(fn(npub)).toBe(satelliteUrl);
+  });
+
+  it('unwraps previously cached Fountain redirect URLs to their original profile image', () => {
+    const npub = 'npub1alice0000000000000000000000000000000000000000000000000000000';
+    const satelliteUrl = 'https://cdn.satellite.earth/avatar.png';
+    const fountainUrl = `https://images.fountain.fm/profile/${encodeURIComponent(npub)}/large?original=${encodeURIComponent(satelliteUrl)}`;
+    const { fn } = bindMethod('getSenderAvatar', {
+      addressBookPeople: [{ npub, avatar_url: fountainUrl }],
+    });
+
+    expect(fn(npub)).toBe(satelliteUrl);
+  });
+
+  it('keeps a reachable avatar visible', () => {
+    const { fn } = bindMethod('canRenderAvatarImage');
+    expect(fn('https://img.example.com/alice.png')).toBe(true);
+  });
+
+  it('falls back after a browser image error without leaking alt text', () => {
+    const url = 'https://img.example.com/broken.png';
+    const image = { currentSrc: url, src: url, alt: 'Profile picture', hidden: false };
+    const { fn, store } = bindMethod('handleAvatarImageError', {
+      failedAvatarImageUrls: {},
+    });
+
+    fn({ currentTarget: image }, url);
+
+    expect(image.alt).toBe('');
+    expect(image.hidden).toBe(true);
+    expect(store.canRenderAvatarImage(url)).toBe(false);
+  });
+
+  it('allows an avatar to recover when profile refresh resolves a different URL', () => {
+    const failedUrl = 'https://img.example.com/broken.png';
+    const recoveredUrl = 'https://img.example.com/recovered.png';
+    const { fn } = bindMethod('canRenderAvatarImage', {
+      failedAvatarImageUrls: { [failedUrl]: true },
+    });
+
+    expect(fn(failedUrl)).toBe(false);
+    expect(fn(recoveredUrl)).toBe(true);
+  });
+
+  it('suppresses only the failed resolved URL from getSenderAvatar', () => {
+    const failedUrl = 'https://img.example.com/broken.png';
+    const recoveredUrl = 'https://img.example.com/recovered.png';
+    const { fn, store } = bindMethod('getSenderAvatar', {
+      chatProfiles: { npub1a: { picture: failedUrl } },
+      failedAvatarImageUrls: { [failedUrl]: true },
+    });
+
+    expect(fn('npub1a')).toBeNull();
+    store.chatProfiles.npub1a.picture = recoveredUrl;
+    expect(fn('npub1a')).toBe(recoveredUrl);
   });
 
   it('getSenderAvatar queues profile resolution for full npub avatar misses', () => {

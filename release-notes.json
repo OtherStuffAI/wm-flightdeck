@@ -927,6 +927,13 @@
       "notes": [
         "Label Inbox attachments by their source and say whether they open a task, document, chat, or Files, so the visible action matches its destination."
       ]
+    },
+    {
+      "buildNumber": 1841,
+      "label": "Reliable Nostr avatar fallbacks",
+      "notes": [
+        "Replace unavailable Nostr profile images with stable initials across chat, threads, comments, assignees, and identity controls, then recover automatically when the profile URL changes."
+      ]
     }
   ]
 }

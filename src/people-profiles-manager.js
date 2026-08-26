@@ -20,6 +20,7 @@ const PROFILE_CARD_HEIGHT = 300;
 const PROFILE_CARD_MARGIN = 12;
 const FULL_NPUB_PATTERN = /^npub1[0-9a-z]{50,}$/i;
 const PROFILE_LOOKUP_RETRY_MS = 60 * 1000;
+const MAX_FAILED_AVATAR_URLS = 200;
 
 function firstNonEmptyString(...values) {
   for (const value of values) {
@@ -45,18 +46,20 @@ function resolveProfilePicture(profile = {}) {
   );
 }
 
-function normalizeProfilePictureUrl(url, npub = '') {
+function normalizeProfilePictureUrl(url) {
   const avatarUrl = String(url || '').trim();
-  const profileNpub = String(npub || '').trim();
   if (!avatarUrl) return null;
   try {
     const parsed = new URL(avatarUrl);
-    if (
-      parsed.protocol === 'https:'
-      && parsed.hostname === 'cdn.satellite.earth'
-      && isFullNpubCandidate(profileNpub)
-    ) {
-      return `https://images.fountain.fm/profile/${encodeURIComponent(profileNpub)}/large?original=${encodeURIComponent(avatarUrl)}`;
+    const originalUrl = parsed.hostname === 'images.fountain.fm'
+      && parsed.pathname.startsWith('/profile/')
+      ? String(parsed.searchParams.get('original') || '').trim()
+      : '';
+    if (originalUrl) {
+      const original = new URL(originalUrl);
+      if (original.protocol === 'https:' || original.protocol === 'http:') {
+        return original.href;
+      }
     }
   } catch {
     return avatarUrl;
@@ -169,6 +172,33 @@ function collectKnownProfileNpubs(store) {
 
 export const peopleProfilesManagerMixin = {
 
+  // Browser image failures are tracked by the exact resolved URL, never by
+  // identity. This lets every avatar surface fall back together without
+  // suppressing a later profile URL or recreating a failed <img> in a loop.
+  failedAvatarImageUrls: {},
+
+  canRenderAvatarImage(url) {
+    const avatarUrl = String(url || '').trim();
+    return Boolean(avatarUrl) && this.failedAvatarImageUrls?.[avatarUrl] !== true;
+  },
+
+  handleAvatarImageError(event, resolvedUrl = '') {
+    const image = event?.currentTarget || event?.target || null;
+    const avatarUrl = String(image?.currentSrc || image?.src || resolvedUrl || '').trim();
+    if (image) {
+      image.alt = '';
+      image.hidden = true;
+    }
+    if (!avatarUrl || this.failedAvatarImageUrls?.[avatarUrl] === true) return;
+
+    const failedEntries = Object.entries(this.failedAvatarImageUrls || {});
+    const retainedEntries = failedEntries.slice(-(MAX_FAILED_AVATAR_URLS - 1));
+    this.failedAvatarImageUrls = Object.fromEntries([
+      ...retainedEntries,
+      [avatarUrl, true],
+    ]);
+  },
+
   // --- workspace key → user npub resolution ---
 
   // Map of ws_key_npub → real user_npub for display resolution
@@ -253,7 +283,6 @@ export const peopleProfilesManagerMixin = {
         const profileName = resolveProfileName(profile) || existingProfile?.name || cached?.label || null;
         const profilePicture = normalizeProfilePictureUrl(
           resolveProfilePicture(profile) || existingProfile?.picture || cached?.avatar_url || null,
-          npub,
         );
         const profileNip05 = firstNonEmptyString(profile?.nip05) || existingProfile?.nip05 || cached?.nip05 || null;
         const profileBio = firstNonEmptyString(profile?.about, profile?.bio) || existingProfile?.about || existingProfile?.bio || cached?.bio || null;
@@ -373,8 +402,8 @@ export const peopleProfilesManagerMixin = {
     if (!rawNpub) return null;
     const cached = this.getCachedPersonForSender(rawNpub);
     const profile = this.getProfileForSender(rawNpub);
-    const avatarUrl = normalizeProfilePictureUrl(profile?.picture || cached?.avatar_url || null, this.resolveDisplayNpub(rawNpub));
-    if (avatarUrl) return avatarUrl;
+    const avatarUrl = normalizeProfilePictureUrl(profile?.picture || cached?.avatar_url || null);
+    if (avatarUrl && this.canRenderAvatarImage(avatarUrl)) return avatarUrl;
     const npub = this.resolveDisplayNpub(rawNpub);
     const rawNpubCandidate = String(rawNpub || '').trim();
     if (isFullNpubCandidate(rawNpubCandidate) && rawNpubCandidate !== npub) {
