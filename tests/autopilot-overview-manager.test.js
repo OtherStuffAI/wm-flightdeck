@@ -219,11 +219,12 @@ describe('autopilot overview manager', () => {
     expect(inboxFileCard).not.toContain('Open file');
   });
 
-  it('keeps accepted terminal task updates out of Inbox while retaining active tasks and the Done board column', () => {
+  it('retains an accepted done task as read without resurfacing older task activity as unread', () => {
     const task = {
       record_id: 'task-review',
       title: 'Review the Inbox action',
       state: 'review',
+      activity_version: 7,
       updated_at: '2026-08-26T00:00:00.000Z',
     };
 
@@ -243,14 +244,29 @@ describe('autopilot overview manager', () => {
     const acceptedDoneTask = {
       ...task,
       state: 'done',
+      activity_version: 8,
       updated_at: '2026-08-26T00:10:00.000Z',
     };
     const doneRows = buildAutopilotOverviewTasks({
       tasks: [acceptedDoneTask],
-      unreadTaskMap: { 'task-review': true },
+      comments: [{
+        record_id: 'older-comment',
+        target_record_id: 'task-review',
+        target_record_family_hash: recordFamilyHash('task'),
+        body: 'Older review feedback',
+        updated_at: '2026-08-26T00:05:00.000Z',
+      }],
+      unreadTaskMap: {},
     });
     const inbox = buildAutopilotOverviewInbox({
-      threads: [{ id: 'older-thread', latestMessageUpdatedAt: '2026-08-26T00:05:00.000Z' }],
+      threads: [{ id: 'older-thread', latestMessageUpdatedAt: '2026-08-26T00:06:00.000Z' }],
+      files: [{
+        object_id: 'older-attachment',
+        name: 'Review evidence.png',
+        source_type: 'task',
+        source_record_id: 'task-review',
+        activityAt: '2026-08-26T00:04:00.000Z',
+      }],
       tasks: doneRows,
     });
 
@@ -258,11 +274,22 @@ describe('autopilot overview manager', () => {
     expect(doneRows[0]).toEqual(expect.objectContaining({
       recordId: 'task-review',
       taskState: 'done',
-      isUnread: true,
+      isUnread: false,
       activityAt: '2026-08-26T00:10:00.000Z',
+      reason: 'Task updated',
     }));
-    expect(inbox.map((row) => row.recordId)).not.toContain('task-review');
-    expect(inbox.map((row) => row.id)).toEqual(['older-thread']);
+    expect(inbox[0]).toEqual(expect.objectContaining({
+      inboxKind: 'task',
+      recordId: 'task-review',
+      taskState: 'done',
+      isUnread: false,
+    }));
+    expect(inbox.filter((row) => row.inboxKind === 'task' && row.recordId === 'task-review')).toHaveLength(1);
+    expect(inbox.find((row) => row.object_id === 'older-attachment')).toEqual(expect.objectContaining({
+      sourceDestinationType: 'task',
+      sourceActionLabel: 'Open task',
+    }));
+    expect(inbox.filter((row) => row.isUnread)).toEqual([]);
 
     const activeStates = ['new', 'ready', 'in_progress', 'review', 'blocked'];
     const activeRows = activeStates.map((state, index) => ({
@@ -282,7 +309,7 @@ describe('autopilot overview manager', () => {
       isUnread: true,
       activityAt: '2026-08-26T00:20:00.000Z',
     }));
-    expect(buildAutopilotOverviewInbox({ tasks: terminalRows })).toEqual([]);
+    expect(buildAutopilotOverviewInbox({ tasks: terminalRows }).map((row) => row.taskState)).toEqual(['done']);
 
     const doneColumn = computeBoardColumns([], [acceptedDoneTask], [])
       .find((column) => column.state === 'done');

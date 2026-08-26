@@ -24,6 +24,11 @@ function normalizeString(value) {
   return String(value || '').trim();
 }
 
+function shouldIncludeInboxTask(row = {}) {
+  const state = normalizeString(row.taskState || row.state).toLowerCase();
+  return state === 'done' || !isTerminalTaskState(state);
+}
+
 export function normalizeInboxSearchText(value) {
   return String(value || '').toLocaleLowerCase().replace(/\s+/g, ' ').trim();
 }
@@ -599,7 +604,7 @@ export function buildAutopilotOverviewInbox({ threads = [], files = [], document
       inboxActivityAt: row.activityAt || '',
     })),
     ...(Array.isArray(tasks) ? tasks : [])
-      .filter((row) => !isTerminalTaskState(row?.taskState || row?.state))
+      .filter((row) => shouldIncludeInboxTask(row))
       .map((row) => ({
         ...row,
         inboxKind: 'task',

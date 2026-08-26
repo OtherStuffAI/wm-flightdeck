@@ -941,6 +941,13 @@
       "notes": [
         "Keep long workspace updates behind an orange profile-avatar ring, with receive, apply, and page progress available from the profile menu without covering workspace content."
       ]
+    },
+    {
+      "buildNumber": 1843,
+      "label": "Reliable Inbox task completion",
+      "notes": [
+        "Keep completed review tasks visible in Inbox with read styling, and advance their read watermark through the authoritative completion activity so older task activity does not return unread."
+      ]
     }
   ]
 }

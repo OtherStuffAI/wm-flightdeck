@@ -774,10 +774,10 @@ export const unreadStoreMixin = {
   /**
    * Mark a specific task as read.
    */
-  async markTaskRead(taskId) {
+  async markTaskRead(taskId, activityVersion = null) {
     if (usesTowerResourceViewState(this)) {
       const task = this.tasks?.find?.((item) => item.record_id === taskId);
-      return this.markTowerPgResourceViewed('task', taskId, task?.activity_version);
+      return this.markTowerPgResourceViewed('task', taskId, activityVersion ?? task?.activity_version);
     }
     const viewerNpub = this.session?.npub;
     if (!viewerNpub || !taskId) return;
@@ -860,7 +860,7 @@ export const unreadStoreMixin = {
     if (!acceptedTask || String(acceptedTask.state || '').trim() !== 'done') return false;
 
     try {
-      const markedRead = await this.markTaskRead(id);
+      const markedRead = await this.markTaskRead(id, acceptedTask.activity_version);
       if (markedRead === false) {
         this.error = 'Task was marked done, but its Inbox read state could not be cleared.';
         return false;

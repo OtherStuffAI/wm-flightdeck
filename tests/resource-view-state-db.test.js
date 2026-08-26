@@ -7,6 +7,7 @@ import {
   upsertResourceViewState,
 } from '../src/db.js';
 import { hydrateTowerPgEventUpdates } from '../src/pg-read-hydrator.js';
+import { unreadStoreMixin } from '../src/unread-store.js';
 
 beforeEach(async () => {
   const db = openWorkspaceDb('resource-view-state-db-workspace');
@@ -24,6 +25,47 @@ function state(overrides = {}) {
 }
 
 describe('resource view-state Dexie materialization', () => {
+  it('persists the accepted post-transition task version as the read watermark', async () => {
+    await upsertResourceViewState(state({ activity_version: 7, viewed_activity_version: 6 }));
+    const commandTowerWorkspace = vi.fn(async (_name, input) => ({
+      state: state({
+        activity_version: input.args[3],
+        viewed_activity_version: input.args[3],
+        row_version: 2,
+      }),
+    }));
+    const store = {
+      isTowerPgMode: true,
+      currentWorkspace: {
+        pgBackendMode: true,
+        workspaceId: 'workspace-1',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'npub1app',
+      },
+      tasks: [{ record_id: 'task-a', state: 'done', activity_version: 7 }],
+      _unreadThreadItems: {},
+      _unreadTaskItems: { 'task-a': true },
+      _unreadDocItems: {},
+      _unreadChannels: {},
+      commandTowerWorkspace,
+      applyTowerPgResourceViewStates: unreadStoreMixin.applyTowerPgResourceViewStates,
+      markTowerPgResourceViewed: unreadStoreMixin.markTowerPgResourceViewed,
+    };
+
+    await expect(unreadStoreMixin.markTaskRead.call(store, 'task-a', 8)).resolves.toBe(true);
+
+    expect(commandTowerWorkspace).toHaveBeenCalledWith(
+      'resource-view-state.put',
+      expect.objectContaining({ args: expect.arrayContaining(['workspace-1', 'task', 'task-a', 8]) }),
+      expect.any(Object),
+    );
+    expect(await getResourceViewState('task', 'task-a')).toMatchObject({
+      activity_version: 8,
+      viewed_activity_version: 8,
+    });
+    expect(store._unreadTaskItems).toEqual({});
+  });
+
   it('never regresses a newer optimistic viewed version with stale server or SSE state', async () => {
     await upsertResourceViewState(state({ viewed_activity_version: 4, sync_status: 'pending' }));
     await upsertResourceViewState(state({ viewed_activity_version: 2, activity_version: 5 }));

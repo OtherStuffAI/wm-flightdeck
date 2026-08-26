@@ -86,10 +86,10 @@ describe('Deck card Mark read action', () => {
   it('marks a review task done before clearing its read state', async () => {
     const calls = [];
     const store = {
-      tasks: [{ record_id: 'task-review', state: 'review' }],
+      tasks: [{ record_id: 'task-review', state: 'review', activity_version: 7 }],
       applyTaskPatch: vi.fn(async () => {
         calls.push('state');
-        return { record_id: 'task-review', state: 'done' };
+        return { record_id: 'task-review', state: 'done', activity_version: 8 };
       }),
       markTaskRead: vi.fn(async () => {
         calls.push('read');
@@ -103,6 +103,19 @@ describe('Deck card Mark read action', () => {
       backgroundPg: false,
       rollbackOnFailure: true,
     }));
+    expect(store.markTaskRead).toHaveBeenCalledWith('task-review', 8);
+  });
+
+  it('uses an explicit accepted activity version instead of a stale in-memory task version', async () => {
+    const store = {
+      isTowerPgMode: true,
+      currentWorkspace: { pgBackendMode: true },
+      tasks: [{ record_id: 'task-review', state: 'done', activity_version: 7 }],
+      markTowerPgResourceViewed: vi.fn(async () => true),
+    };
+
+    await expect(unreadStoreMixin.markTaskRead.call(store, 'task-review', 8)).resolves.toBe(true);
+    expect(store.markTowerPgResourceViewed).toHaveBeenCalledWith('task', 'task-review', 8);
   });
 
   it('does not clear read state or claim success when the done-state write fails', async () => {
@@ -129,13 +142,23 @@ describe('Deck card Mark read action', () => {
     expect(nonReviewStore.applyTaskPatch).not.toHaveBeenCalled();
 
     const readFailureStore = {
-      tasks: [{ record_id: 'task-review', state: 'review' }],
-      applyTaskPatch: vi.fn(async () => ({ record_id: 'task-review', state: 'done' })),
-      markTaskRead: vi.fn(async () => false),
+      tasks: [{ record_id: 'task-review', state: 'review', activity_version: 8 }],
+      applyTaskPatch: vi.fn(async () => {
+        readFailureStore.tasks[0] = { ...readFailureStore.tasks[0], state: 'done', activity_version: 9 };
+        return readFailureStore.tasks[0];
+      }),
+      markTaskRead: vi.fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true),
       error: '',
     };
     await expect(unreadStoreMixin.markDeckReviewTaskDone.call(readFailureStore, 'task-review')).resolves.toBe(false);
+    expect(readFailureStore.tasks[0]).toMatchObject({ state: 'done', activity_version: 9 });
+    expect(readFailureStore.markTaskRead).toHaveBeenNthCalledWith(1, 'task-review', 9);
     expect(readFailureStore.error).toContain('Inbox read state could not be cleared');
+
+    await expect(unreadStoreMixin.markDeckResourceRead.call(readFailureStore, 'task', 'task-review')).resolves.toBe(true);
+    expect(readFailureStore.markTaskRead).toHaveBeenNthCalledWith(2, 'task-review');
   });
 
   it('marks one Tower thread through resource view state and preserves the legacy channel fallback', async () => {
