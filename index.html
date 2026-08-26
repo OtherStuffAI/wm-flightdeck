@@ -1854,8 +1854,8 @@
                       </div>
                     </template>
                     <template x-if="item.inboxKind === 'file'">
-                      <button type="button" class="attention-card flightdeck-summary-card flightdeck-summary-card-file" @click="$store.chat.openFileBrowserSource(item)" aria-label="Open selected file">
-                        <span class="attention-card-icon" aria-hidden="true" x-html="$store.chat.getAttentionIconSvg('doc')"></span><span class="attention-card-content"><span class="attention-card-kicker" x-text="`File · ${item.source_label || 'Files'}`"></span><span class="attention-card-title" x-text="item.name"></span><span class="attention-card-subtitle" x-text="item.reason"></span></span><span class="attention-card-meta"><span class="attention-card-time" x-text="$store.chat.formatRelativeTime(item.inboxActivityAt)"></span><span class="attention-card-action">Open file</span></span>
+                      <button type="button" class="attention-card flightdeck-summary-card flightdeck-summary-card-file" @click="$store.chat.openFileBrowserSource(item)" :aria-label="item.sourceAriaLabel">
+                        <span class="attention-card-icon" aria-hidden="true" x-html="$store.chat.getAttentionIconSvg('doc')"></span><span class="attention-card-content"><span class="attention-card-kicker" x-text="`${item.sourceTypeLabel} · ${item.source_label || 'Files'}`"></span><span class="attention-card-title" x-text="item.name"></span><span class="attention-card-subtitle" x-text="item.reason"></span></span><span class="attention-card-meta"><span class="attention-card-time" x-text="$store.chat.formatRelativeTime(item.inboxActivityAt)"></span><span class="attention-card-action" x-text="item.sourceActionLabel"></span></span>
                       </button>
                     </template>
                   </div>
@@ -2139,10 +2139,10 @@
                   <div id="flightdeck-summary-files-body" x-show="!$store.chat.isSummaryPanelCollapsed('files')" x-cloak>
                   <div class="attention-card-list flightdeck-summary-card-list" x-show="$store.chat.autopilotOverviewFiles.length > 0">
                     <template x-for="file in $store.chat.pagedAutopilotOverviewFiles" :key="file.id">
-                      <button type="button" class="attention-card flightdeck-summary-card flightdeck-summary-card-file" @click="$store.chat.openFileBrowserSource(file)" aria-label="Open selected file">
+                      <button type="button" class="attention-card flightdeck-summary-card flightdeck-summary-card-file" @click="$store.chat.openFileBrowserSource(file)" :aria-label="file.sourceAriaLabel">
                         <span class="attention-card-icon" aria-hidden="true" x-html="$store.chat.getAttentionIconSvg('doc')"></span>
                         <span class="attention-card-content">
-                          <span class="attention-card-kicker" x-text="file.source_label"></span>
+                          <span class="attention-card-kicker" x-text="`${file.sourceTypeLabel} · ${file.source_label || 'Files'}`"></span>
                           <span class="attention-card-title" x-text="file.name"></span>
                           <span class="attention-card-subtitle" x-text="file.reason"></span>
                         </span>
@@ -2151,7 +2151,7 @@
                             <span x-text="$store.chat.fileUpdatedLabel(file)"></span>
                             <span x-text="file.object_id"></span>
                           </span>
-                          <span class="attention-card-action">Open file</span>
+                          <span class="attention-card-action" x-text="file.sourceActionLabel"></span>
                         </span>
                       </button>
                     </template>

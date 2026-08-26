@@ -920,6 +920,13 @@
       "label": "Final validation build",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1840,
+      "label": "Clear Inbox attachment actions",
+      "notes": [
+        "Label Inbox attachments by their source and say whether they open a task, document, chat, or Files, so the visible action matches its destination."
+      ]
     }
   ]
 }

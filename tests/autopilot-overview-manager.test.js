@@ -13,6 +13,7 @@ import {
   countUnresolvedDocumentComments,
   deriveDeckThreadCreateTitle,
   filterAutopilotOverviewInbox,
+  getOverviewFileSourceContract,
   nextDeckInboxVisibleCount,
   sliceAutopilotOverviewInbox,
 } from '../src/autopilot-overview-manager.js';
@@ -171,6 +172,51 @@ describe('autopilot overview manager', () => {
     ]);
     expect(rows.filter((row) => row.inboxKind === 'chat' && row.id === 'thread-a')).toHaveLength(1);
     expect(rows.find((row) => row.id === 'thread-a')?.latestMessage).toBe('Newest reply');
+  });
+
+  it('keeps task attachment labels, actions, and destinations consistent in Inbox', () => {
+    const [row] = buildAutopilotOverviewInbox({
+      files: [{
+        object_id: 'file-task-1',
+        name: 'Mockup.png',
+        source_type: 'task',
+        source_record_id: 'task-1',
+        source_label: 'Use consistent thin borders',
+      }],
+    });
+
+    expect(row).toMatchObject({
+      inboxKind: 'file',
+      sourceDestinationType: 'task',
+      sourceTypeLabel: 'Task attachment',
+      sourceActionLabel: 'Open task',
+      sourceAriaLabel: 'Open source task',
+    });
+  });
+
+  it('describes comment and audio attachments using their resolved source destination', () => {
+    expect(getOverviewFileSourceContract({
+      source_type: 'comment',
+      source_target_type: 'document',
+    })).toMatchObject({ sourceDestinationType: 'document', sourceActionLabel: 'Open doc' });
+    expect(getOverviewFileSourceContract({
+      source_type: 'audio',
+      source_target_type: 'chat',
+      channel_id: 'chan-a',
+    })).toMatchObject({ sourceDestinationType: 'chat', sourceActionLabel: 'Open chat' });
+  });
+
+  it('binds Inbox attachment copy and accessibility labels to the resolved destination contract', () => {
+    const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+    const inboxFileCard = html.slice(
+      html.indexOf("item.inboxKind === 'file'"),
+      html.indexOf('class="settings-field-help inbox-no-results"'),
+    );
+
+    expect(inboxFileCard).toContain(':aria-label="item.sourceAriaLabel"');
+    expect(inboxFileCard).toContain('item.sourceTypeLabel');
+    expect(inboxFileCard).toContain('x-text="item.sourceActionLabel"');
+    expect(inboxFileCard).not.toContain('Open file');
   });
 
   it('keeps accepted terminal task updates out of Inbox while retaining active tasks and the Done board column', () => {

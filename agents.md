@@ -96,3 +96,11 @@ If a change affects a real browser flow, state whether a manual or Playwright
 pass remains necessary. Playwright must use a local Tower by default; external
 backend tests require an explicit target and exact acknowledgement as enforced
 by `playwright.config.cjs`.
+
+## Conventional Commits
+
+- Every commit must follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
+- Use `<type>[optional scope][!]: <description>`, with an optional body and footer(s).
+- Use `feat` for new features and `fix` for bug fixes. Other suitable types include `docs`, `refactor`, `test`, `build`, `ci`, `chore`, `perf`, `style`, and `revert`.
+- Mark breaking changes with `!` before `:` and/or a `BREAKING CHANGE: <description>` footer.
+- Keep unrelated changes in separate commits whenever practical.

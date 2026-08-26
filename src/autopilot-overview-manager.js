@@ -524,6 +524,7 @@ export function buildAutopilotOverviewFiles(rows = [], {
     if (match.matches) {
       filtered.push({
         ...row,
+        ...getOverviewFileSourceContract(row),
         activityAt: row.updated_at || row.created_at || row.uploaded_at || '',
         reason: row.updated_at ? 'Edited file' : 'Uploaded file',
       });
@@ -545,6 +546,40 @@ export function buildAutopilotOverviewFiles(rows = [], {
   return sorted;
 }
 
+export function getOverviewFileSourceContract(row = {}) {
+  const sourceType = normalizeString(row.source_target_type || row.source_type);
+  if (sourceType === 'task') {
+    return {
+      sourceDestinationType: 'task',
+      sourceTypeLabel: 'Task attachment',
+      sourceActionLabel: 'Open task',
+      sourceAriaLabel: 'Open source task',
+    };
+  }
+  if (sourceType === 'document' || sourceType === 'comment') {
+    return {
+      sourceDestinationType: 'document',
+      sourceTypeLabel: 'Document attachment',
+      sourceActionLabel: 'Open doc',
+      sourceAriaLabel: 'Open source document',
+    };
+  }
+  if (sourceType === 'chat' || (row.source_type === 'audio' && row.channel_id)) {
+    return {
+      sourceDestinationType: 'chat',
+      sourceTypeLabel: 'Chat attachment',
+      sourceActionLabel: 'Open chat',
+      sourceAriaLabel: 'Open source chat',
+    };
+  }
+  return {
+    sourceDestinationType: 'files',
+    sourceTypeLabel: 'File attachment',
+    sourceActionLabel: 'Open files',
+    sourceAriaLabel: 'Open Files',
+  };
+}
+
 export function buildAutopilotOverviewInbox({ threads = [], files = [], documents = [], tasks = [] } = {}) {
   return [
     ...(Array.isArray(threads) ? threads : []).map((row) => ({
@@ -554,6 +589,7 @@ export function buildAutopilotOverviewInbox({ threads = [], files = [], document
     })),
     ...(Array.isArray(files) ? files : []).map((row) => ({
       ...row,
+      ...getOverviewFileSourceContract(row),
       inboxKind: 'file',
       inboxActivityAt: row.activityAt || row.updated_at || row.created_at || row.uploaded_at || '',
     })),

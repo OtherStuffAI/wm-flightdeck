@@ -102,6 +102,43 @@ describe('files manager', () => {
     expect(openThread).toHaveBeenCalledWith('root-message', { scrollToLatest: false, syncRoute: false });
   });
 
+  it('opens task attachments at the task named by the source contract', async () => {
+    const fileStore = Object.assign(Object.create(filesManagerMixin), {
+      navigateTo: vi.fn(),
+      openTaskDetail: vi.fn(),
+    });
+
+    await fileStore.openFileBrowserSource({
+      source_type: 'task',
+      source_record_id: 'task-1',
+      object_id: 'file-1',
+    });
+
+    expect(fileStore.navigateTo).toHaveBeenCalledWith('tasks');
+    expect(fileStore.openTaskDetail).toHaveBeenCalledWith('task-1');
+  });
+
+  it('routes comment attachments through their resolved chat target', async () => {
+    const fileStore = Object.assign(Object.create(filesManagerMixin), {
+      navigateTo: vi.fn(),
+      selectChannel: vi.fn(async () => undefined),
+      openThread: vi.fn(),
+      syncRoute: vi.fn(),
+    });
+
+    await fileStore.openFileBrowserSource({
+      source_type: 'comment',
+      source_record_id: 'comment-1',
+      source_target_type: 'chat',
+      source_target_record_id: 'message-1',
+      channel_id: 'chan-1',
+      thread_id: 'thread-1',
+    });
+
+    expect(fileStore.navigateTo).toHaveBeenCalledWith('chat');
+    expect(fileStore.openThread).toHaveBeenCalledWith('thread-1', { scrollToLatest: false, syncRoute: false });
+  });
+
   it('marks archived canonical docs and files for the virtual Archived folder', () => {
     const rows = buildFileBrowserRows({
       ...store,
@@ -242,6 +279,13 @@ describe('files manager', () => {
     expect(rows.find((row) => row.object_id === 'audio-obj-1')).toMatchObject({
       kind: 'audio',
       channel_id: 'chan-1',
+      source_target_type: 'chat',
+      source_target_record_id: 'msg-1',
+    });
+    expect(rows.find((row) => row.object_id === 'img-comment-1')).toMatchObject({
+      source_type: 'comment',
+      source_target_type: 'document',
+      source_target_record_id: 'doc-1',
     });
   });
 
