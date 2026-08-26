@@ -98,6 +98,7 @@ import {
   createDocumentEditorState,
   shouldUseRichDocumentEditor,
 } from './docs/editor/document-editor-store.js';
+import { validateDocumentContentModelRoundTrip } from './docs/editor/document-content-integrity.js';
 import { FLIGHTDECK_PROSEMIRROR_CONTENT_FORMAT } from './docs/editor/prosemirror-constants.js';
 import {
   captureRichEditorSelectionAnchor,
@@ -116,6 +117,14 @@ function isPgStaleRowVersionError(error) {
   if (error.code === 'stale_row_version') return true;
   const text = String(error.responseText || error.message || '');
   return text.includes('"code":"stale_row_version"') || text.includes('stale_row_version');
+}
+
+export function isDocumentContentReadyForEditor(item = {}) {
+  if (!item?.content_storage_object_id) return true;
+  if (item.content_storage_status === 'loaded') return true;
+  if (String(item.content || '').length > 0) return true;
+  if (Array.isArray(item.content_blocks) && item.content_blocks.length > 0) return true;
+  return item.editor_state?.type === 'doc';
 }
 
 async function sha256HexForBytes(bytes) {
@@ -1050,6 +1059,36 @@ export const docsManagerMixin = {
     return model;
   },
 
+  applySelectedDocAuthoritativeContent(item = null, options = {}) {
+    if (!item || item.record_id !== this.selectedDocId) return false;
+    const contentBlocks = normalizeDocumentBlocks(item.content_blocks, item.content);
+    const editorState = createDocumentEditorState(item);
+    this.docEditorTitle = item.title ?? '';
+    this.docEditorShares = this.getEffectiveDocShares(item).map((share) => ({ ...share }));
+    this.docEditorSharesDirty = false;
+    this.docEditorBlocks = contentBlocks;
+    this.docEditorContent = assembleMarkdownBlocks(contentBlocks);
+    this.docRichEditorAdapter?.setContent?.(editorState.editorState, {
+      emitUpdate: false,
+      preserveSelection: options.preserveSelection !== false,
+    });
+    this.docEditorProseMirrorState = editorState.editorState;
+    this.docEditorContentModel = editorState.contentModel;
+    this.docEditingBlockIndex = -1;
+    this.docSelectedBlockId = null;
+    this.docBlockBuffer = '';
+    this.docBlockEditorMinHeightPx = 0;
+    this.docEditingTitle = false;
+    this.docEditDraftDirty = false;
+    this.docEditBaseRecordId = item.record_id;
+    this.docEditBaseRowVersion = Number(item.version || item.row_version || 0);
+    this.docEditConflict = null;
+    this.docAutosaveState = 'saved';
+    this.scheduleDocCommentConnectorUpdate();
+    this.scheduleStorageImageHydration();
+    return true;
+  },
+
   buildSelectedDocContentModel() {
     if (this.docEditorMode === 'rich') {
       const synced = this.syncDocRichEditorContentModel();
@@ -1275,7 +1314,12 @@ export const docsManagerMixin = {
     if (!item || item.record_id !== this.docEditBaseRecordId) return false;
     const currentVersion = Number(item.version || 0);
     const baseVersion = Number(this.docEditBaseRowVersion || 0);
-    if (this.docEditDraftDirty && currentVersion > baseVersion && this.docEditAccessState !== 'conflict') {
+    if (currentVersion <= baseVersion) return false;
+    if (!this.docEditDraftDirty) {
+      if (!isDocumentContentReadyForEditor(item)) return false;
+      return this.applySelectedDocAuthoritativeContent(item, { preserveSelection: true });
+    }
+    if (this.docEditAccessState !== 'conflict') {
       this.docEditConflict = { baseVersion, currentVersion };
       this.docEditAccessState = 'conflict';
       this.docEditAccessMessage = 'Tower has a newer version. Your draft is preserved; copy it or discard it before retrying.';
@@ -2400,6 +2444,7 @@ export const docsManagerMixin = {
 
   finishDocTitleEdit() {
     this.docEditingTitle = false;
+    this.docEditDraftDirty = true;
     this.scheduleDocAutosave();
   },
 
@@ -2413,6 +2458,7 @@ export const docsManagerMixin = {
     this.docEditorContent = value;
     this.syncDocBlocksFromContent();
     this.refreshProseMirrorStateFromCompatibility();
+    this.docEditDraftDirty = true;
     this.scheduleDocAutosave();
     this.scheduleStorageImageHydration();
   },
@@ -2483,6 +2529,7 @@ export const docsManagerMixin = {
     this.docEditingBlockIndex = -1;
     this.docBlockBuffer = '';
     this.docBlockEditorMinHeightPx = 0;
+    this.docEditDraftDirty = true;
     this.scheduleDocAutosave();
     this.scheduleStorageImageHydration();
   },
@@ -3589,6 +3636,25 @@ export const docsManagerMixin = {
   async saveSelectedPgDocItem(item, ownerNpub, options = {}) {
     const autosave = options.autosave === true;
     const nextTitle = this.docEditorTitle.trim() || 'Untitled document';
+    const itemVersion = Number(item.version || item.row_version || 0);
+    const baseVersion = Number(this.docEditBaseRowVersion || 0);
+    const titleChanged = nextTitle !== (item.title ?? 'Untitled document');
+    if (isSyncedPgRecord(item) && baseVersion > 0 && itemVersion > baseVersion) {
+      if (!this.docEditDraftDirty && !titleChanged && !this.docEditorSharesDirty) {
+        if (isDocumentContentReadyForEditor(item)) {
+          this.applySelectedDocAuthoritativeContent(item, { preserveSelection: true });
+        }
+        return item;
+      }
+      this.docEditConflict = { baseVersion, currentVersion: itemVersion };
+      this.docEditAccessState = 'conflict';
+      this.docEditAccessMessage = 'Tower has a newer version. Your draft is preserved; copy it or discard it before retrying.';
+      this.docAutosaveState = 'error';
+      this.docRichEditorAdapter?.setEditable?.(false);
+      this.cancelDocAutosave();
+      if (!autosave) this.error = this.docEditAccessMessage;
+      return null;
+    }
     const contentModel = this.buildSelectedDocContentModel();
     const visibleEditorText = this.docEditorMode === 'rich' ? this.getVisibleDocRichEditorText() : '';
     if (!String(contentModel.content || '').trim() && visibleEditorText) {
@@ -3596,6 +3662,17 @@ export const docsManagerMixin = {
       if (!autosave) {
         this.error = 'The visible document could not be serialized safely. Your draft is still open; please retry Save.';
       }
+      return null;
+    }
+    if (!this.docEditDraftDirty && !titleChanged && !this.docEditorSharesDirty) {
+      this.docAutosaveState = 'saved';
+      return item;
+    }
+    const roundTrip = validateDocumentContentModelRoundTrip(contentModel);
+    if (!roundTrip.ok) {
+      this.docAutosaveState = 'error';
+      this.docEditAccessMessage = 'Save paused because the editor could not preserve the complete document. Your draft is still open and Tower was not changed.';
+      if (!autosave) this.error = this.docEditAccessMessage;
       return null;
     }
     const nextReferences = mergeDocumentSaveReferences(item, parseRecordReferencesFromText(contentModel.content));
@@ -3906,6 +3983,7 @@ export const docsManagerMixin = {
     this.docEditorContent = ver.content;
     this.docEditorBlocks = normalizeDocumentBlocks(ver.content_blocks, ver.content);
     this.docEditorContent = assembleMarkdownBlocks(this.docEditorBlocks);
+    this.docEditDraftDirty = true;
     this.docEditingBlockIndex = -1;
     this.docSelectedBlockId = null;
     this.docBlockBuffer = '';

@@ -145,7 +145,6 @@ import { createChatGetItDoneState } from './chat-get-it-done.js';
 import { commandPaletteMixin, createCommandPaletteState } from './command-palette.js';
 import { buildAttentionFeed, buildTimingFeed, summarizeAttentionFeed } from './attention-feed.js';
 import { avatarStatusMixin } from './components/avatar-status.js';
-import { createDocumentEditorState } from './docs/editor/document-editor-store.js';
 import { loadTiptapEditorAdapter } from './docs/editor/lazy-tiptap-editor.js';
 import { createDailyNoteTiptapToolbar } from './docs/editor/tiptap-toolbar.js';
 import {
@@ -157,8 +156,6 @@ import {
   defaultRecordSignature,
   sameListBySignature,
   parseMarkdownBlocks,
-  assembleMarkdownBlocks,
-  normalizeDocumentBlocks,
 } from './utils/state-helpers.js';
 
 import { getShortNpub, getInitials } from './utils/naming.js';
@@ -4335,7 +4332,7 @@ export function initApp() {
 
     canRefreshOpenDocFromLatestDocument() {
       if (!this.docsEditorOpen || this.selectedDocType !== 'document' || !this.selectedDocId) return false;
-      if (this.docEditorMode !== 'preview') return false;
+      if (this.docEditDraftDirty) return false;
       if (this.docEditingTitle || this.docEditingBlockIndex >= 0) return false;
       if (this.docAutosaveState === 'pending' || this.docAutosaveState === 'saving') return false;
       return true;
@@ -4343,28 +4340,18 @@ export function initApp() {
 
     refreshOpenDocFromLatestDocument(options = {}) {
       const force = options.force === true;
-      if (!force && !this.canRefreshOpenDocFromLatestDocument()) return;
+      if (!force) {
+        if (!this.canRefreshOpenDocFromLatestDocument()) {
+          if (this.docEditDraftDirty) this.observeSelectedDocAuthoritativeVersion?.();
+          return false;
+        }
+        return this.observeSelectedDocAuthoritativeVersion?.() === true;
+      }
       const item = this.selectedDocument;
-      if (!item) return;
-      this.docEditorTitle = item.title ?? '';
-      this.docEditorContent = item.content ?? '';
-      const contentBlocks = normalizeDocumentBlocks(item.content_blocks, this.docEditorContent);
-      this.docEditorShares = this.getEffectiveDocShares(item)
-        .map((share) => ({ ...share }));
-      this.docEditorSharesDirty = false;
-      this.docEditorBlocks = contentBlocks;
-      this.docEditorContent = assembleMarkdownBlocks(contentBlocks);
-      const editorState = createDocumentEditorState(item);
-      this.docEditorProseMirrorState = editorState.editorState;
-      this.docEditorContentModel = editorState.contentModel;
-      this.docEditingBlockIndex = -1;
-      this.docSelectedBlockId = null;
-      this.docBlockBuffer = '';
-      this.docBlockEditorMinHeightPx = 0;
-      this.docEditingTitle = false;
-      this.docAutosaveState = 'saved';
-      this.scheduleDocCommentConnectorUpdate();
-      this.scheduleStorageImageHydration();
+      if (!item) {
+        return false;
+      }
+      return this.applySelectedDocAuthoritativeContent(item, { preserveSelection: true });
     },
 
     getStatusRangeMs() {

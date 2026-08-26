@@ -1,10 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { markdownToProseMirrorDoc } from '../src/docs/editor/markdown-to-prosemirror.js';
 import { prosemirrorToFlightDeckContentModel } from '../src/docs/editor/prosemirror-to-flightdeck.js';
+import { validateDocumentContentModelRoundTrip } from '../src/docs/editor/document-content-integrity.js';
 import {
   FLIGHTDECK_PROSEMIRROR_CONTENT_FORMAT,
   PROSEMIRROR_JSON_FORMAT,
 } from '../src/docs/editor/prosemirror-flightdeck-schema.js';
+import {
+  buildSyntheticLongDocumentFixture,
+  SYNTHETIC_LONG_DOCUMENT_LENGTH,
+} from './fixtures/synthetic-long-document.js';
 
 describe('Tiptap document adapter', () => {
   it('imports Markdown into ProseMirror JSON and exports Flight Deck compatibility fields', () => {
@@ -145,5 +150,50 @@ describe('Tiptap document adapter', () => {
     expect(model.content).toContain('- [x] **Done:** keep _detail_ and ~~old wording~~\\.');
     expect(model.content).toContain('- [ ] **Todo:**');
     expect(model.content).toContain('1. Follow [the plan](https://example.com/plan)\\.');
+  });
+
+  it('keeps a representative 26,706-character document tail stable across four rich-editor cycles', () => {
+    const source = buildSyntheticLongDocumentFixture();
+    expect(source).toHaveLength(SYNTHETIC_LONG_DOCUMENT_LENGTH);
+    expect(source).not.toContain('\\');
+
+    const first = prosemirrorToFlightDeckContentModel(markdownToProseMirrorDoc(source));
+    const firstEscapeCount = (first.content.match(/\\/g) || []).length;
+    expect(first.content).toContain('## 12\\-month implementation timeline');
+    expect(first.content).toContain('TAIL\\_SENTINEL: synthetic\\-long\\-document\\-complete');
+    expect(validateDocumentContentModelRoundTrip(first)).toEqual({ ok: true });
+
+    let canonical = first;
+    for (let cycle = 0; cycle < 4; cycle += 1) {
+      const reopened = markdownToProseMirrorDoc(canonical.content, {
+        contentBlocks: canonical.content_blocks,
+      });
+      const next = prosemirrorToFlightDeckContentModel(reopened);
+      expect(next.content).toBe(first.content);
+      expect(next.content_blocks).toEqual(first.content_blocks);
+      expect((next.content.match(/\\/g) || []).length).toBe(firstEscapeCount);
+      expect(next.content).toContain('TAIL\\_SENTINEL: synthetic\\-long\\-document\\-complete');
+      expect(validateDocumentContentModelRoundTrip(next)).toEqual({ ok: true });
+      canonical = next;
+    }
+  });
+
+  it('detects a serializer result that silently drops the document tail', () => {
+    const full = prosemirrorToFlightDeckContentModel(markdownToProseMirrorDoc(buildSyntheticLongDocumentFixture()));
+    const partialState = {
+      ...full.editor_state,
+      content: full.editor_state.content.slice(0, 12),
+    };
+    const partial = prosemirrorToFlightDeckContentModel(partialState);
+    const lossy = {
+      ...full,
+      content: partial.content,
+      content_blocks: partial.content_blocks,
+    };
+
+    expect(validateDocumentContentModelRoundTrip(lossy)).toMatchObject({
+      ok: false,
+      reason: 'semantic_content_mismatch',
+    });
   });
 });

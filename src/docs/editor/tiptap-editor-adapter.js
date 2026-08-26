@@ -52,8 +52,18 @@ export function createTiptapEditorAdapter({
     setEditable(nextEditable) {
       editor.setEditable(Boolean(nextEditable));
     },
-    setContent(editorState, { emitUpdate = false } = {}) {
+    setContent(editorState, { emitUpdate = false, preserveSelection = false } = {}) {
+      const selection = preserveSelection
+        ? { from: editor.state.selection.from, to: editor.state.selection.to }
+        : null;
       editor.commands.setContent(editorState || { type: 'doc', content: [] }, { emitUpdate });
+      if (selection) {
+        const maxPosition = Math.max(1, editor.state.doc.content.size);
+        editor.commands.setTextSelection({
+          from: Math.min(Math.max(1, selection.from), maxPosition),
+          to: Math.min(Math.max(1, selection.to), maxPosition),
+        });
+      }
     },
     destroy() {
       editor.destroy();

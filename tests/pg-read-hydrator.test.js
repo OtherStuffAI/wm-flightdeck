@@ -48,6 +48,7 @@ import {
   openWorkspaceDb,
 } from '../src/db.js';
 import { recordFamilyHash } from '../src/translators/chat.js';
+import { buildSyntheticLongDocumentFixture } from './fixtures/synthetic-long-document.js';
 
 function store(seed = {}) {
   return {
@@ -2462,6 +2463,54 @@ describe('PG read hydrator', () => {
     expect(upsertDocument).toHaveBeenCalledWith(row);
     expect(target.patchDocumentLocal).not.toHaveBeenCalled();
     expect(target.applySelectedDocument).not.toHaveBeenCalled();
+  });
+
+  it('hydrates the complete synthetic long body and empty editor metadata through the typed route into Dexie', async () => {
+    const target = store({ selectedDocType: 'document', selectedDocId: 'doc-long' });
+    const source = buildSyntheticLongDocumentFixture();
+    const stored = JSON.stringify({
+      format: 'document_content_v1',
+      content_model: {
+        content: source,
+        content_format: null,
+        content_blocks: [],
+      },
+    });
+    const getTowerPgDocBody = vi.fn(async () => ({
+      doc: {
+        id: 'doc-long',
+        workspace_id: 'workspace-1',
+        scope_id: 'scope-1',
+        channel_id: 'channel-1',
+        storage_object_id: 'object-long',
+        title: 'Synthetic long document',
+        row_version: 53,
+      },
+      body: {
+        object_id: 'object-long',
+        content_type: 'application/vnd.wingman.flightdeck.document-content+json',
+        size_bytes: stored.length,
+        sha256_hex: 'a'.repeat(64),
+        encoding: 'base64',
+        base64_data: btoa(stored),
+      },
+    }));
+    const upsertDocument = vi.fn();
+
+    const row = await hydrateTowerPgDoc(target, 'doc-long', {
+      getTowerPgDocBody,
+      upsertDocument,
+    });
+
+    expect(row.content).toBe(source);
+    expect(row.content).toHaveLength(26_706);
+    expect(row.content).toContain('## 12-month implementation timeline');
+    expect(row.content).toContain('TAIL_SENTINEL: synthetic-long-document-complete');
+    expect(row.content).not.toContain('\\');
+    expect(row.content_blocks).toEqual([]);
+    expect(row.editor_state).toBeNull();
+    expect(row.version).toBe(53);
+    expect(upsertDocument).toHaveBeenCalledWith(row);
   });
 
   it('hydrates PG audio notes from accessible channels', async () => {

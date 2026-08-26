@@ -81,6 +81,7 @@ vi.mock('../src/backend-mode.js', () => ({
 
 import {
   docsManagerMixin,
+  isDocumentContentReadyForEditor,
   mergeDocumentSaveReferences,
 } from '../src/docs-manager.js';
 import {
@@ -98,6 +99,7 @@ import { FLIGHTDECK_PROSEMIRROR_CONTENT_FORMAT } from '../src/docs/editor/prosem
 import { createDocumentEditorState } from '../src/docs/editor/document-editor-store.js';
 import { markdownToProseMirrorDoc } from '../src/docs/editor/markdown-to-prosemirror.js';
 import { prosemirrorToFlightDeckContentModel } from '../src/docs/editor/prosemirror-to-flightdeck.js';
+import { buildSyntheticLongDocumentFixture } from './fixtures/synthetic-long-document.js';
 import {
   cacheGroupKey,
   clearCryptoContext,
@@ -1728,13 +1730,23 @@ function richDocContentModel(text) {
   });
 }
 
-function createSyncedPgDocSaveStore({ version = 43, content = 'Original body', currentModel } = {}) {
+function createSyncedPgDocSaveStore({
+  version = 43,
+  content = 'Original body',
+  currentModel,
+  contentBlocks,
+  contentFormat,
+  editorState,
+  draftDirty = true,
+} = {}) {
   const record = {
     record_id: 'doc-save-race',
     owner_npub: 'npub1pgworkspace',
     title: 'Race document',
     content,
-    content_blocks: richDocContentModel(content).content_blocks,
+    content_blocks: contentBlocks ?? richDocContentModel(content).content_blocks,
+    content_format: contentFormat ?? FLIGHTDECK_PROSEMIRROR_CONTENT_FORMAT,
+    editor_state: editorState ?? null,
     scope_id: 'scope-1',
     scope_l1_id: 'scope-1',
     pg_backend: true,
@@ -1766,7 +1778,7 @@ function createSyncedPgDocSaveStore({ version = 43, content = 'Original body', c
     docEditorMode: 'rich',
     docRichEditorAdapter: adapter,
     docEditAccessState: 'editing',
-    docEditDraftDirty: true,
+    docEditDraftDirty: draftDirty,
     docEditBaseRecordId: record.record_id,
     docEditBaseRowVersion: version,
     pgEditLeaseSessions: {
@@ -1979,6 +1991,173 @@ describe('docsManagerMixin canonical row normalization', () => {
     expect(store.prepareDocumentContentForEnvelope).not.toHaveBeenCalled();
     expect(store.docEditDraftDirty).toBe(false);
     expect(store.docAutosaveState).toBe('saved');
+  });
+
+  it('keeps an unchanged raw 26,706-character body byte-identical through four open/save/reload cycles', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const source = buildSyntheticLongDocumentFixture();
+    expect(source).not.toContain('\\');
+
+    for (let cycle = 0; cycle < 4; cycle += 1) {
+      const reopened = createDocumentEditorState({
+        content: source,
+        content_blocks: [],
+        content_format: null,
+        editor_state: null,
+      }).contentModel;
+      const { store } = createSyncedPgDocSaveStore({
+        content: source,
+        currentModel: reopened,
+        contentBlocks: [],
+        contentFormat: null,
+        draftDirty: false,
+      });
+
+      await expect(store.saveSelectedDocItem({ autosave: true })).resolves.toMatchObject({
+        content: source,
+        version: 43,
+      });
+      expect(store.selectedDocument.content).toBe(source);
+      expect(store.selectedDocument.content).toContain('## 12-month implementation timeline');
+      expect(store.selectedDocument.content).toContain('TAIL_SENTINEL: synthetic-long-document-complete');
+      expect(store.selectedDocument.content).not.toContain('\\');
+    }
+
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+  });
+
+  it('rebases a clean open editor when a newer authoritative long body arrives', () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const staleModel = richDocContentModel('Stale editor prefix without the timeline');
+    const source = buildSyntheticLongDocumentFixture();
+    const { adapter, record, store } = createSyncedPgDocSaveStore({
+      content: staleModel.content,
+      currentModel: staleModel,
+      draftDirty: false,
+    });
+    store.documents = [{
+      ...record,
+      version: 44,
+      content: source,
+      content_format: null,
+      content_blocks: [],
+      editor_state: null,
+    }];
+
+    expect(store.observeSelectedDocAuthoritativeVersion()).toBe(true);
+    expect(adapter.setContent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'doc' }),
+      { emitUpdate: false, preserveSelection: true },
+    );
+    expect(store.docEditorContent).toBe(source);
+    expect(store.docEditorContent).toContain('TAIL_SENTINEL: synthetic-long-document-complete');
+    expect(store.docEditBaseRowVersion).toBe(44);
+    expect(store.docEditDraftDirty).toBe(false);
+    expect(store.docEditConflict).toBeNull();
+  });
+
+  it('waits for the typed body hydration before rebasing a newer storage-backed row', () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const staleModel = richDocContentModel('Current hydrated body');
+    const source = buildSyntheticLongDocumentFixture();
+    const { adapter, record, store } = createSyncedPgDocSaveStore({
+      content: staleModel.content,
+      currentModel: staleModel,
+      draftDirty: false,
+    });
+    const remote = {
+      ...record,
+      version: 44,
+      content: '',
+      content_blocks: [],
+      editor_state: null,
+      content_storage_object_id: 'object-v44',
+      content_storage_status: 'remote',
+    };
+    store.documents = [remote];
+
+    expect(isDocumentContentReadyForEditor(remote)).toBe(false);
+    expect(store.observeSelectedDocAuthoritativeVersion()).toBe(false);
+    expect(adapter.setContent).not.toHaveBeenCalled();
+    expect(store.docEditBaseRowVersion).toBe(43);
+
+    const hydrated = {
+      ...remote,
+      content: source,
+      content_storage_status: 'loaded',
+    };
+    store.documents = [hydrated];
+    expect(isDocumentContentReadyForEditor(hydrated)).toBe(true);
+    expect(store.observeSelectedDocAuthoritativeVersion()).toBe(true);
+    expect(store.docEditorContent).toBe(source);
+    expect(store.docEditBaseRowVersion).toBe(44);
+  });
+
+  it('conflict-stops a stale dirty buffer at save time before storage upload or PATCH', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const source = buildSyntheticLongDocumentFixture();
+    const staleModel = richDocContentModel('Stale editor prefix without the timeline');
+    const { record, store } = createSyncedPgDocSaveStore({
+      content: staleModel.content,
+      currentModel: staleModel,
+    });
+    const authoritative = {
+      ...record,
+      version: 44,
+      content: source,
+      content_format: null,
+      content_blocks: [],
+    };
+    store.documents = [authoritative];
+
+    await expect(store.saveSelectedPgDocItem(authoritative, 'npub1owner', { autosave: false })).resolves.toBeNull();
+    expect(store.docEditConflict).toEqual({ baseVersion: 43, currentVersion: 44 });
+    expect(store.docEditAccessState).toBe('conflict');
+    expect(store.error).toContain('newer version');
+    expect(store.prepareDocumentContentForEnvelope).not.toHaveBeenCalled();
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a changed model whose serialized Markdown drops semantic tail content', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const source = buildSyntheticLongDocumentFixture();
+    const full = createDocumentEditorState({ content: source, content_blocks: [] }).contentModel;
+    const partialState = { ...full.editor_state, content: full.editor_state.content.slice(0, 10) };
+    const partial = prosemirrorToFlightDeckContentModel(partialState);
+    const lossy = { ...full, content: partial.content, content_blocks: partial.content_blocks };
+    const { record, store } = createSyncedPgDocSaveStore({
+      content: source,
+      currentModel: lossy,
+      contentBlocks: [],
+      contentFormat: null,
+    });
+
+    await expect(store.saveSelectedPgDocItem(record, 'npub1owner', { autosave: false })).resolves.toBeNull();
+    expect(store.docAutosaveState).toBe('error');
+    expect(store.error).toContain('complete document');
+    expect(store.prepareDocumentContentForEnvelope).not.toHaveBeenCalled();
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+  });
+
+  it('allows a valid intentional deletion because the smaller editor state round-trips completely', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const source = buildSyntheticLongDocumentFixture();
+    const deletion = richDocContentModel('Deliberately retained summary');
+    updateTowerPgDocMock.mockResolvedValueOnce(acceptedPgDoc(44, deletion.content));
+    const { store } = createSyncedPgDocSaveStore({
+      content: source,
+      currentModel: deletion,
+      contentBlocks: [],
+      contentFormat: null,
+    });
+
+    await expect(store.saveSelectedDocItem({ autosave: false })).resolves.toMatchObject({
+      version: 44,
+      content: deletion.content,
+    });
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
+    expect(store.prepareDocumentContentForEnvelope).toHaveBeenCalledTimes(1);
+    expect(store.docEditConflict).toBeNull();
   });
 
   it('still enters safe conflict when a genuinely newer external row arrives over a dirty draft', () => {

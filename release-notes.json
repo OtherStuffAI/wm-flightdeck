@@ -948,6 +948,14 @@
       "notes": [
         "Keep completed review tasks visible in Inbox with read styling, and advance their read watermark through the authoritative completion activity so older task activity does not return unread."
       ]
+    },
+    {
+      "buildNumber": 1844,
+      "label": "Safe long-document saves",
+      "notes": [
+        "Refresh a clean open document from its newest complete Tower version before saving, so an older editor buffer cannot overwrite restored content.",
+        "Pause a document save if the editor cannot round-trip all semantic content, while still allowing valid intentional deletions."
+      ]
     }
   ]
 }
