@@ -683,6 +683,10 @@ export function mapPgTaskToLocal(task, {
     pg_thread_id: trimText(task?.thread_id) || null,
     pg_created_by_actor_id: trimText(task?.created_by_actor_id),
     pg_updated_by_actor_id: trimText(task?.updated_by_actor_id),
+    pg_created_by_actor_npub: trimText(task?.created_by_actor_npub)
+      || trimText(actorNpubByActorId.get(trimText(task?.created_by_actor_id))),
+    pg_updated_by_actor_npub: trimText(task?.updated_by_actor_npub)
+      || trimText(actorNpubByActorId.get(trimText(task?.updated_by_actor_id))),
     pg_metadata: metadata,
   };
 }
@@ -746,6 +750,10 @@ export function mapPgTaskCommentToLocal(comment, {
     pg_thread_id: trimText(comment?.thread_id) || null,
     pg_created_by_actor_id: trimText(comment?.created_by_actor_id),
     pg_updated_by_actor_id: trimText(comment?.updated_by_actor_id),
+    pg_created_by_actor_npub: trimText(comment?.created_by_actor_npub)
+      || trimText(actorNpubByActorId.get(trimText(comment?.created_by_actor_id))),
+    pg_updated_by_actor_npub: trimText(comment?.updated_by_actor_npub)
+      || trimText(actorNpubByActorId.get(trimText(comment?.updated_by_actor_id))),
     pg_client_record_id: trimText(metadata.client_record_id),
     pg_metadata: metadata,
   };

@@ -20,6 +20,7 @@ export function mapTowerResourceViewState(state = {}, options = {}) {
   if (!RESOURCE_VIEW_TYPES.includes(resourceType) || !resourceId) return null;
   return {
     record_id: resourceViewStateId(resourceType, resourceId),
+    viewer_actor_id: String(state.viewer_actor_id || '').trim() || null,
     resource_type: resourceType,
     resource_id: resourceId,
     scope_id: String(state.scope_id || '').trim() || null,

@@ -745,10 +745,16 @@ describe('PG read hydrator', () => {
         source_links: [{ type: 'message', id: 'msg-1' }],
       },
       assignments: [{ actor_id: 'actor-agent', actor_npub: 'npub1agent' }],
+      created_by_actor_id: 'actor-creator',
+      updated_by_actor_id: 'actor-updater',
       row_version: 6,
       updated_at: '2026-06-05T02:00:00.000Z',
     }, {
       workspaceOwnerNpub: 'npub1owner',
+      actorNpubByActorId: new Map([
+        ['actor-creator', 'npub1creator'],
+        ['actor-updater', 'npub1updater'],
+      ]),
     })).toMatchObject({
       record_id: 'task-1',
       owner_npub: 'npub1owner',
@@ -768,6 +774,10 @@ describe('PG read hydrator', () => {
       scope_l1_id: 'scope-1',
       pg_channel_id: 'channel-1',
       pg_thread_id: 'thread-1',
+      pg_created_by_actor_id: 'actor-creator',
+      pg_updated_by_actor_id: 'actor-updater',
+      pg_created_by_actor_npub: 'npub1creator',
+      pg_updated_by_actor_npub: 'npub1updater',
       pg_backend: true,
       pg_record_type: 'task',
       pg_metadata: expect.objectContaining({ scheduled_for: '2026-06-22' }),
@@ -881,12 +891,15 @@ describe('PG read hydrator', () => {
       task_id: 'task-1',
       thread_id: 'thread-1',
       body: 'Comment body',
+      created_by_actor_id: 'actor-commenter',
+      updated_by_actor_id: 'actor-commenter',
       row_version: 2,
       created_at: '2026-06-06T01:00:00.000Z',
       updated_at: '2026-06-06T01:01:00.000Z',
     }, {
       workspaceOwnerNpub: 'npub1owner',
       senderNpub: 'npub1operator-a',
+      actorNpubByActorId: new Map([['actor-commenter', 'npub1operator-a']]),
     })).toMatchObject({
       record_id: 'comment-1',
       owner_npub: 'npub1owner',
@@ -901,6 +914,10 @@ describe('PG read hydrator', () => {
       pg_record_type: 'task_comment',
       pg_channel_id: 'channel-1',
       pg_thread_id: 'thread-1',
+      pg_created_by_actor_id: 'actor-commenter',
+      pg_updated_by_actor_id: 'actor-commenter',
+      pg_created_by_actor_npub: 'npub1operator-a',
+      pg_updated_by_actor_npub: 'npub1operator-a',
     });
   });
 
@@ -921,6 +938,7 @@ describe('PG read hydrator', () => {
     })).toMatchObject({
       record_id: 'comment-1',
       sender_npub: 'npub1alice',
+      pg_created_by_actor_npub: 'npub1alice',
       pg_record_type: 'task_comment',
     });
   });

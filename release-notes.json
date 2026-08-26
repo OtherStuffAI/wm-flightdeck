@@ -970,6 +970,13 @@
       "notes": [
         "Package reviewed Flight Deck release-branch builds into deterministic, versioned archives with a stable compatibility manifest for WMAPP."
       ]
+    },
+    {
+      "buildNumber": 1847,
+      "label": "Actor-aware Inbox attention",
+      "notes": [
+        "Keep task updates and comments authored by the signed-in person from creating unread Inbox attention for that same person, while retaining other people's activity as unread."
+      ]
     }
   ]
 }

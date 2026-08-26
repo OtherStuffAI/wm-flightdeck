@@ -40,6 +40,10 @@ import {
   resourceViewStateId,
 } from './resource-view-state.js';
 import { recordFamilyHash } from './translators/chat.js';
+import {
+  isTaskActivityAuthoredByViewer,
+  latestTaskActivity,
+} from './task-attention-actor.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,6 +77,19 @@ async function loadUnreadCursorMap(viewerNpub) {
 }
 
 const DOCUMENT_FAMILY = recordFamilyHash('document');
+const TASK_FAMILY = recordFamilyHash('task');
+
+function taskCommentsFor(comments = [], taskId = '') {
+  return (Array.isArray(comments) ? comments : []).filter((comment) => (
+    comment?.record_state !== 'deleted'
+    && String(comment?.target_record_id || '').trim() === taskId
+    && (
+      String(comment?.pg_record_type || '').trim() === 'task_comment'
+      || !comment?.target_record_family_hash
+      || comment.target_record_family_hash === TASK_FAMILY
+    )
+  ));
+}
 
 function usesTowerResourceViewState(store) {
   return isTowerPgBackendMode()
@@ -482,13 +499,36 @@ export const unreadStoreMixin = {
     const taskItems = {};
     const docItems = {};
     const channels = {};
+    const tasksById = new Map((Array.isArray(this.tasks) ? this.tasks : [])
+      .filter((task) => task?.record_id)
+      .map((task) => [task.record_id, task]));
+    const comments = Array.isArray(this.autopilotOverviewComments)
+      ? this.autopilotOverviewComments
+      : (Array.isArray(this.taskComments) ? this.taskComments : []);
     for (const state of states) {
       const unread = Number(state.activity_version || 0) > Number(state.viewed_activity_version || 0);
       if (!unread) continue;
+      let createsAttention = state.resource_type !== 'task';
       if (state.resource_type === 'thread') threadItems[state.resource_id] = true;
-      if (state.resource_type === 'task') taskItems[state.resource_id] = true;
+      if (state.resource_type === 'task') {
+        const task = tasksById.get(state.resource_id);
+        const latestActivity = task
+          ? latestTaskActivity(task, taskCommentsFor(comments, state.resource_id))
+          : null;
+        const selfAuthored = latestActivity && isTaskActivityAuthoredByViewer(latestActivity.row, {
+          kind: latestActivity.kind,
+          viewState: state,
+          viewerActorId: this.currentPgActorId,
+          viewerNpub: this.currentViewerNpub || this.session?.npub,
+          workspaceMembers: this.pgWorkspaceMembers,
+        });
+        if (!selfAuthored) {
+          taskItems[state.resource_id] = true;
+          createsAttention = true;
+        }
+      }
       if (state.resource_type === 'document') docItems[state.resource_id] = true;
-      if (state.channel_id) channels[state.channel_id] = true;
+      if (createsAttention && state.channel_id) channels[state.channel_id] = true;
     }
     this._unreadThreadItems = threadItems;
     this._unreadTaskItems = taskItems;

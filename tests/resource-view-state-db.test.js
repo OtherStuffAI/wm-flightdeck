@@ -18,6 +18,7 @@ beforeEach(async () => {
 function state(overrides = {}) {
   return {
     record_id: 'task:task-a', resource_type: 'task', resource_id: 'task-a',
+    viewer_actor_id: 'actor-viewer',
     scope_id: 'scope-a', channel_id: 'channel-a', activity_version: 4,
     viewed_activity_version: 2, row_version: 1, sync_status: 'synced',
     updated_at: '2026-01-01T00:00:00.000Z', ...overrides,
@@ -60,10 +61,49 @@ describe('resource view-state Dexie materialization', () => {
       expect.any(Object),
     );
     expect(await getResourceViewState('task', 'task-a')).toMatchObject({
+      viewer_actor_id: 'actor-viewer',
       activity_version: 8,
       viewed_activity_version: 8,
     });
     expect(store._unreadTaskItems).toEqual({});
+  });
+
+  it('suppresses matching-actor task updates but keeps different-actor updates unread', () => {
+    const matchingStore = {
+      tasks: [{ record_id: 'task-a', updated_at: '2026-01-01T00:02:00.000Z', pg_updated_by_actor_id: 'actor-viewer' }],
+      taskComments: [],
+      _unreadThreadItems: {}, _unreadTaskItems: {}, _unreadDocItems: {}, _unreadChannels: {},
+    };
+    unreadStoreMixin.applyTowerPgResourceViewStates.call(matchingStore, [state()]);
+    expect(matchingStore._unreadTaskItems).toEqual({});
+    expect(matchingStore._unreadTasks).toBe(false);
+    expect(matchingStore._unreadChannels).toEqual({});
+
+    const differentStore = {
+      ...matchingStore,
+      tasks: [{ record_id: 'task-a', updated_at: '2026-01-01T00:02:00.000Z', pg_updated_by_actor_id: 'actor-other' }],
+    };
+    unreadStoreMixin.applyTowerPgResourceViewStates.call(differentStore, [state()]);
+    expect(differentStore._unreadTaskItems).toEqual({ 'task-a': true });
+    expect(differentStore._unreadTasks).toBe(true);
+    expect(differentStore._unreadChannels).toEqual({ 'channel-a': true });
+  });
+
+  it('suppresses matching-actor task comments but keeps different-actor comments unread', () => {
+    const store = {
+      tasks: [{ record_id: 'task-a', updated_at: '2026-01-01T00:01:00.000Z', pg_updated_by_actor_id: 'actor-other' }],
+      taskComments: [{
+        record_id: 'comment-a', target_record_id: 'task-a', pg_record_type: 'task_comment',
+        updated_at: '2026-01-01T00:02:00.000Z', pg_created_by_actor_id: 'actor-viewer',
+      }],
+      _unreadThreadItems: {}, _unreadTaskItems: {}, _unreadDocItems: {}, _unreadChannels: {},
+    };
+    unreadStoreMixin.applyTowerPgResourceViewStates.call(store, [state()]);
+    expect(store._unreadTaskItems).toEqual({});
+
+    store.taskComments[0] = { ...store.taskComments[0], pg_created_by_actor_id: 'actor-other' };
+    unreadStoreMixin.applyTowerPgResourceViewStates.call(store, [state()]);
+    expect(store._unreadTaskItems).toEqual({ 'task-a': true });
   });
 
   it('never regresses a newer optimistic viewed version with stale server or SSE state', async () => {

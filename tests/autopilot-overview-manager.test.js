@@ -316,6 +316,44 @@ describe('autopilot overview manager', () => {
     expect(doneColumn?.tasks).toEqual([acceptedDoneTask]);
   });
 
+  it('keeps self-authored task comments out of Inbox attention while preserving different-actor attention', () => {
+    const task = {
+      record_id: 'task-done', title: 'Review actor attention', state: 'done',
+      updated_at: '2026-08-26T00:10:00.000Z', pg_updated_by_actor_id: 'actor-viewer',
+    };
+    const selfComment = {
+      record_id: 'comment-self', target_record_id: 'task-done',
+      target_record_family_hash: recordFamilyHash('task'),
+      body: 'Status changed to done', updated_at: '2026-08-26T00:11:00.000Z',
+      pg_created_by_actor_id: 'actor-viewer',
+    };
+    const options = {
+      tasks: [task], comments: [selfComment], unreadTaskMap: { 'task-done': true },
+      viewerNpub: 'npub1human',
+      workspaceMembers: [{ actor_id: 'actor-viewer', npub: 'npub1human' }],
+    };
+
+    const [selfRow] = buildAutopilotOverviewTasks(options);
+    expect(selfRow).toMatchObject({
+      recordId: 'task-done', taskState: 'done', reason: 'Task updated', count: 0,
+      activityAt: '2026-08-26T00:10:00.000Z', isUnread: false,
+    });
+    expect(selfRow.hrefTarget.focusId).toBeNull();
+    expect(buildAutopilotOverviewInbox({ tasks: [selfRow] })).toEqual([
+      expect.objectContaining({ inboxKind: 'task', recordId: 'task-done', isUnread: false }),
+    ]);
+
+    const [otherRow] = buildAutopilotOverviewTasks({
+      ...options,
+      comments: [{ ...selfComment, record_id: 'comment-other', pg_created_by_actor_id: 'actor-other' }],
+    });
+    expect(otherRow).toMatchObject({
+      reason: '1 recent comment', count: 1,
+      activityAt: '2026-08-26T00:11:00.000Z', isUnread: true,
+    });
+    expect(otherRow.hrefTarget.focusId).toBe('comment-other');
+  });
+
   it('matches partial local Inbox text across every card family and historical thread bodies', () => {
     const threads = buildAutopilotOverviewThreads({
       channels,

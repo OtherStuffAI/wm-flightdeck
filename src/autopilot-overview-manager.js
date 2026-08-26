@@ -6,6 +6,10 @@ import { resolveChannelLabel } from './channel-labels.js';
 import { isTerminalTaskState } from './attention-feed.js';
 import { recordFamilyHash } from './translators/chat.js';
 import {
+  isTaskActivityAuthoredByViewer,
+  latestTaskActivity,
+} from './task-attention-actor.js';
+import {
   resolveHorizontalSwipe,
   resolveVisibleThreadNeighbour,
   shouldSuppressThreadNavigation,
@@ -337,6 +341,9 @@ export function buildAutopilotOverviewTasks({
   selectedChannelId = ALL_CHANNEL_ID,
   scopesMap = null,
   unreadTaskMap = {},
+  viewerActorId = '',
+  viewerNpub = '',
+  workspaceMembers = [],
 } = {}) {
   const context = buildOverviewContext({ selectedScopeId, selectedChannelId });
   const taskComments = new Map();
@@ -362,7 +369,17 @@ export function buildAutopilotOverviewTasks({
       continue;
     }
     const commentsForTask = taskComments.get(task.record_id) || [];
-    const latestComment = commentsForTask.reduce((latest, comment) => (
+    const actorOptions = { viewerActorId, viewerNpub, workspaceMembers };
+    const latestRawActivity = latestTaskActivity(task, commentsForTask);
+    const latestActivityIsSelfAuthored = isTaskActivityAuthoredByViewer(latestRawActivity.row, {
+      ...actorOptions,
+      kind: latestRawActivity.kind,
+    });
+    const attentionComments = commentsForTask.filter((comment) => !isTaskActivityAuthoredByViewer(comment, {
+      ...actorOptions,
+      kind: 'comment',
+    }));
+    const latestComment = attentionComments.reduce((latest, comment) => (
       timestampMs(comment.updated_at) > timestampMs(latest?.updated_at) ? comment : latest
     ), null);
     const taskUpdatedAt = task.updated_at || task.created_at || '';
@@ -378,11 +395,11 @@ export function buildAutopilotOverviewTasks({
       subtitle: task.status || task.state || 'Task',
       taskState: task.state || 'new',
       reason: commentDrove
-        ? `${commentsForTask.length} recent ${commentsForTask.length === 1 ? 'comment' : 'comments'}`
+        ? `${attentionComments.length} recent ${attentionComments.length === 1 ? 'comment' : 'comments'}`
         : (task.updated_at ? 'Task updated' : 'Task created'),
       activityAt,
       actorNpub: latestComment?.sender_npub || task.updated_by_npub || task.sender_npub || '',
-      count: commentsForTask.length,
+      count: attentionComments.length,
       inboxSearchText: [
         task.title,
         task.name,
@@ -393,7 +410,7 @@ export function buildAutopilotOverviewTasks({
         task.state,
         latestComment?.body,
       ].filter(Boolean).join(' '),
-      isUnread: unreadTaskMap?.[task.record_id] === true,
+      isUnread: unreadTaskMap?.[task.record_id] === true && !latestActivityIsSelfAuthored,
       context: {
         scopeId: recordScopeId(task) || null,
         channelId: task.pg_channel_id || task.channel_id || null,
@@ -1476,6 +1493,9 @@ export const autopilotOverviewManagerMixin = {
       selectedChannelId: this.autopilotOverviewContext.channelId,
       scopesMap: this.scopesMap,
       unreadTaskMap: this._unreadTaskItems || {},
+      viewerActorId: this.currentPgActorId,
+      viewerNpub: this.currentViewerNpub || this.session?.npub || '',
+      workspaceMembers: this.pgWorkspaceMembers,
     });
   },
 
