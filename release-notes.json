@@ -963,6 +963,13 @@
       "notes": [
         "Keep storage-backed document previews read-only until the complete body loads, preventing an inline preview from replacing or saving over the full document."
       ]
+    },
+    {
+      "buildNumber": 1846,
+      "label": "Verified native Flight Deck update feed",
+      "notes": [
+        "Package reviewed Flight Deck release-branch builds into deterministic, versioned archives with a stable compatibility manifest for WMAPP."
+      ]
     }
   ]
 }

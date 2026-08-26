@@ -303,19 +303,23 @@ export function buildVersionPlugin() {
       builtAt = now.toISOString();
 
       if (env.command === 'build') {
+        const deterministic = readDeterministicBuildVersion(process.env);
         const daily = todayKey === meta.lastBuildDate ? (meta.dailyVersion || 0) + 1 : 1;
         const absolute = (meta.absoluteVersion || 0) + 1;
-        buildNumber = absolute;
-        buildId = `${date}-${time}-${daily}-${absolute}`;
+        buildNumber = deterministic?.buildNumber ?? absolute;
+        buildId = deterministic?.buildId ?? `${date}-${time}-${daily}-${absolute}`;
+        builtAt = deterministic?.builtAt ?? builtAt;
 
         releaseNotesManifest = readReleaseNotesManifest(path.resolve(__dirname, 'release-notes.json'));
         createVersionMetadata({ buildId, buildNumber, builtAt, manifest: releaseNotesManifest });
 
-        fs.writeFileSync(metaPath, JSON.stringify({
-          absoluteVersion: absolute,
-          lastBuildDate: todayKey,
-          dailyVersion: daily,
-        }, null, 2) + '\n');
+        if (!deterministic) {
+          fs.writeFileSync(metaPath, JSON.stringify({
+            absoluteVersion: absolute,
+            lastBuildDate: todayKey,
+            dailyVersion: daily,
+          }, null, 2) + '\n');
+        }
       } else {
         const absolute = Number(meta.absoluteVersion || 0);
         buildNumber = Math.max(absolute, 0);
@@ -355,6 +359,38 @@ export function buildVersionPlugin() {
         injectTo: 'head-prepend',
       }];
     },
+  };
+}
+
+export function readDeterministicBuildVersion(environment = process.env) {
+  const rawNumber = environment.FLIGHTDECK_BUILD_NUMBER?.trim() ?? '';
+  const buildId = environment.FLIGHTDECK_BUILD_ID?.trim() ?? '';
+  const rawEpoch = environment.SOURCE_DATE_EPOCH?.trim() ?? '';
+  const supplied = [rawNumber, buildId, rawEpoch].filter(Boolean).length;
+  if (supplied === 0) return null;
+  if (supplied !== 3) {
+    throw new Error(
+      'FLIGHTDECK_BUILD_NUMBER, FLIGHTDECK_BUILD_ID, and SOURCE_DATE_EPOCH must be supplied together.',
+    );
+  }
+  if (!/^\d+$/.test(rawNumber) || !/^\d+$/.test(rawEpoch)) {
+    throw new Error('Deterministic build number and source epoch must be positive integers.');
+  }
+  const buildNumber = Number(rawNumber);
+  const epochSeconds = Number(rawEpoch);
+  if (!Number.isSafeInteger(buildNumber) || buildNumber < 1) {
+    throw new Error('FLIGHTDECK_BUILD_NUMBER must be a positive safe integer.');
+  }
+  if (!Number.isSafeInteger(epochSeconds) || epochSeconds < 1) {
+    throw new Error('SOURCE_DATE_EPOCH must be a positive safe integer.');
+  }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/.test(buildId)) {
+    throw new Error('FLIGHTDECK_BUILD_ID contains unsupported characters.');
+  }
+  return {
+    buildNumber,
+    buildId,
+    builtAt: new Date(epochSeconds * 1000).toISOString(),
   };
 }
 
