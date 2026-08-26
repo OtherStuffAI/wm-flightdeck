@@ -888,6 +888,12 @@
         "Mark unread review tasks done directly from Inbox, moving them to Done and clearing their unread state while leaving other Inbox read actions unchanged.",
         "Keep rich Markdown list items stable across repeated document open and autosave cycles without accumulating visible escape characters."
       ]
+    },
+    {
+      "buildNumber": 1835,
+      "label": "Validation build",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
