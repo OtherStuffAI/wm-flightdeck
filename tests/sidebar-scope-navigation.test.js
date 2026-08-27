@@ -12,12 +12,15 @@ describe('expanded sidebar scope/channel navigation', () => {
       { record_id: 'scope-a', title: 'Alpha', level: 'l1' },
       { record_id: 'scope-deleted', title: 'Deleted', level: 'l1', record_state: 'deleted' },
       { record_id: 'scope-b', title: 'Beta', level: 'l1' },
+      { record_id: 'scope-dms', title: 'DMs', level: 'l1', pg_kind: 'dm' },
       { record_id: 'scope-a', title: 'Duplicate', level: 'l1' },
     ];
     const channels = [
       { record_id: 'channel-a-2', title: 'Second', scope_id: 'scope-a', position: 2 },
       { record_id: 'channel-a-1', title: 'First', scope_id: 'scope-a', position: 1 },
       { record_id: 'channel-b', title: 'Beta', scope_id: 'scope-b', position: 1 },
+      { record_id: 'dm-second', title: 'Second DM', scope_id: 'scope-dms', position: 2 },
+      { record_id: 'dm-first', title: 'First DM', scope_id: 'scope-dms', position: 1 },
       { record_id: 'channel-a-1', title: 'Duplicate', scope_id: 'scope-b', position: 2 },
       { record_id: 'channel-deleted', scope_id: 'scope-a', record_state: 'deleted' },
       { record_id: 'channel-hidden', scope_id: 'scope-a', can_read: false },
@@ -26,10 +29,21 @@ describe('expanded sidebar scope/channel navigation', () => {
 
     const groups = buildSidebarScopeChannelGroups(scopes, channels);
 
+    expect(groups.map(({ scope }) => scope.record_id)).toEqual(['scope-dms', 'scope-a', 'scope-b', 'scope-child']);
+    expect(groups[0].channels.map((channel) => channel.record_id)).toEqual(['dm-first', 'dm-second']);
+    expect(groups[1].channels.map((channel) => channel.record_id)).toEqual(['channel-a-1', 'channel-a-2']);
+    expect(groups[2].channels.map((channel) => channel.record_id)).toEqual(['channel-b']);
+    expect(groups[3].channels).toEqual([]);
+  });
+
+  it('preserves the existing scope projection when no DMs scope is visible', () => {
+    const groups = buildSidebarScopeChannelGroups([
+      { record_id: 'scope-child', title: 'Child', level: 'l2' },
+      { record_id: 'scope-a', title: 'Alpha', level: 'l1' },
+      { record_id: 'scope-b', title: 'Beta', level: 'l1' },
+    ], []);
+
     expect(groups.map(({ scope }) => scope.record_id)).toEqual(['scope-a', 'scope-b', 'scope-child']);
-    expect(groups[0].channels.map((channel) => channel.record_id)).toEqual(['channel-a-1', 'channel-a-2']);
-    expect(groups[1].channels.map((channel) => channel.record_id)).toEqual(['channel-b']);
-    expect(groups[2].channels).toEqual([]);
   });
 
   it('binds Deck selection styling and routes clicks through the shared work-context controller', () => {
@@ -56,6 +70,17 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(html).toContain('aria-label="All workspace activity"');
     expect(html).toContain('title="All workspace activity"');
     expect(html).toContain('class="sidebar-workspace-overview-label">Home</span>');
+  });
+
+  it('renders projected groups immediately after Home in the shared desktop and mobile sidebar', () => {
+    const navigationStart = html.indexOf('class="sidebar-scope-navigation"');
+    const navigationEnd = html.indexOf('class="sidebar-workspace-footer"', navigationStart);
+    const navigation = html.slice(navigationStart, navigationEnd);
+    const homeIndex = navigation.indexOf('class="sidebar-workspace-overview"');
+    const groupsIndex = navigation.indexOf('x-for="group in $store.chat.sidebarScopeChannelGroups"');
+
+    expect(homeIndex).toBeGreaterThan(-1);
+    expect(groupsIndex).toBeGreaterThan(homeIndex);
   });
 
   it('uses the existing workspace avatar image and initials fallback state', () => {

@@ -1,4 +1,5 @@
 import { sortChannelsByScopePosition } from './channel-order.js';
+import { isDmScope } from './dm-scope.js';
 import { normalizeScopeLevel, SCOPE_LEVELS } from './translators/scopes.js';
 
 function isVisibleRecord(record) {
@@ -43,14 +44,17 @@ export function buildSidebarScopeChannelGroups(scopes = [], channels = []) {
     channelsByScope.get(scopeId).push(channel);
   }
 
+  const dmGroups = [];
   const groups = [];
   for (const level of SCOPE_LEVELS) {
     for (const scope of scopeBuckets.get(level)) {
-      groups.push({
+      const group = {
         scope,
         channels: sortChannelsByScopePosition(channelsByScope.get(recordId(scope)) || []),
-      });
+      };
+      if (isDmScope(scope)) dmGroups.push(group);
+      else groups.push(group);
     }
   }
-  return groups;
+  return [...dmGroups, ...groups];
 }

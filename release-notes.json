@@ -992,6 +992,13 @@
         "Preserve document edits promptly in the browser and autosave them to Tower at a calmer interval, so reloads and interrupted body loads do not lose the draft.",
         "Keep stale document edits usable as recovery versions with current-head details and optimistic promote or discard actions."
       ]
+    },
+    {
+      "buildNumber": 1851,
+      "label": "Direct Messages first",
+      "notes": [
+        "Place Direct Messages immediately below Home in the sidebar, ahead of scope and channel groups, on desktop and mobile."
+      ]
     }
   ]
 }
