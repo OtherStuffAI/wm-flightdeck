@@ -2069,6 +2069,30 @@ describe('docsManagerMixin durable recovery drafts', () => {
     expect(adapter.setEditable).toHaveBeenLastCalledWith(true);
   });
 
+  it('does not create or retain a dirty draft for an unchanged canonical save', async () => {
+    const unchanged = richDocContentModel('Original body');
+    const { record, store } = createSyncedPgDocSaveStore({
+      content: unchanged.content,
+      currentModel: unchanged,
+      draftDirty: false,
+    });
+    await upsertDocumentDraft({
+      workspace_id: 'workspace-1',
+      document_id: record.record_id,
+      content: unchanged.content,
+      base_available: true,
+      base_row_version: 43,
+      base_version_id: 'doc-save-race:43',
+      base_body_sha256_hex: 'b'.repeat(64),
+      draft_status: 'dirty',
+    });
+
+    await expect(store.saveSelectedPgDocItem(record, 'npub1owner', { autosave: true })).resolves.toBe(record);
+
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+    expect(await getDocumentDraft('workspace-1', record.record_id)).toBeUndefined();
+  });
+
   it('uses a no-complete-base save to create a non-head recovery without a lease', async () => {
     const recoveryModel = richDocContentModel('Locally recoverable body');
     const { modelRef, record, store } = createSyncedPgDocSaveStore({ currentModel: recoveryModel });

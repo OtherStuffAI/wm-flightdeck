@@ -3977,6 +3977,7 @@ export const docsManagerMixin = {
         if (isDocumentContentReadyForEditor(item)) {
           this.applySelectedDocAuthoritativeContent(item, { preserveSelection: true });
         }
+        if (!this.docRecovery) await this.clearSelectedDocDraft(item);
         return item;
       }
       this.docEditConflict = {
@@ -3989,7 +3990,6 @@ export const docsManagerMixin = {
       this.docRichEditorAdapter?.setEditable?.(true);
     }
     const contentModel = this.buildSelectedDocContentModel();
-    await this.persistSelectedDocDraft();
     const visibleEditorText = this.docEditorMode === 'rich' ? this.getVisibleDocRichEditorText() : '';
     if (!String(contentModel.content || '').trim() && visibleEditorText) {
       this.docAutosaveState = 'error';
@@ -4001,8 +4001,10 @@ export const docsManagerMixin = {
     }
     if (!this.docEditDraftDirty && !titleChanged && !this.docEditorSharesDirty) {
       this.docAutosaveState = 'saved';
+      if (!this.docRecovery) await this.clearSelectedDocDraft(item);
       return item;
     }
+    await this.persistSelectedDocDraft();
     const roundTrip = validateDocumentContentModelRoundTrip(contentModel);
     if (!roundTrip.ok) {
       this.docAutosaveState = 'error';
