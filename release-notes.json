@@ -999,6 +999,12 @@
       "notes": [
         "Place Direct Messages immediately below Home in the sidebar, ahead of scope and channel groups, on desktop and mobile."
       ]
+    },
+    {
+      "buildNumber": 1852,
+      "label": "UI freeze investigation evidence",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
