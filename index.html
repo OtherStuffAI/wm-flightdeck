@@ -4802,19 +4802,19 @@
                         class="doc-mode-chip"
                         :class="{ 'doc-mode-chip-active': $store.chat.docEditAccessState === 'editing' }"
                         :disabled="$store.chat.docEditAccessState === 'acquiring'
-                          || $store.chat.docEditAccessState === 'conflict'
-                          || !$store.chat.isSelectedDocContentReadyForEditor()
+                          || $store.chat.docEditAccessState === 'recovery_available'
+                          || !$store.chat.isSelectedDocDraftReadyForPersistence()
                           || $store.chat.docRichImageUploadCount > 0"
-                        @click="$store.chat.docEditAccessState === 'editing'
+                        @click="['editing', 'recovery'].includes($store.chat.docEditAccessState)
                           ? $store.chat.saveAndExitSelectedDocEditMode()
                           : ($store.chat.docEditAccessState === 'blocked'
                             ? $store.chat.retrySelectedDocEditAccess()
                             : $store.chat.beginSelectedDocLeaseAcquisition())"
                         x-text="$store.chat.docRichImageUploadCount > 0
                           ? 'Uploading…'
-                          : (!$store.chat.isSelectedDocContentReadyForEditor()
+                          : (!$store.chat.isSelectedDocDraftReadyForPersistence()
                             ? 'Loading…'
-                          : ($store.chat.docEditAccessState === 'editing'
+                          : (['editing', 'recovery'].includes($store.chat.docEditAccessState)
                             ? 'Save'
                             : ($store.chat.docEditAccessState === 'acquiring'
                               ? 'Acquiring…'
@@ -4908,14 +4908,24 @@
                 <div
                   class="doc-edit-access-banner"
                   :class="`doc-edit-access-banner-${$store.chat.selectedDocEditStatusTone}`"
-                  x-show="$store.chat.docEditAccessMessage || ['blocked', 'conflict'].includes($store.chat.docEditAccessState)"
+                  x-show="['blocked', 'conflict', 'recovery', 'recovery_available'].includes($store.chat.docEditAccessState)"
                   role="status"
                   aria-live="polite"
                 >
-                  <span x-text="$store.chat.docEditAccessMessage || $store.chat.selectedDocEditStatusLabel"></span>
-                  <div class="doc-edit-access-actions" x-show="$store.chat.docEditDraftDirty">
-                    <button type="button" @click="$store.chat.copySelectedDocDraft()">Copy draft</button>
-                    <button type="button" @click="$store.chat.discardSelectedDocDraft()">Discard draft</button>
+                  <div class="doc-edit-recovery-copy">
+                    <span x-text="$store.chat.docEditAccessMessage || $store.chat.selectedDocEditStatusLabel"></span>
+                    <span
+                      class="doc-edit-recovery-meta"
+                      x-show="$store.chat.docRecovery || $store.chat.docEditConflict"
+                      x-text="`Draft base v${$store.chat.docRecovery?.base?.row_version || $store.chat.docEditConflict?.baseVersion || 'unknown'} · Current head v${$store.chat.docEditConflict?.currentHead?.row_version || $store.chat.docRecovery?.head_at_creation?.row_version || $store.chat.docEditConflict?.currentVersion || 'unknown'}${$store.chat.docRecovery?.reason_code ? ` · ${$store.chat.docRecovery.reason_code.replaceAll('_', ' ')}` : ''}`"
+                    ></span>
+                  </div>
+                  <div class="doc-edit-access-actions">
+                    <button type="button" x-show="$store.chat.docEditAccessState === 'recovery_available'" @click="$store.chat.openSelectedDocRecoveryDraft()">Continue recovery</button>
+                    <button type="button" x-show="$store.chat.docRecovery?.resolution_state === 'open'" :disabled="$store.chat.docRecoveryActionState || $store.chat.docEditDraftDirty" title="Save current recovery edits before promoting" @click="$store.chat.promoteSelectedDocRecovery()" x-text="$store.chat.docRecoveryActionState === 'promoting' ? 'Promoting…' : 'Promote'">Promote</button>
+                    <button type="button" x-show="$store.chat.docRecovery?.resolution_state === 'open'" :disabled="$store.chat.docRecoveryActionState || $store.chat.docEditDraftDirty" title="Save or copy current recovery edits before discarding" @click="$store.chat.discardSelectedDocRecovery()" x-text="$store.chat.docRecoveryActionState === 'discarding' ? 'Discarding…' : 'Discard recovery'">Discard recovery</button>
+                    <button type="button" x-show="$store.chat.docEditDraftDirty || $store.chat.docRecovery" @click="$store.chat.copySelectedDocDraft()">Copy draft</button>
+                    <button type="button" x-show="$store.chat.docEditDraftDirty && !$store.chat.docRecovery" @click="$store.chat.discardSelectedDocDraft()">Discard local draft</button>
                   </div>
                 </div>
 

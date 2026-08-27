@@ -984,6 +984,14 @@
       "notes": [
         "Keep tasks closed by the signed-in person read in Inbox and channel attention through background writes, live hydration, and overlapping read-state refreshes."
       ]
+    },
+    {
+      "buildNumber": 1850,
+      "label": "Recoverable document autosave",
+      "notes": [
+        "Preserve document edits promptly in the browser and autosave them to Tower at a calmer interval, so reloads and interrupted body loads do not lose the draft.",
+        "Keep stale document edits usable as recovery versions with current-head details and optimistic promote or discard actions."
+      ]
     }
   ]
 }

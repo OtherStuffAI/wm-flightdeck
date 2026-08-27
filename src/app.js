@@ -1109,7 +1109,15 @@ export function initApp() {
     docEditDraftDirty: false,
     docEditBaseRecordId: null,
     docEditBaseRowVersion: 0,
+    docEditBaseVersionId: null,
+    docEditBaseBodySha256Hex: null,
+    docEditBaseStorageObjectId: null,
+    docEditBaseAvailable: false,
     docEditConflict: null,
+    docRecovery: null,
+    docRecoveryActionState: '',
+    docLocalDraft: null,
+    docLocalDraftTimer: null,
     docEditLeaseInfo: null,
     docEditAcquirePromise: null,
     docEditAcquirePromiseRecordId: null,
@@ -1965,9 +1973,9 @@ export function initApp() {
     },
 
     get docSyncStatusLabel() {
-      if (this.docAutosaveState === 'error') return 'Autosave failed';
-      if (this.docAutosaveState === 'pending') return 'Autosave pending';
-      if (this.docAutosaveState === 'saving') return 'Saving';
+      if (this.docAutosaveState === 'error') return 'Save failed';
+      if (this.docAutosaveState === 'pending') return 'Unsaved changes';
+      if (this.docAutosaveState === 'saving') return 'Saving…';
       return 'Saved';
     },
 
@@ -1979,7 +1987,7 @@ export function initApp() {
     get selectedDocEditStatusTone() {
       if (this.docEditAccessState === 'editing') return 'editing';
       if (this.docEditAccessState === 'acquiring') return 'acquiring';
-      if (this.docEditAccessState === 'blocked' || this.docEditAccessState === 'conflict') return 'blocked';
+      if (['blocked', 'conflict', 'recovery', 'recovery_available'].includes(this.docEditAccessState)) return 'blocked';
       if (this.selectedDocPgLeaseSession?.inspectionState === 'offline') return 'offline';
       if (this.docEditLeaseInfo) return 'blocked';
       return 'ready';
@@ -1987,15 +1995,17 @@ export function initApp() {
 
     get selectedDocEditStatusLabel() {
       if (!isTowerPgBackendMode() || !isSyncedPgRecord(this.selectedDocument)) return '';
-      if (!this.isSelectedDocContentReadyForEditor()) return 'Loading complete document…';
       if (this.docEditAccessState === 'acquiring') return 'Acquiring edit access…';
-      if (this.docEditAccessState === 'editing') return `Editing · ${this.docSyncStatusLabel.toLowerCase()}`;
+      if (this.docEditAccessState === 'editing') return this.docSyncStatusLabel;
+      if (this.docEditAccessState === 'recovery') return this.docEditDraftDirty ? this.docSyncStatusLabel : 'Recovery saved';
+      if (this.docEditAccessState === 'recovery_available') return 'Recovery available';
       if (this.docEditAccessState === 'conflict') return 'Draft preserved — document changed in Tower';
       if (this.docEditAccessState === 'blocked') {
         return this.docEditDraftDirty
           ? 'Draft preserved — edit access unavailable'
           : 'Edit access unavailable';
       }
+      if (!this.isSelectedDocContentReadyForEditor()) return 'Loading complete document…';
       const lease = this.docEditLeaseInfo || this.selectedDocPgLeaseSession?.inspectedLease || null;
       if (lease) {
         const holderNpub = String(lease.holder_actor_npub || lease.holder_npub || '').trim();
@@ -8750,11 +8760,11 @@ export function initApp() {
       return placeholder;
     },
 
-    prefetchFlightDeckDoc(recordId) {
+    prefetchFlightDeckDoc(recordId, options = {}) {
       const docId = String(recordId || '').trim();
       if (!docId || !isTowerPgBackendMode()) return Promise.resolve(null);
       const existing = this.documents.find((item) => item.record_id === docId);
-      if (existing?.content_storage_status === 'loaded') return Promise.resolve(existing);
+      if (existing?.content_storage_status === 'loaded' && options.force !== true) return Promise.resolve(existing);
       if (this.docHydrationInFlightById?.[docId]) return this.docHydrationInFlightById[docId];
       const hydration = this.requestTowerSyncFamily?.('document', docId, { force: true })
         .catch((error) => {

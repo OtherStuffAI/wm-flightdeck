@@ -22,6 +22,9 @@ import {
   replaceCommentRecord,
   getCommentsByTarget,
   getAudioNoteById,
+  getDocumentDraft,
+  upsertDocumentDraft,
+  deleteDocumentDraft,
 } from './db.js';
 import { recordFamilyHash } from './translators/chat.js';
 import {
@@ -36,7 +39,12 @@ import {
   acquireRecordCheckout,
   completeStorageObject,
   fetchRecordHistory,
+  getTowerPgDocRecoveries,
+  getTowerPgDocRecovery,
+  getTowerPgDocRecoveryBody,
   getTowerPgDocVersions,
+  promoteTowerPgDocRecovery,
+  discardTowerPgDocRecovery,
   prepareStorageObject,
   prepareTowerPgStorageObject,
   releaseRecordCheckout,
@@ -80,7 +88,7 @@ import {
 } from './lock-managed-records.js';
 import { resolveFlightDeckRecordCheckoutPolicy } from './record-checkout-policy.js';
 import { isTowerPgBackendMode } from './backend-mode.js';
-import { resolveTowerPgWorkspaceContext } from './pg-read-hydrator.js';
+import { mapPgDocToLocal, resolveTowerPgWorkspaceContext } from './pg-read-hydrator.js';
 import { getPgChannelScopeId } from './pg-record-context.js';
 import {
   acquirePgEditLeaseForRecord,
@@ -111,12 +119,63 @@ import {
 // ---------------------------------------------------------------------------
 
 const DOCUMENT_INLINE_PREVIEW_CHARS = 8_192;
+export const DOCUMENT_LOCAL_DRAFT_DELAY_MS = 200;
+export const DOCUMENT_REMOTE_AUTOSAVE_DELAY_MS = 15_000;
+const DOCUMENT_BODY_RETRY_DELAYS_MS = [0, 1_000, 3_000, 7_000];
+
+function waitForDocumentRetry(delayMs) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, delayMs);
+    timer?.unref?.();
+  });
+}
 
 function isPgStaleRowVersionError(error) {
   if (!error) return false;
   if (error.code === 'stale_row_version') return true;
   const text = String(error.responseText || error.message || '');
   return text.includes('"code":"stale_row_version"') || text.includes('stale_row_version');
+}
+
+function isPgDocumentRecoveryCreatedError(error) {
+  return error?.code === 'document_recovery_created'
+    || String(error?.responseText || '').includes('document_recovery_created');
+}
+
+function canonicalDocVersionId(item = {}) {
+  const explicit = String(item?.pg_canonical_version_id || '').trim();
+  if (explicit) return explicit;
+  const recordId = String(item?.record_id || '').trim();
+  const rowVersion = Number(item?.version || item?.row_version || 0);
+  return recordId && rowVersion > 0 ? `${recordId}:${rowVersion}` : null;
+}
+
+export function documentEditorBaseIdentity(item = {}) {
+  const bodySha256Hex = String(item?.pg_canonical_body_sha256_hex || item?.content_sha256_hex || '').trim() || null;
+  const storageObjectId = String(item?.pg_canonical_storage_object_id || item?.content_storage_object_id || '').trim() || null;
+  const rowVersion = Number(item?.version || item?.row_version || 0);
+  const baseAvailable = isDocumentContentReadyForEditor(item)
+    && rowVersion > 0
+    && Boolean(bodySha256Hex);
+  return {
+    base_available: baseAvailable,
+    base_row_version: rowVersion || null,
+    base_version_id: canonicalDocVersionId(item),
+    base_body_sha256_hex: bodySha256Hex,
+    base_storage_object_id: storageObjectId,
+  };
+}
+
+function decodeStoredRecoveryContent(bodyResult = {}) {
+  const encoded = String(bodyResult?.body?.base64_data || '').trim();
+  if (!encoded) return null;
+  const binary = globalThis.atob(encoded);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const raw = new TextDecoder().decode(bytes);
+  const parsed = JSON.parse(raw);
+  return parsed?.content_model && typeof parsed.content_model === 'object'
+    ? parsed.content_model
+    : parsed;
 }
 
 export function isDocumentContentReadyForEditor(item = {}) {
@@ -816,6 +875,11 @@ export const docsManagerMixin = {
     this.chatDocModalFullScreen = false;
     const previousRecord = this.selectedDocType === 'document' ? this.selectedDocument : null;
     const previousRecordId = String(previousRecord?.record_id || this.selectedDocId || '').trim();
+    if (previousRecordId && previousRecordId !== nextRecordId) {
+      if (this.docEditDraftDirty) void this.persistSelectedDocDraft({ immediate: true });
+      this.cancelDocLocalDraftPersistence();
+      this.cancelDocAutosave();
+    }
     if (previousRecord?.record_id && previousRecord.record_id !== nextRecordId) {
       if (isTowerPgBackendMode()) {
         void releasePgEditLeaseForRecord(this, previousRecord, 'document', { reportError: false });
@@ -853,9 +917,7 @@ export const docsManagerMixin = {
     this.loadDocEditorFromSelection();
     if (isTowerPgBackendMode() && document) void this.inspectSelectedDocEditLease(document);
     if (isTowerPgBackendMode()) {
-      const hydrateDoc = typeof this.prefetchFlightDeckDoc === 'function'
-        ? this.prefetchFlightDeckDoc(recordId)
-        : this.requestTowerSyncFamily?.('document', recordId);
+      const hydrateDoc = this.hydrateSelectedDocWithRetry(recordId);
       void Promise.resolve(hydrateDoc)
         .then((fresh) => {
           if (!fresh || this.selectedDocType !== 'document' || this.selectedDocId !== recordId) return;
@@ -868,6 +930,7 @@ export const docsManagerMixin = {
             this.loadDocEditorFromSelection(fresh);
             void this.inspectSelectedDocEditLease(fresh);
           }
+          void this.loadSelectedDocRecoveries?.();
           this.markDocRead?.(recordId);
         })
         .catch((error) => {
@@ -885,6 +948,7 @@ export const docsManagerMixin = {
 
   closeDocEditor(options = {}) {
     const selectedRecord = this.selectedDocument;
+    if (this.docEditDraftDirty) void this.persistSelectedDocDraft({ immediate: true });
     if (selectedRecord?.record_id) {
       if (isTowerPgBackendMode()) {
         void releasePgEditLeaseForRecord(this, selectedRecord, 'document');
@@ -893,6 +957,8 @@ export const docsManagerMixin = {
       }
     }
     this.stopDocCommentsLiveQuery();
+    this.cancelDocAutosave();
+    this.cancelDocLocalDraftPersistence();
     this.selectedDocType = null;
     this.selectedDocId = null;
     this.selectedDocCommentId = null;
@@ -957,7 +1023,14 @@ export const docsManagerMixin = {
       this.docEditDraftDirty = false;
       this.docEditBaseRecordId = null;
       this.docEditBaseRowVersion = 0;
+      this.docEditBaseVersionId = null;
+      this.docEditBaseBodySha256Hex = null;
+      this.docEditBaseStorageObjectId = null;
+      this.docEditBaseAvailable = false;
       this.docEditConflict = null;
+      this.docRecovery = null;
+      this.docRecoveryActionState = '';
+      this.docLocalDraft = null;
       this.docEditLeaseInfo = null;
       this.docEditorSharesDirty = false;
       this.docEditorBlocks = [];
@@ -998,9 +1071,17 @@ export const docsManagerMixin = {
       : 'ready';
     this.docEditAccessMessage = '';
     this.docEditDraftDirty = false;
+    const baseIdentity = documentEditorBaseIdentity(item);
     this.docEditBaseRecordId = item.record_id || null;
-    this.docEditBaseRowVersion = Number(item.version || 0);
+    this.docEditBaseRowVersion = Number(baseIdentity.base_row_version || 0);
+    this.docEditBaseVersionId = baseIdentity.base_version_id;
+    this.docEditBaseBodySha256Hex = baseIdentity.base_body_sha256_hex;
+    this.docEditBaseStorageObjectId = baseIdentity.base_storage_object_id;
+    this.docEditBaseAvailable = baseIdentity.base_available;
     this.docEditConflict = null;
+    this.docRecovery = null;
+    this.docRecoveryActionState = '';
+    this.docLocalDraft = null;
     this.docEditLeaseInfo = null;
     this.docEditorSharesDirty = false;
     this.docEditorBlocks = contentBlocks;
@@ -1029,6 +1110,198 @@ export const docsManagerMixin = {
     this.docShareTargetId = '';
     this.scheduleDocCommentConnectorUpdate();
     this.scheduleStorageImageHydration();
+    const restoreGeneration = Number(this.docEditAccessGeneration || 0);
+    void this.restoreSelectedDocDraft(item, { generation: restoreGeneration });
+  },
+
+  async hydrateSelectedDocWithRetry(recordId, options = {}) {
+    const targetId = String(recordId || '').trim();
+    if (!targetId || !isTowerPgBackendMode()) return null;
+    const delays = Array.isArray(options.delays) ? options.delays : DOCUMENT_BODY_RETRY_DELAYS_MS;
+    let latest = null;
+    for (let attempt = 0; attempt < delays.length; attempt += 1) {
+      const delay = Number(delays[attempt]) || 0;
+      if (delay > 0) await waitForDocumentRetry(delay);
+      if (this.selectedDocType !== 'document' || this.selectedDocId !== targetId) return latest;
+      try {
+        latest = typeof this.prefetchFlightDeckDoc === 'function'
+          ? await (attempt > 0
+              ? this.prefetchFlightDeckDoc(targetId, { force: true })
+              : this.prefetchFlightDeckDoc(targetId))
+          : await this.requestTowerSyncFamily?.('document', targetId, { force: true });
+      } catch (error) {
+        latest = null;
+        if (attempt === delays.length - 1) {
+          console.warn('[flightdeck] PG document body hydration exhausted retries', error);
+        }
+      }
+      const row = latest || this.documents.find((candidate) => candidate.record_id === targetId) || null;
+      if (isDocumentContentReadyForEditor(row)) return row;
+    }
+    let stalled = this.documents.find((candidate) => candidate.record_id === targetId) || latest;
+    if (stalled && this.selectedDocId === targetId) {
+      const failed = {
+        ...stalled,
+        content_storage_status: 'error',
+        content_storage_error: stalled.content_storage_error || 'Complete document body did not load after retrying.',
+      };
+      await upsertDocument(failed);
+      this.patchDocumentLocal?.(failed);
+      this.docEditAccessMessage = 'The complete Tower body could not be loaded. Edits can still be saved safely as a recovery draft.';
+      stalled = failed;
+    }
+    return stalled || null;
+  },
+
+  getSelectedDocWorkspaceId(item = this.selectedDocument) {
+    return String(
+      item?.pg_workspace_id
+      || resolveTowerPgWorkspaceContext(this)?.workspaceId
+      || this.workspaceOwnerNpub
+      || '',
+    ).trim();
+  },
+
+  setSelectedDocBaseIdentity(identity = {}) {
+    this.docEditBaseRowVersion = Number(identity.row_version ?? identity.base_row_version ?? 0) || 0;
+    this.docEditBaseVersionId = String(identity.version_id ?? identity.base_version_id ?? '').trim() || null;
+    this.docEditBaseBodySha256Hex = String(identity.body_sha256_hex ?? identity.base_body_sha256_hex ?? '').trim() || null;
+    this.docEditBaseStorageObjectId = String(identity.storage_object_id ?? identity.base_storage_object_id ?? '').trim() || null;
+    this.docEditBaseAvailable = identity.base_available !== false
+      && this.docEditBaseRowVersion > 0
+      && Boolean(this.docEditBaseBodySha256Hex);
+  },
+
+  buildSelectedDocDraftRow(options = {}) {
+    const item = this.selectedDocument;
+    const workspaceId = this.getSelectedDocWorkspaceId(item);
+    if (!item?.record_id || !workspaceId) return null;
+    const contentModel = this.docRichEditorAdapter?.getContentModel?.()
+      || this.docEditorContentModel
+      || this.buildSelectedDocContentModel();
+    const dirtyAt = this.docLocalDraft?.dirty_at || new Date().toISOString();
+    return {
+      ...(this.docLocalDraft || {}),
+      workspace_id: workspaceId,
+      document_id: item.record_id,
+      editor_mode: this.docEditorMode,
+      title: this.docEditorTitle,
+      content: contentModel?.content ?? this.docEditorContent ?? '',
+      content_format: contentModel?.content_format ?? null,
+      content_blocks: Array.isArray(contentModel?.content_blocks) ? contentModel.content_blocks : [],
+      editor_state: contentModel?.editor_state || this.docEditorProseMirrorState || null,
+      editor_state_format: contentModel?.editor_state_format ?? null,
+      editor_state_version: contentModel?.editor_state_version ?? null,
+      base_available: this.docEditBaseAvailable === true,
+      base_row_version: Number(this.docEditBaseRowVersion || 0) || null,
+      base_version_id: this.docEditBaseVersionId || null,
+      base_body_sha256_hex: this.docEditBaseBodySha256Hex || null,
+      base_storage_object_id: this.docEditBaseStorageObjectId || null,
+      dirty_at: dirtyAt,
+      draft_status: options.status || (this.docEditDraftDirty ? 'dirty' : (this.docRecovery ? 'recovery' : 'dirty')),
+      recovery_id: this.docRecovery?.id || this.docLocalDraft?.recovery_id || null,
+      recovery: this.docRecovery || this.docLocalDraft?.recovery || null,
+      current_head: this.docEditConflict?.currentHead || this.docLocalDraft?.current_head || null,
+      last_remote_save_outcome: options.remoteOutcome || this.docLocalDraft?.last_remote_save_outcome || null,
+      submitted_storage_object_id: options.submittedStorageObjectId || this.docLocalDraft?.submitted_storage_object_id || null,
+      submitted_body_sha256_hex: options.submittedBodySha256Hex || this.docLocalDraft?.submitted_body_sha256_hex || null,
+      integrity_error: options.integrityError || null,
+      updated_at: new Date().toISOString(),
+    };
+  },
+
+  async persistSelectedDocDraft(options = {}) {
+    const row = this.buildSelectedDocDraftRow(options);
+    if (!row) return null;
+    const persisted = await upsertDocumentDraft(row);
+    if (this.selectedDocId === row.document_id && this.getSelectedDocWorkspaceId() === row.workspace_id) {
+      this.docLocalDraft = persisted;
+    }
+    return persisted;
+  },
+
+  scheduleDocLocalDraftPersistence() {
+    if (!this.selectedDocument?.record_id) return;
+    if (this.docLocalDraftTimer) clearTimeout(this.docLocalDraftTimer);
+    this.docLocalDraftTimer = setTimeout(async () => {
+      this.docLocalDraftTimer = null;
+      await this.persistSelectedDocDraft().catch((error) => {
+        this.docEditAccessMessage = `Local draft could not be saved: ${error?.message || error}`;
+      });
+    }, DOCUMENT_LOCAL_DRAFT_DELAY_MS);
+  },
+
+  cancelDocLocalDraftPersistence() {
+    if (this.docLocalDraftTimer) clearTimeout(this.docLocalDraftTimer);
+    this.docLocalDraftTimer = null;
+  },
+
+  async clearSelectedDocDraft(item = this.selectedDocument) {
+    const workspaceId = this.getSelectedDocWorkspaceId(item);
+    if (!workspaceId || !item?.record_id) return false;
+    this.cancelDocLocalDraftPersistence();
+    await deleteDocumentDraft(workspaceId, item.record_id);
+    if (this.selectedDocId === item.record_id) this.docLocalDraft = null;
+    return true;
+  },
+
+  async restoreSelectedDocDraft(item = this.selectedDocument, options = {}) {
+    if (!item?.record_id) return null;
+    const workspaceId = this.getSelectedDocWorkspaceId(item);
+    if (!workspaceId) return null;
+    const draft = await getDocumentDraft(workspaceId, item.record_id);
+    if (!draft) return null;
+    if (Number(options.generation || 0) !== Number(this.docEditAccessGeneration || 0)) return null;
+    if (this.selectedDocId !== item.record_id || draft.workspace_id !== workspaceId || draft.document_id !== item.record_id) return null;
+
+    const head = documentEditorBaseIdentity(item);
+    const sameRow = Number(draft.base_row_version || 0) === Number(head.base_row_version || 0);
+    const sameHash = Boolean(draft.base_body_sha256_hex)
+      && draft.base_body_sha256_hex === head.base_body_sha256_hex;
+    const sameBase = draft.base_available === true && head.base_available === true && sameRow && sameHash;
+    const contentModel = {
+      content: String(draft.content || ''),
+      content_format: draft.content_format || null,
+      content_blocks: Array.isArray(draft.content_blocks) ? draft.content_blocks : [],
+      editor_state: draft.editor_state || null,
+      editor_state_format: draft.editor_state_format || null,
+      editor_state_version: draft.editor_state_version || null,
+    };
+    const editorState = createDocumentEditorState(contentModel);
+    this.docEditorTitle = draft.title || item.title || 'Untitled document';
+    this.docEditorContent = contentModel.content;
+    this.docEditorBlocks = normalizeDocumentBlocks(contentModel.content_blocks, contentModel.content);
+    this.docEditorProseMirrorState = editorState.editorState;
+    this.docEditorContentModel = editorState.contentModel;
+    this.docRichEditorAdapter?.setContent?.(editorState.editorState, { emitUpdate: false, preserveSelection: false });
+    this.docLocalDraft = draft;
+    this.docRecovery = draft.recovery || null;
+    this.setSelectedDocBaseIdentity({
+      base_available: draft.base_available,
+      base_row_version: draft.base_row_version,
+      base_version_id: draft.base_version_id,
+      base_body_sha256_hex: draft.base_body_sha256_hex,
+      base_storage_object_id: draft.base_storage_object_id,
+    });
+    this.docEditDraftDirty = draft.draft_status !== 'recovery';
+    this.docAutosaveState = this.docEditDraftDirty ? 'pending' : 'saved';
+    if (!sameBase || draft.recovery_id) {
+      this.docEditConflict = {
+        baseVersion: Number(draft.base_row_version || 0),
+        currentVersion: Number(head.base_row_version || 0),
+        currentHead: head,
+      };
+      this.docEditAccessState = 'recovery';
+      this.docEditAccessMessage = draft.recovery_id
+        ? 'A recovery version is preserved in Tower. Continue editing it, promote it optimistically, or discard it.'
+        : 'Tower advanced from this draft’s base. The draft is preserved locally and will save only as a recovery version.';
+      this.docRichEditorAdapter?.setEditable?.(true);
+    } else if (this.docEditDraftDirty) {
+      this.docEditAccessMessage = '';
+      if (isSyncedPgRecord(item)) void this.beginSelectedDocLeaseAcquisition();
+    }
+    if (this.docEditDraftDirty) this.scheduleDocAutosave();
+    return draft;
   },
 
   isTiptapDocsEditorEnabled() {
@@ -1083,8 +1356,9 @@ export const docsManagerMixin = {
     this.docEditingTitle = false;
     this.docEditDraftDirty = false;
     this.docEditBaseRecordId = item.record_id;
-    this.docEditBaseRowVersion = Number(item.version || item.row_version || 0);
+    this.setSelectedDocBaseIdentity(documentEditorBaseIdentity(item));
     this.docEditConflict = null;
+    this.docRecovery = null;
     this.docAutosaveState = 'saved';
     this.scheduleDocCommentConnectorUpdate();
     this.scheduleStorageImageHydration();
@@ -1177,8 +1451,10 @@ export const docsManagerMixin = {
       return isCheckoutHeld(this.getSelectedDocCheckoutSession()?.checkout);
     }
     if (!isSyncedPgRecord(item)) return true;
-    if (!isDocumentContentReadyForEditor(item)) return false;
-    return ['ready', 'acquiring', 'editing'].includes(String(this.docEditAccessState || 'ready'));
+    if (!isDocumentContentReadyForEditor(item)
+      && !['error'].includes(String(item.content_storage_status || ''))
+      && !this.docLocalDraft) return false;
+    return ['ready', 'acquiring', 'editing', 'recovery'].includes(String(this.docEditAccessState || 'ready'));
   },
 
   isSelectedDocContentReadyForEditor() {
@@ -1186,8 +1462,21 @@ export const docsManagerMixin = {
     return Boolean(item && isDocumentContentReadyForEditor(item));
   },
 
+  isSelectedDocDraftReadyForPersistence() {
+    const item = this.selectedDocument;
+    if (!item) return false;
+    if (isDocumentContentReadyForEditor(item)) return true;
+    if (this.docLocalDraft) return true;
+    return item.content_storage_status === 'error';
+  },
+
   handleDocRichEditorUpdate() {
     this.docEditDraftDirty = true;
+    this.scheduleDocLocalDraftPersistence();
+    if (this.docEditAccessState === 'recovery') {
+      this.scheduleDocAutosave();
+      return;
+    }
     if (this.docEditAccessState === 'ready') void this.handleDocRichEditIntent();
     if (this.docEditAccessState === 'editing') this.scheduleDocAutosave();
   },
@@ -1205,7 +1494,8 @@ export const docsManagerMixin = {
       this.docEditAccessState = 'editing';
       return true;
     }
-    if (!isDocumentContentReadyForEditor(item)) return false;
+    if (this.docEditAccessState === 'recovery') return true;
+    if (!isDocumentContentReadyForEditor(item) && item.content_storage_status !== 'error') return false;
     if (this.docEditAccessState === 'editing' || this.docEditAccessState === 'acquiring') return true;
     if (this.docEditAccessState === 'blocked' || this.docEditAccessState === 'conflict') return false;
     void this.beginSelectedDocLeaseAcquisition();
@@ -1230,6 +1520,14 @@ export const docsManagerMixin = {
     if (!item) return false;
     if (!isTowerPgBackendMode() || !isSyncedPgRecord(item)) {
       return this.enterSelectedDocEditMode(options.mode || 'rich');
+    }
+    if (!isDocumentContentReadyForEditor(item) && item.content_storage_status === 'error') {
+      this.docEditBaseAvailable = false;
+      this.docEditAccessState = 'recovery';
+      this.docEditAccessMessage = 'The complete base is unavailable. Edits stay local and save to Tower only as a non-head recovery version.';
+      this.docRichEditorAdapter?.setEditable?.(true);
+      this.scheduleDocLocalDraftPersistence();
+      return true;
     }
     if (!isDocumentContentReadyForEditor(item)) {
       this.docEditAccessMessage = 'Loading the complete document before editing…';
@@ -1284,7 +1582,7 @@ export const docsManagerMixin = {
   },
 
   retrySelectedDocEditAccess() {
-    if (this.docEditAccessState === 'conflict') return false;
+    if (this.docEditAccessState === 'conflict' || this.docEditAccessState === 'recovery') return false;
     this.docEditAccessState = 'ready';
     this.docEditAccessMessage = '';
     this.docRichEditorAdapter?.setEditable?.(true);
@@ -1304,7 +1602,7 @@ export const docsManagerMixin = {
     }
   },
 
-  discardSelectedDocDraft() {
+  async discardSelectedDocDraft() {
     const item = this.selectedDocument;
     if (!item) return false;
     const editorState = createDocumentEditorState(item);
@@ -1315,9 +1613,11 @@ export const docsManagerMixin = {
     this.docEditorContentModel = editorState.contentModel;
     this.docEditDraftDirty = false;
     this.docEditConflict = null;
-    this.docEditBaseRowVersion = Number(item.version || 0);
+    this.setSelectedDocBaseIdentity(documentEditorBaseIdentity(item));
     this.docEditAccessState = 'ready';
     this.docEditAccessMessage = '';
+    this.docRecovery = null;
+    await this.clearSelectedDocDraft(item);
     this.cancelDocAutosave();
     this.docRichEditorAdapter?.setEditable?.(this.isSelectedDocRichEditorEditable());
     return true;
@@ -1333,12 +1633,18 @@ export const docsManagerMixin = {
       if (!isDocumentContentReadyForEditor(item)) return false;
       return this.applySelectedDocAuthoritativeContent(item, { preserveSelection: true });
     }
-    if (this.docEditAccessState !== 'conflict') {
-      this.docEditConflict = { baseVersion, currentVersion };
-      this.docEditAccessState = 'conflict';
-      this.docEditAccessMessage = 'Tower has a newer version. Your draft is preserved; copy it or discard it before retrying.';
-      this.cancelDocAutosave();
-      this.docRichEditorAdapter?.setEditable?.(false);
+    if (!['conflict', 'recovery'].includes(this.docEditAccessState)) {
+      this.docEditConflict = {
+        baseVersion,
+        currentVersion,
+        currentHead: documentEditorBaseIdentity(item),
+      };
+      this.docEditAccessState = 'recovery';
+      this.docEditAccessMessage = 'Tower has a newer head. Your editor remains available and the next save will preserve this draft as a recovery version.';
+      this.docRichEditorAdapter?.setEditable?.(true);
+      this.scheduleDocLocalDraftPersistence();
+      this.scheduleDocAutosave();
+      void releasePgEditLeaseForRecord(this, item, 'document', { reportError: false });
       return true;
     }
     return false;
@@ -1355,6 +1661,12 @@ export const docsManagerMixin = {
     canonical.sync_status = 'synced';
     canonical.content_storage_status = canonical.content_storage_object_id ? 'remote' : null;
     canonical.content_storage_error = null;
+    const canonicalIdentity = {
+      row_version: canonical.version || canonical.row_version,
+      version_id: canonical.pg_canonical_version_id,
+      storage_object_id: canonical.pg_canonical_storage_object_id || canonical.content_storage_object_id,
+      body_sha256_hex: canonical.pg_canonical_body_sha256_hex || canonical.content_sha256_hex,
+    };
 
     const acceptedVersion = Number(canonical.version || canonical.row_version || 0);
     const selected = this.selectedDocument;
@@ -1372,8 +1684,9 @@ export const docsManagerMixin = {
       const currentContentModel = this.buildSelectedDocContentModel();
       const hasFollowupChanges = currentTitle !== submittedTitle
         || (currentContentModel.content || '') !== submittedContent;
-      this.docEditBaseRowVersion = acceptedVersion;
+      this.setSelectedDocBaseIdentity(canonicalIdentity);
       this.docEditConflict = null;
+      this.docRecovery = null;
       this.docEditDraftDirty = hasFollowupChanges;
     }
 
@@ -2459,6 +2772,7 @@ export const docsManagerMixin = {
   finishDocTitleEdit() {
     this.docEditingTitle = false;
     this.docEditDraftDirty = true;
+    this.scheduleDocLocalDraftPersistence();
     this.scheduleDocAutosave();
   },
 
@@ -2473,6 +2787,7 @@ export const docsManagerMixin = {
     this.syncDocBlocksFromContent();
     this.refreshProseMirrorStateFromCompatibility();
     this.docEditDraftDirty = true;
+    this.scheduleDocLocalDraftPersistence();
     this.scheduleDocAutosave();
     this.scheduleStorageImageHydration();
   },
@@ -2544,6 +2859,7 @@ export const docsManagerMixin = {
     this.docBlockBuffer = '';
     this.docBlockEditorMinHeightPx = 0;
     this.docEditDraftDirty = true;
+    this.scheduleDocLocalDraftPersistence();
     this.scheduleDocAutosave();
     this.scheduleStorageImageHydration();
   },
@@ -2555,12 +2871,13 @@ export const docsManagerMixin = {
   },
 
   scheduleDocAutosave() {
+    this.scheduleDocLocalDraftPersistence();
     if (!this.docsEditorOpen) return;
     if (this.docEditorMode === 'preview') return;
     if (isTowerPgBackendMode() && isSyncedPgRecord(this.selectedDocument)
-      && this.docEditAccessState !== 'editing') return;
+      && !['editing', 'recovery'].includes(this.docEditAccessState)) return;
     this.docAutosaveState = 'pending';
-    if (this.docAutosaveTimer) clearTimeout(this.docAutosaveTimer);
+    if (this.docAutosaveTimer) return;
     this.docAutosaveTimer = setTimeout(async () => {
       this.docAutosaveTimer = null;
       try {
@@ -2568,7 +2885,7 @@ export const docsManagerMixin = {
       } catch {
         // saveSelectedDocItem already updates error/autosave state
       }
-    }, 900);
+    }, DOCUMENT_REMOTE_AUTOSAVE_DELAY_MS);
   },
 
   cancelDocAutosave() {
@@ -3525,7 +3842,6 @@ export const docsManagerMixin = {
       const previousSave = this.pgDocSavePromises[recordId] || null;
       const savePromise = (async () => {
         if (previousSave) await previousSave.catch(() => {});
-        if (this.docEditAccessState === 'conflict') return null;
         const latest = this.selectedDocument;
         if (!latest || latest.record_id !== recordId) return null;
         return this.saveSelectedPgDocItem(latest, this.workspaceOwnerNpub, options);
@@ -3570,7 +3886,7 @@ export const docsManagerMixin = {
       : this.getStoredDocShares(item);
     const now = new Date().toISOString();
     const nextVersion = (item.version ?? 1) + 1;
-    this.docAutosaveState = autosave ? 'saving' : this.docAutosaveState;
+    this.docAutosaveState = 'saving';
     try {
       const draft = {
         ...item,
@@ -3649,16 +3965,13 @@ export const docsManagerMixin = {
 
   async saveSelectedPgDocItem(item, ownerNpub, options = {}) {
     const autosave = options.autosave === true;
-    if (isSyncedPgRecord(item) && !isDocumentContentReadyForEditor(item)) {
-      this.docAutosaveState = 'error';
-      this.docEditAccessMessage = 'Save paused until the complete document finishes loading.';
-      if (!autosave) this.error = this.docEditAccessMessage;
-      return null;
-    }
     const nextTitle = this.docEditorTitle.trim() || 'Untitled document';
     const itemVersion = Number(item.version || item.row_version || 0);
     const baseVersion = Number(this.docEditBaseRowVersion || 0);
     const titleChanged = nextTitle !== (item.title ?? 'Untitled document');
+    const knownStaleBase = itemVersion > baseVersion
+      || this.docEditAccessState === 'recovery'
+      || Boolean(this.docRecovery);
     if (isSyncedPgRecord(item) && baseVersion > 0 && itemVersion > baseVersion) {
       if (!this.docEditDraftDirty && !titleChanged && !this.docEditorSharesDirty) {
         if (isDocumentContentReadyForEditor(item)) {
@@ -3666,19 +3979,21 @@ export const docsManagerMixin = {
         }
         return item;
       }
-      this.docEditConflict = { baseVersion, currentVersion: itemVersion };
-      this.docEditAccessState = 'conflict';
-      this.docEditAccessMessage = 'Tower has a newer version. Your draft is preserved; copy it or discard it before retrying.';
-      this.docAutosaveState = 'error';
-      this.docRichEditorAdapter?.setEditable?.(false);
-      this.cancelDocAutosave();
-      if (!autosave) this.error = this.docEditAccessMessage;
-      return null;
+      this.docEditConflict = {
+        baseVersion,
+        currentVersion: itemVersion,
+        currentHead: documentEditorBaseIdentity(item),
+      };
+      this.docEditAccessState = 'recovery';
+      this.docEditAccessMessage = 'Tower has a newer head. Saving will preserve this draft as a non-head recovery version.';
+      this.docRichEditorAdapter?.setEditable?.(true);
     }
     const contentModel = this.buildSelectedDocContentModel();
+    await this.persistSelectedDocDraft();
     const visibleEditorText = this.docEditorMode === 'rich' ? this.getVisibleDocRichEditorText() : '';
     if (!String(contentModel.content || '').trim() && visibleEditorText) {
       this.docAutosaveState = 'error';
+      await this.persistSelectedDocDraft({ integrityError: 'visible_editor_content_not_serialized' });
       if (!autosave) {
         this.error = 'The visible document could not be serialized safely. Your draft is still open; please retry Save.';
       }
@@ -3692,6 +4007,7 @@ export const docsManagerMixin = {
     if (!roundTrip.ok) {
       this.docAutosaveState = 'error';
       this.docEditAccessMessage = 'Save paused because the editor could not preserve the complete document. Your draft is still open and Tower was not changed.';
+      await this.persistSelectedDocDraft({ integrityError: roundTrip.reason || 'content_model_round_trip_failed' });
       if (!autosave) this.error = this.docEditAccessMessage;
       return null;
     }
@@ -3701,23 +4017,29 @@ export const docsManagerMixin = {
       references: nextReferences,
     }));
     const currentLinksSerialized = JSON.stringify(buildRecordLinkPayload(item));
-    const hasChanges = nextTitle !== (item.title ?? 'Untitled document')
+    const hasChanges = (knownStaleBase && this.docEditDraftDirty)
+      || nextTitle !== (item.title ?? 'Untitled document')
       || (contentModel.content || '') !== (item.content || '')
       || nextLinksSerialized !== currentLinksSerialized;
     if (!hasChanges) {
       this.docAutosaveState = 'saved';
       this.docEditDraftDirty = false;
+      await this.clearSelectedDocDraft(item);
       return item;
     }
     const pgSession = getPgEditLeaseSession(this, 'document', item.record_id);
     const pgLeaseToken = pgSession?.lease?.lease_token;
-    if (isSyncedPgRecord(item) && !pgLeaseToken) {
+    const baseAvailable = this.docEditBaseAvailable === true
+      && baseVersion > 0
+      && Boolean(this.docEditBaseBodySha256Hex);
+    const requiresCanonicalLease = isSyncedPgRecord(item) && baseAvailable && !knownStaleBase;
+    if (requiresCanonicalLease && !pgLeaseToken) {
       this.docAutosaveState = 'error';
       if (!autosave) this.error = 'Acquire a PG edit lease before saving this document.';
       return null;
     }
 
-    this.docAutosaveState = autosave ? 'saving' : this.docAutosaveState;
+    this.docAutosaveState = 'saving';
     try {
       if (isUnsyncedLocalPgRecord(item)) {
         const localUpdated = {
@@ -3761,12 +4083,19 @@ export const docsManagerMixin = {
             content_sha256_hex: contentPayload.content_sha256_hex,
             content_storage_status: 'remote',
             content_storage_error: null,
+            pg_canonical_version_id: canonicalDocVersionId(accepted),
+            pg_canonical_storage_object_id: contentPayload.content_storage_object_id,
+            pg_canonical_body_sha256_hex: contentPayload.content_sha256_hex,
+            pg_canonical_size_bytes: contentPayload.content_size_bytes,
             references: nextReferences,
           };
           await replaceDocumentRecord(localUpdated.record_id, canonical);
           this.documents = (this.documents || []).filter((document) => document.record_id !== localUpdated.record_id);
           this.patchDocumentLocal(canonical);
           if (this.selectedDocId === localUpdated.record_id) this.selectedDocId = canonical.record_id;
+          this.setSelectedDocBaseIdentity(documentEditorBaseIdentity(canonical));
+          this.docEditDraftDirty = false;
+          await this.clearSelectedDocDraft(canonical);
           this.docAutosaveState = 'saved';
           this.docEditorSharesDirty = false;
           return canonical;
@@ -3780,45 +4109,285 @@ export const docsManagerMixin = {
         }
       }
       const pgWorkspaceContext = resolveTowerPgWorkspaceContext(this);
+      const storageReuseRecord = this.docLocalDraft?.submitted_storage_object_id
+        ? {
+            ...item,
+            content_storage_object_id: this.docLocalDraft.submitted_storage_object_id,
+            content_sha256_hex: this.docLocalDraft.submitted_body_sha256_hex,
+          }
+        : item;
       const contentPayload = await this.prepareDocumentContentForEnvelope({
         record_id: item.record_id,
         owner_npub: pgWorkspaceContext.workspaceOwnerNpub || ownerNpub,
         title: nextTitle,
-      }, contentModel, [], item, { pgStorageContext: pgWorkspaceContext });
+      }, contentModel, [], storageReuseRecord, { pgStorageContext: pgWorkspaceContext });
       const updated = {
         ...item,
         title: nextTitle,
         ...contentModel,
         ...contentPayload,
         references: nextReferences,
+        pg_save_base_available: baseAvailable,
+        pg_save_base_row_version: baseVersion || undefined,
+        pg_save_base_version_id: this.docEditBaseVersionId || undefined,
+        pg_save_base_body_sha256_hex: this.docEditBaseBodySha256Hex || undefined,
+        pg_save_requires_lease: requiresCanonicalLease,
         sync_status: 'pending',
         updated_at: new Date().toISOString(),
       };
       const accepted = await updateTowerPgDocFromLocal(this, updated, item);
-      const canonical = this.acceptSelectedPgDocSaveCanonical(accepted, updated);
+      const canonical = accepted;
       await upsertDocument(canonical);
+      if (this.docEditDraftDirty) {
+        await this.persistSelectedDocDraft();
+      } else {
+        await this.clearSelectedDocDraft(canonical);
+      }
       this.docAutosaveState = this.docEditDraftDirty ? 'pending' : 'saved';
       this.docEditorSharesDirty = false;
+      if (this.docEditDraftDirty) this.scheduleDocAutosave();
       return canonical;
     } catch (error) {
+      if (isPgDocumentRecoveryCreatedError(error)) {
+        const payload = error.payload || JSON.parse(error.responseText || '{}');
+        const recovery = payload?.recovery || null;
+        const currentHead = payload?.current_head || null;
+        this.docRecovery = recovery;
+        this.docEditConflict = {
+          baseVersion,
+          currentVersion: Number(currentHead?.row_version || itemVersion || 0),
+          currentHead,
+        };
+        this.docEditAccessState = 'recovery';
+        this.docEditAccessMessage = 'Tower preserved this draft as a recovery version. Continue editing, promote it against the current head, or discard it.';
+        this.docEditDraftDirty = false;
+        this.docAutosaveState = 'saved';
+        this.docRichEditorAdapter?.setEditable?.(true);
+        await this.persistSelectedDocDraft({
+          status: 'recovery',
+          remoteOutcome: {
+            status: 'recovery',
+            code: payload?.code || 'document_recovery_created',
+            at: new Date().toISOString(),
+            idempotent_replay: payload?.idempotent_replay === true,
+          },
+          submittedStorageObjectId: recovery?.submitted_body?.storage_object_id || null,
+          submittedBodySha256Hex: recovery?.submitted_body?.body_sha256_hex || null,
+        });
+        void releasePgEditLeaseForRecord(this, item, 'document', { reportError: false });
+        return null;
+      }
       if (isPgStaleRowVersionError(error)) {
         await this.refreshDocuments?.();
         const fresh = this.documents.find((candidate) => candidate.record_id === item.record_id) || null;
         this.docEditConflict = {
-          baseVersion: Number(item.version || 0),
+          baseVersion,
           currentVersion: Number(fresh?.version || 0),
+          currentHead: fresh ? documentEditorBaseIdentity(fresh) : null,
         };
-        this.docEditAccessState = 'conflict';
-        this.docEditAccessMessage = 'Tower has a newer version. Your draft is preserved; copy it or discard it before retrying.';
-        this.docRichEditorAdapter?.setEditable?.(false);
-        this.cancelDocAutosave();
+        this.docEditAccessState = 'recovery';
+        this.docEditAccessMessage = 'Tower rejected the stale base before creating a typed recovery. The local draft remains editable and will retry safely.';
+        this.docRichEditorAdapter?.setEditable?.(true);
+        await this.persistSelectedDocDraft({
+          remoteOutcome: { status: 'error', code: error.code || 'stale_row_version', at: new Date().toISOString() },
+        });
         void releasePgEditLeaseForRecord(this, item, 'document', { reportError: false });
         if (!autosave) this.error = this.docEditAccessMessage;
       } else if (!autosave) {
         this.error = error?.message || 'Failed to save PG document.';
       }
+      if (!isPgStaleRowVersionError(error)) {
+        await this.persistSelectedDocDraft({
+          remoteOutcome: { status: 'error', code: error?.code || 'save_failed', at: new Date().toISOString() },
+        });
+      }
       this.docAutosaveState = 'error';
       throw error;
+    }
+  },
+
+  async loadSelectedDocRecoveries(options = {}) {
+    const item = this.selectedDocument;
+    if (!isTowerPgBackendMode() || !item?.record_id || !isSyncedPgRecord(item)) return [];
+    const context = resolveTowerPgWorkspaceContext(this);
+    if (!context.workspaceId) return [];
+    try {
+      const result = await getTowerPgDocRecoveries(context.workspaceId, item.record_id, {
+        baseUrl: context.baseUrl,
+        appNpub: context.appNpub,
+        state: options.state || 'open',
+        limit: 50,
+      });
+      const recoveries = Array.isArray(result?.recoveries) ? result.recoveries : [];
+      if (this.selectedDocId === item.record_id && recoveries.length > 0 && !this.docRecovery) {
+        this.docRecovery = recoveries[0];
+        if (!this.docEditDraftDirty) {
+          this.docEditAccessState = 'recovery_available';
+          this.docEditAccessMessage = 'Tower has a preserved recovery version for this document.';
+        }
+      }
+      return recoveries;
+    } catch (error) {
+      if (options.reportError) this.error = error?.message || 'Failed to load document recoveries.';
+      return [];
+    }
+  },
+
+  async openSelectedDocRecoveryDraft(recoveryId = this.docRecovery?.id) {
+    const item = this.selectedDocument;
+    const context = resolveTowerPgWorkspaceContext(this);
+    const id = String(recoveryId || '').trim();
+    if (!item?.record_id || !context.workspaceId || !id) return false;
+    try {
+      const result = await getTowerPgDocRecoveryBody(context.workspaceId, item.record_id, id, {
+        baseUrl: context.baseUrl,
+        appNpub: context.appNpub,
+      });
+      const recovery = result?.recovery || this.docRecovery;
+      const contentModel = decodeStoredRecoveryContent(result);
+      if (!contentModel?.editor_state && typeof contentModel?.content !== 'string') {
+        throw new Error('Recovery body did not contain an editable document model.');
+      }
+      const editorState = createDocumentEditorState(contentModel);
+      this.docEditorTitle = recovery?.submitted_patch?.title || item.title || 'Untitled document';
+      this.docEditorContent = editorState.contentModel.content || '';
+      this.docEditorBlocks = normalizeDocumentBlocks(editorState.contentModel.content_blocks, editorState.contentModel.content);
+      this.docEditorProseMirrorState = editorState.editorState;
+      this.docEditorContentModel = editorState.contentModel;
+      this.docRichEditorAdapter?.setContent?.(editorState.editorState, { emitUpdate: false, preserveSelection: false });
+      this.docRecovery = recovery;
+      this.setSelectedDocBaseIdentity({
+        base_available: Boolean(recovery?.base),
+        base_row_version: recovery?.base?.row_version,
+        base_version_id: recovery?.base?.version_id,
+        base_body_sha256_hex: recovery?.base?.body_sha256_hex,
+        base_storage_object_id: null,
+      });
+      this.docEditConflict = {
+        baseVersion: Number(recovery?.base?.row_version || 0),
+        currentVersion: Number(recovery?.head_at_creation?.row_version || item.version || 0),
+        currentHead: recovery?.head_at_creation || documentEditorBaseIdentity(item),
+      };
+      this.docEditDraftDirty = false;
+      this.docEditAccessState = 'recovery';
+      this.docEditAccessMessage = 'Recovery draft open. Continue editing, promote it against the current Tower head, or discard it.';
+      this.docAutosaveState = 'saved';
+      this.docRichEditorAdapter?.setEditable?.(true);
+      await this.persistSelectedDocDraft({
+        status: 'recovery',
+        remoteOutcome: { status: 'recovery', code: 'recovery_opened', at: new Date().toISOString() },
+        submittedStorageObjectId: recovery?.submitted_body?.storage_object_id || null,
+        submittedBodySha256Hex: recovery?.submitted_body?.body_sha256_hex || null,
+      });
+      return true;
+    } catch (error) {
+      this.error = error?.message || 'Failed to open the recovery draft.';
+      return false;
+    }
+  },
+
+  async promoteSelectedDocRecovery() {
+    const item = this.selectedDocument;
+    const recoveryId = String(this.docRecovery?.id || '').trim();
+    const context = resolveTowerPgWorkspaceContext(this);
+    if (!item?.record_id || !recoveryId || !context.workspaceId) return false;
+    this.docRecoveryActionState = 'promoting';
+    this.error = null;
+    try {
+      const detail = await getTowerPgDocRecovery(context.workspaceId, item.record_id, recoveryId, {
+        baseUrl: context.baseUrl,
+        appNpub: context.appNpub,
+      });
+      const currentHead = detail?.current_head;
+      if (!currentHead?.row_version || !currentHead?.body_sha256_hex) {
+        throw new Error('Tower did not return a complete current-head identity for promotion.');
+      }
+      await releasePgEditLeaseForRecord(this, item, 'document', { reportError: false });
+      const lease = await acquirePgEditLeaseForRecord(this, { ...item, version: currentHead.row_version }, 'document');
+      if (!lease?.lease_token) throw new Error('A current document edit lease is required to promote this recovery.');
+      const result = await promoteTowerPgDocRecovery(context.workspaceId, item.record_id, recoveryId, {
+        row_version: currentHead.row_version,
+        ...(currentHead.version_id ? { base_version_id: currentHead.version_id } : {}),
+        base_body_sha256_hex: currentHead.body_sha256_hex,
+        lease_token: lease.lease_token,
+      }, {
+        baseUrl: context.baseUrl,
+        appNpub: context.appNpub,
+      });
+      const accepted = mapPgDocToLocal({
+        ...result.doc,
+        canonical_version: result.canonical_version || null,
+      }, { workspaceOwnerNpub: context.workspaceOwnerNpub });
+      const localDraft = this.docLocalDraft || {};
+      const canonical = this.acceptSelectedPgDocSaveCanonical(accepted, {
+        ...accepted,
+        title: localDraft.title || this.docEditorTitle,
+        content: localDraft.content || this.docEditorContent,
+        content_format: localDraft.content_format || this.docEditorContentModel?.content_format,
+        content_blocks: localDraft.content_blocks || this.docEditorBlocks,
+        editor_state: localDraft.editor_state || this.docEditorProseMirrorState,
+        editor_state_format: localDraft.editor_state_format || this.docEditorContentModel?.editor_state_format,
+        editor_state_version: localDraft.editor_state_version || this.docEditorContentModel?.editor_state_version,
+        content_storage_object_id: result.canonical_version?.storage_object_id,
+        content_sha256_hex: result.canonical_version?.body_sha256_hex,
+        content_size_bytes: result.canonical_version?.size_bytes,
+      });
+      await upsertDocument(canonical);
+      await this.clearSelectedDocDraft(canonical);
+      this.docRecovery = result.recovery || null;
+      this.docEditConflict = null;
+      this.docEditDraftDirty = false;
+      this.docEditAccessState = 'ready';
+      this.docEditAccessMessage = 'Recovery promoted to the canonical document.';
+      this.docAutosaveState = 'saved';
+      this.applySelectedDocAuthoritativeContent(canonical, { preserveSelection: true });
+      await releasePgEditLeaseForRecord(this, canonical, 'document', { reportError: false });
+      return true;
+    } catch (error) {
+      if (error?.code === 'recovery_promotion_conflict') {
+        this.docEditConflict = {
+          baseVersion: Number(this.docEditBaseRowVersion || 0),
+          currentVersion: Number(error.payload?.current_head?.row_version || 0),
+          currentHead: error.payload?.current_head || null,
+        };
+        this.docEditAccessState = 'recovery';
+        this.docEditAccessMessage = 'Tower advanced again. The recovery is still preserved; refresh the head before promoting again.';
+      } else {
+        this.error = error?.message || 'Failed to promote the recovery version.';
+      }
+      return false;
+    } finally {
+      this.docRecoveryActionState = '';
+    }
+  },
+
+  async discardSelectedDocRecovery() {
+    const item = this.selectedDocument;
+    const recoveryId = String(this.docRecovery?.id || '').trim();
+    const context = resolveTowerPgWorkspaceContext(this);
+    if (!item?.record_id || !recoveryId || !context.workspaceId) return false;
+    this.docRecoveryActionState = 'discarding';
+    try {
+      await discardTowerPgDocRecovery(context.workspaceId, item.record_id, recoveryId, {
+        baseUrl: context.baseUrl,
+        appNpub: context.appNpub,
+      });
+      this.docRecovery = null;
+      this.docEditConflict = null;
+      this.docEditDraftDirty = false;
+      await this.clearSelectedDocDraft(item);
+      await this.refreshDocuments?.();
+      const fresh = this.documents.find((candidate) => candidate.record_id === item.record_id) || item;
+      if (isDocumentContentReadyForEditor(fresh)) this.applySelectedDocAuthoritativeContent(fresh, { preserveSelection: false });
+      else this.loadDocEditorFromSelection(fresh);
+      this.docEditAccessState = 'ready';
+      this.docEditAccessMessage = 'Recovery discarded. The canonical Tower document is unchanged.';
+      return true;
+    } catch (error) {
+      this.error = error?.message || 'Failed to discard the recovery version.';
+      return false;
+    } finally {
+      this.docRecoveryActionState = '';
     }
   },
 

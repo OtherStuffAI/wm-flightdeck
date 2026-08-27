@@ -10441,7 +10441,18 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 .doc-edit-access-actions {
   display: inline-flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   gap: 0.4rem;
+}
+
+.doc-edit-recovery-copy {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.doc-edit-recovery-meta {
+  color: color-mix(in srgb, currentColor 78%, transparent);
+  font-size: 0.7rem;
 }
 
 .doc-edit-access-actions button {

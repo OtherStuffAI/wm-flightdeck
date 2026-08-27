@@ -913,7 +913,42 @@ describe('Tower PG API helpers', () => {
       holder_actor_npub: 'npub1holder',
       holder_display_name: 'Lease holder',
       expires_at: '2026-08-25T13:00:00.000Z',
+      payload: expect.objectContaining({ code: 'edit_lease_held' }),
     });
+  });
+
+  it('uses the typed document recovery read and resolution routes', async () => {
+    const api = await import('../src/api.js');
+    api.setBaseUrl('https://tower.example');
+    const promotion = {
+      row_version: 9,
+      base_version_id: 'doc-1:9',
+      base_body_sha256_hex: 'a'.repeat(64),
+      lease_token: 'lease-current-head',
+    };
+
+    await api.getTowerPgDocRecoveries('workspace-1', 'doc-1', {
+      appNpub: 'flightdeck_pg',
+      state: 'all',
+      limit: 25,
+    });
+    await api.getTowerPgDocRecovery('workspace-1', 'doc-1', 'recovery-1', { appNpub: 'flightdeck_pg' });
+    await api.getTowerPgDocRecoveryBody('workspace-1', 'doc-1', 'recovery-1', { appNpub: 'flightdeck_pg' });
+    await api.promoteTowerPgDocRecovery('workspace-1', 'doc-1', 'recovery-1', promotion, { appNpub: 'flightdeck_pg' });
+    await api.discardTowerPgDocRecovery('workspace-1', 'doc-1', 'recovery-1', { appNpub: 'flightdeck_pg' });
+
+    const root = 'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/docs/doc-1/recoveries';
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(1, `${root}?state=all&limit=25`, expect.objectContaining({ method: 'GET' }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(2, `${root}/recovery-1`, expect.objectContaining({ method: 'GET' }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(3, `${root}/recovery-1/body`, expect.objectContaining({ method: 'GET' }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(4, `${root}/recovery-1/promote`, expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify(promotion),
+    }));
+    expect(globalThis.fetch).toHaveBeenNthCalledWith(5, `${root}/recovery-1/discard`, expect.objectContaining({
+      method: 'POST',
+    }));
+    expect(globalThis.fetch.mock.calls[4][1].body).toBeUndefined();
   });
 
   it('reads and creates Tower PG document comments with browser NIP-98 auth', async () => {

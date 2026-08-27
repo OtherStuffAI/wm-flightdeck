@@ -699,7 +699,7 @@ describe('PG write adapter', () => {
     expect(task).toMatchObject({ record_id: 'task-1', version: 4, pg_channel_id: 'channel-1' });
   });
 
-  it('adds PG edit lease token and row version to synced document save payloads', async () => {
+  it('sends exact document base identity and lease without combining a body save with channel movement', async () => {
     const api = await import('../src/api.js');
     api.updateTowerPgDoc.mockResolvedValue({
       doc: {
@@ -725,6 +725,10 @@ describe('PG write adapter', () => {
       content: 'Body',
       pg_channel_id: 'channel-1',
       content_storage_object_id: 'storage-doc',
+      pg_save_base_row_version: 4,
+      pg_save_base_version_id: 'doc-1:4',
+      pg_save_base_body_sha256_hex: 'a'.repeat(64),
+      pg_save_base_available: true,
       version: 5,
     }, {
       record_id: 'doc-1',
@@ -735,9 +739,41 @@ describe('PG write adapter', () => {
 
     expect(api.updateTowerPgDoc).toHaveBeenCalledWith('workspace-1', 'doc-1', expect.objectContaining({
       row_version: 4,
+      base_available: true,
+      base_version_id: 'doc-1:4',
+      base_body_sha256_hex: 'a'.repeat(64),
       lease_token: 'doc-lease-token',
-      channel_id: 'channel-1',
     }), { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
+    expect(api.updateTowerPgDoc.mock.calls[0][2]).not.toHaveProperty('channel_id');
+  });
+
+  it('submits no-base document recovery saves without an edit lease', async () => {
+    const api = await import('../src/api.js');
+    api.updateTowerPgDoc.mockResolvedValue({ doc: { id: 'doc-1', row_version: 4 } });
+
+    await updateTowerPgDocFromLocal(store({ pgEditLeaseSessions: {} }), {
+      record_id: 'doc-1',
+      pg_backend: true,
+      sync_status: 'synced',
+      title: 'Recovered body',
+      content: 'Recovered body',
+      content_storage_object_id: 'storage-recovery',
+      pg_save_base_available: false,
+      pg_save_requires_lease: false,
+      version: 4,
+    }, {
+      record_id: 'doc-1',
+      pg_backend: true,
+      sync_status: 'synced',
+      version: 4,
+    });
+
+    expect(api.updateTowerPgDoc).toHaveBeenCalledWith('workspace-1', 'doc-1', expect.objectContaining({
+      row_version: 4,
+      base_available: false,
+      storage_object_id: 'storage-recovery',
+    }), { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
+    expect(api.updateTowerPgDoc.mock.calls[0][2]).not.toHaveProperty('lease_token');
   });
 
   it('creates Tower PG thread messages and maps the returned message', async () => {

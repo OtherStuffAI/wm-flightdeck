@@ -244,10 +244,14 @@ export async function createTowerPgDocFromLocal(store, document) {
 export async function updateTowerPgDocFromLocal(store, document, previousDocument = null) {
   const context = resolveTowerPgWorkspaceContext(store);
   if (!context.workspaceId || !document?.record_id) throw new Error('Tower PG doc is not ready');
-  const body = addPgEditLeaseToSaveBody(store, previousDocument || document, 'document', {
-    row_version: previousDocument?.version || document.version || undefined,
+  const bodySave = Boolean(document.content_storage_object_id || document.storage_object_id);
+  const saveBody = {
+    row_version: document.pg_save_base_row_version ?? previousDocument?.version ?? document.version ?? undefined,
+    ...(bodySave ? { base_available: document.pg_save_base_available !== false } : {}),
+    ...(bodySave && document.pg_save_base_version_id ? { base_version_id: document.pg_save_base_version_id } : {}),
+    ...(bodySave && document.pg_save_base_body_sha256_hex ? { base_body_sha256_hex: document.pg_save_base_body_sha256_hex } : {}),
     title: document.title || 'Untitled document',
-    channel_id: document.pg_channel_id || document.channel_id || undefined,
+    ...(!bodySave ? { channel_id: document.pg_channel_id || document.channel_id || undefined } : {}),
     storage_object_id: document.content_storage_object_id || document.storage_object_id,
     summary: document.content || null,
     metadata: {
@@ -255,9 +259,15 @@ export async function updateTowerPgDocFromLocal(store, document, previousDocumen
       mentions: canonicalDocumentAgentMentions(document.content),
     },
     mentions: canonicalDocumentAgentMentions(document.content),
-  });
+  };
+  const body = document.pg_save_requires_lease === false
+    ? saveBody
+    : addPgEditLeaseToSaveBody(store, previousDocument || document, 'document', saveBody);
   const result = await updateTowerPgDoc(context.workspaceId, document.record_id, body, pgRequestOptions(context));
-  const accepted = mapPgDocToLocal(result.doc, { workspaceOwnerNpub: context.workspaceOwnerNpub });
+  const accepted = mapPgDocToLocal({
+    ...result.doc,
+    canonical_version: result.canonical_version || null,
+  }, { workspaceOwnerNpub: context.workspaceOwnerNpub });
   return store.acceptSelectedPgDocSaveCanonical?.(accepted, document) || accepted;
 }
 

@@ -9,6 +9,11 @@ const {
   createTowerPgDocCommentMock,
   downloadStorageObjectMock,
   getTowerPgDocVersionsMock,
+  getTowerPgDocRecoveriesMock,
+  getTowerPgDocRecoveryMock,
+  getTowerPgDocRecoveryBodyMock,
+  promoteTowerPgDocRecoveryMock,
+  discardTowerPgDocRecoveryMock,
   getTowerPgEditLeaseMock,
   isTowerPgBackendModeMock,
   prepareStorageObjectMock,
@@ -28,6 +33,11 @@ const {
   deleteTowerPgDocCommentMock: vi.fn(),
   downloadStorageObjectMock: vi.fn(),
   getTowerPgDocVersionsMock: vi.fn(),
+  getTowerPgDocRecoveriesMock: vi.fn(),
+  getTowerPgDocRecoveryMock: vi.fn(),
+  getTowerPgDocRecoveryBodyMock: vi.fn(),
+  promoteTowerPgDocRecoveryMock: vi.fn(),
+  discardTowerPgDocRecoveryMock: vi.fn(),
   getTowerPgEditLeaseMock: vi.fn(),
   isTowerPgBackendModeMock: vi.fn(() => false),
   prepareStorageObjectMock: vi.fn(),
@@ -59,12 +69,17 @@ vi.mock('../src/api.js', () => ({
   getTowerPgChannelTasks: vi.fn(),
   getTowerPgChannelThreads: vi.fn(),
   getTowerPgDocVersions: getTowerPgDocVersionsMock,
+  getTowerPgDocRecoveries: getTowerPgDocRecoveriesMock,
+  getTowerPgDocRecovery: getTowerPgDocRecoveryMock,
+  getTowerPgDocRecoveryBody: getTowerPgDocRecoveryBodyMock,
   getTowerPgEditLease: getTowerPgEditLeaseMock,
   getTowerPgScopeChannels: vi.fn(),
   getTowerPgScopeTasks: vi.fn(),
   getTowerPgWorkspaceScopes: vi.fn(),
   prepareStorageObject: prepareStorageObjectMock,
   prepareTowerPgStorageObject: prepareTowerPgStorageObjectMock,
+  promoteTowerPgDocRecovery: promoteTowerPgDocRecoveryMock,
+  discardTowerPgDocRecovery: discardTowerPgDocRecoveryMock,
   releaseRecordCheckout: releaseRecordCheckoutMock,
   releaseTowerPgEditLease: releaseTowerPgEditLeaseMock,
   renewTowerPgEditLease: vi.fn(),
@@ -80,14 +95,18 @@ vi.mock('../src/backend-mode.js', () => ({
 }));
 
 import {
+  DOCUMENT_LOCAL_DRAFT_DELAY_MS,
+  DOCUMENT_REMOTE_AUTOSAVE_DELAY_MS,
   docsManagerMixin,
   isDocumentContentReadyForEditor,
   mergeDocumentSaveReferences,
 } from '../src/docs-manager.js';
 import {
   getDocumentById,
+  getDocumentDraft,
   getPendingWrites,
   openWorkspaceDb,
+  upsertDocumentDraft,
   upsertDocument,
 } from '../src/db.js';
 import { isCheckoutHeld } from '../src/lock-managed-records.js';
@@ -194,10 +213,16 @@ beforeEach(() => {
   updateTowerPgDocCommentMock.mockReset();
   deleteTowerPgDocCommentMock.mockReset();
   getTowerPgDocVersionsMock.mockReset();
+  getTowerPgDocRecoveriesMock.mockReset();
+  getTowerPgDocRecoveryMock.mockReset();
+  getTowerPgDocRecoveryBodyMock.mockReset();
+  promoteTowerPgDocRecoveryMock.mockReset();
+  discardTowerPgDocRecoveryMock.mockReset();
   getTowerPgEditLeaseMock.mockReset();
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   Object.defineProperty(globalThis, 'navigator', {
     configurable: true,
     value: { onLine: true },
@@ -462,7 +487,7 @@ describe('docsManagerMixin comment drawer', () => {
     expect(store.docEditorBlocks).toMatchObject([{ raw: '# Fresh' }]);
   });
 
-  it('keeps an inline storage preview read-only and unsaveable while the typed body hydrates', async () => {
+  it('keeps an inline storage preview read-only while the typed body is still hydrating', async () => {
     isTowerPgBackendModeMock.mockReturnValue(true);
     acquireTowerPgEditLeaseMock.mockClear();
     updateTowerPgDocMock.mockClear();
@@ -504,15 +529,52 @@ describe('docsManagerMixin comment drawer', () => {
 
     expect(store.docEditorContent).toBe(preview);
     expect(store.isSelectedDocContentReadyForEditor()).toBe(false);
+    expect(store.isSelectedDocDraftReadyForPersistence()).toBe(false);
     expect(store.isSelectedDocRichEditorEditable()).toBe(false);
     await expect(store.beginSelectedDocLeaseAcquisition()).resolves.toBe(false);
-    await expect(store.saveSelectedPgDocItem(remote, 'npub1owner', { autosave: false })).resolves.toBeNull();
-    expect(store.docEditAccessMessage).toBe('Save paused until the complete document finishes loading.');
+    await expect(store.saveSelectedPgDocItem(remote, 'npub1owner', { autosave: false })).resolves.toBe(remote);
     expect(acquireTowerPgEditLeaseMock).not.toHaveBeenCalled();
     expect(updateTowerPgDocMock).not.toHaveBeenCalled();
 
     resolvePrefetch(null);
     await Promise.resolve();
+  });
+
+  it('marks an exhausted authoritative body load as recovery-saveable after bounded retries', async () => {
+    const wsDb = openWorkspaceDb('doc-hydration-retry');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const remote = {
+      record_id: 'doc-retry',
+      title: 'Retry body',
+      content: 'Inline preview',
+      content_blocks: [],
+      editor_state: null,
+      content_storage_object_id: 'storage-retry',
+      content_storage_status: 'remote',
+      pg_backend: true,
+      pg_record_type: 'doc',
+      sync_status: 'synced',
+      version: 3,
+    };
+    const prefetchFlightDeckDoc = vi.fn().mockResolvedValue(null);
+    const store = createStore({
+      documents: [remote],
+      selectedDocType: 'document',
+      selectedDocId: remote.record_id,
+      prefetchFlightDeckDoc,
+    });
+
+    await expect(store.hydrateSelectedDocWithRetry(remote.record_id, { delays: [0, 0] })).resolves.toMatchObject({
+      content_storage_status: 'error',
+    });
+
+    expect(prefetchFlightDeckDoc).toHaveBeenCalledTimes(2);
+    expect(prefetchFlightDeckDoc).toHaveBeenNthCalledWith(1, remote.record_id);
+    expect(prefetchFlightDeckDoc).toHaveBeenNthCalledWith(2, remote.record_id, { force: true });
+    expect(store.selectedDocument.content_storage_status).toBe('error');
+    expect(store.isSelectedDocDraftReadyForPersistence()).toBe(true);
   });
 
   it('does not replace an active pasted draft when document hydration finishes late', async () => {
@@ -1808,6 +1870,12 @@ function createSyncedPgDocSaveStore({
     sync_status: 'synced',
     record_state: 'active',
     version,
+    content_storage_object_id: `storage-base-${version}`,
+    content_storage_status: 'loaded',
+    content_sha256_hex: 'b'.repeat(64),
+    pg_canonical_version_id: `doc-save-race:${version}`,
+    pg_canonical_storage_object_id: `storage-base-${version}`,
+    pg_canonical_body_sha256_hex: 'b'.repeat(64),
   };
   const modelRef = { current: currentModel || richDocContentModel(content) };
   const adapter = {
@@ -1834,8 +1902,12 @@ function createSyncedPgDocSaveStore({
     docEditDraftDirty: draftDirty,
     docEditBaseRecordId: record.record_id,
     docEditBaseRowVersion: version,
+    docEditBaseVersionId: `doc-save-race:${version}`,
+    docEditBaseBodySha256Hex: 'b'.repeat(64),
+    docEditBaseStorageObjectId: `storage-base-${version}`,
+    docEditBaseAvailable: true,
     pgEditLeaseSessions: {
-      [`document:${record.record_id}`]: { lease: { lease_token: 'lease-token' } },
+      [`document:${record.record_id}`]: { lease: { id: 'lease-base', lease_token: 'lease-token' } },
     },
     prepareDocumentContentForEnvelope: vi.fn(async (_record, model) => ({
       content: model.content,
@@ -1862,8 +1934,250 @@ function acceptedPgDoc(version, body, title = 'Race document') {
       row_version: version,
       updated_at: `2026-08-25T12:45:${String(version).padStart(2, '0')}.000Z`,
     },
+    canonical_version: {
+      version_id: `doc-save-race:${version}`,
+      row_version: version,
+      storage_object_id: `storage-${body.length}`,
+      body_sha256_hex: 'a'.repeat(64),
+      size_bytes: body.length,
+    },
   };
 }
+
+describe('docsManagerMixin durable recovery drafts', () => {
+  beforeEach(async () => {
+    const wsDb = openWorkspaceDb('npub1signedinactor');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    updateTowerPgDocMock.mockReset();
+  });
+
+  it('persists a one-word edit locally first and remotely autosaves only after fifteen seconds', async () => {
+    const edited = richDocContentModel('Original body changed');
+    const { store } = createSyncedPgDocSaveStore({ currentModel: edited });
+    store.docsEditorOpen = true;
+    const remoteSave = vi.fn().mockResolvedValue(null);
+    store.saveSelectedDocItem = remoteSave;
+    const timers = new Map();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay) => {
+      timers.set(delay, callback);
+      return `doc-timer-${delay}`;
+    });
+
+    store.scheduleDocAutosave();
+
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), DOCUMENT_LOCAL_DRAFT_DELAY_MS);
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), DOCUMENT_REMOTE_AUTOSAVE_DELAY_MS);
+    expect(await getDocumentDraft('workspace-1', 'doc-save-race')).toBeUndefined();
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+
+    await timers.get(DOCUMENT_LOCAL_DRAFT_DELAY_MS)();
+    expect(await getDocumentDraft('workspace-1', 'doc-save-race')).toMatchObject({
+      content: edited.content,
+      draft_status: 'dirty',
+      base_row_version: 43,
+      base_version_id: 'doc-save-race:43',
+    });
+    expect(remoteSave).not.toHaveBeenCalled();
+
+    await timers.get(DOCUMENT_REMOTE_AUTOSAVE_DELAY_MS)();
+    expect(remoteSave).toHaveBeenCalledOnce();
+    expect(remoteSave).toHaveBeenCalledWith({ autosave: true });
+    setTimeoutSpy.mockRestore();
+  });
+
+  it('restores a draft only for the same workspace, document, and canonical base', async () => {
+    const restoredModel = richDocContentModel('Restored after reload');
+    await upsertDocumentDraft({
+      workspace_id: 'workspace-1',
+      document_id: 'doc-save-race',
+      title: 'Restored title',
+      ...restoredModel,
+      base_available: true,
+      base_row_version: 43,
+      base_version_id: 'doc-save-race:43',
+      base_body_sha256_hex: 'b'.repeat(64),
+      base_storage_object_id: 'storage-base-43',
+      draft_status: 'dirty',
+      dirty_at: '2026-08-27T01:00:00.000Z',
+    });
+    const { adapter, record, store } = createSyncedPgDocSaveStore({ draftDirty: false });
+    store.docEditAccessGeneration = 5;
+    store.beginSelectedDocLeaseAcquisition = vi.fn();
+
+    await expect(store.restoreSelectedDocDraft(record, { generation: 5 })).resolves.toMatchObject({
+      content: restoredModel.content,
+    });
+    expect(store.docEditorTitle).toBe('Restored title');
+    expect(store.docEditorContent).toBe(restoredModel.content);
+    expect(store.docEditDraftDirty).toBe(true);
+    expect(adapter.setContent).toHaveBeenCalledWith(restoredModel.editor_state, expect.objectContaining({ emitUpdate: false }));
+
+    store.currentWorkspace = { ...store.currentWorkspace, workspaceId: 'workspace-2' };
+    store.docEditorContent = 'Workspace two canonical body';
+    await expect(store.restoreSelectedDocDraft(record, { generation: 5 })).resolves.toBeNull();
+    expect(store.docEditorContent).toBe('Workspace two canonical body');
+  });
+
+  it('snapshots the outgoing document draft before navigation changes selection', async () => {
+    const outgoingModel = richDocContentModel('Last word before navigation');
+    const { record, store } = createSyncedPgDocSaveStore({ currentModel: outgoingModel });
+    const nextRecord = {
+      ...record,
+      record_id: 'doc-next',
+      title: 'Next document',
+      version: 1,
+      pg_canonical_version_id: 'doc-next:1',
+    };
+    store.documents = [record, nextRecord];
+    store.prefetchFlightDeckDoc = vi.fn().mockResolvedValue(nextRecord);
+    store.inspectSelectedDocEditLease = vi.fn();
+    store.loadDocEditorFromSelection = vi.fn();
+
+    store.openDoc(nextRecord.record_id, { ensureSync: false, syncRoute: false });
+
+    expect(store.selectedDocId).toBe(nextRecord.record_id);
+    await vi.waitFor(async () => {
+      expect(await getDocumentDraft('workspace-1', record.record_id)).toMatchObject({
+        content: outgoingModel.content,
+        document_id: record.record_id,
+      });
+    });
+  });
+
+  it('restores a stale-base local draft as an editable recovery conflict', async () => {
+    const restoredModel = richDocContentModel('Draft based on version 42');
+    await upsertDocumentDraft({
+      workspace_id: 'workspace-1',
+      document_id: 'doc-save-race',
+      ...restoredModel,
+      base_available: true,
+      base_row_version: 42,
+      base_version_id: 'doc-save-race:42',
+      base_body_sha256_hex: 'c'.repeat(64),
+      draft_status: 'dirty',
+    });
+    const { adapter, record, store } = createSyncedPgDocSaveStore({ draftDirty: false });
+    store.docEditAccessGeneration = 2;
+
+    await store.restoreSelectedDocDraft(record, { generation: 2 });
+
+    expect(store.docEditAccessState).toBe('recovery');
+    expect(store.docEditConflict).toMatchObject({ baseVersion: 42, currentVersion: 43 });
+    expect(store.docEditorContent).toBe(restoredModel.content);
+    expect(adapter.setEditable).toHaveBeenLastCalledWith(true);
+  });
+
+  it('uses a no-complete-base save to create a non-head recovery without a lease', async () => {
+    const recoveryModel = richDocContentModel('Locally recoverable body');
+    const { modelRef, record, store } = createSyncedPgDocSaveStore({ currentModel: recoveryModel });
+    store.documents = [{
+      ...record,
+      content: 'Inline preview only',
+      content_blocks: [],
+      editor_state: null,
+      content_storage_status: 'error',
+    }];
+    store.docEditBaseRowVersion = 0;
+    store.docEditBaseVersionId = null;
+    store.docEditBaseBodySha256Hex = null;
+    store.docEditBaseStorageObjectId = null;
+    store.docEditBaseAvailable = false;
+    store.docEditAccessState = 'recovery';
+    store.pgEditLeaseSessions = {};
+    const recoveryError = new Error('Tower preserved recovery');
+    recoveryError.status = 409;
+    recoveryError.code = 'document_recovery_created';
+    recoveryError.payload = {
+      code: 'document_recovery_created',
+      current_head: { row_version: 43, version_id: 'doc-save-race:43', body_sha256_hex: 'b'.repeat(64) },
+      recovery: {
+        id: 'recovery-no-base',
+        reason_code: 'base_unavailable',
+        resolution_state: 'open',
+        base: null,
+        head_at_creation: { row_version: 43 },
+        submitted_body: { storage_object_id: 'storage-recovery', body_sha256_hex: 'a'.repeat(64) },
+      },
+    };
+    updateTowerPgDocMock.mockRejectedValueOnce(recoveryError);
+
+    expect(store.isSelectedDocDraftReadyForPersistence()).toBe(true);
+    await expect(store.saveSelectedDocItem({ autosave: false })).resolves.toBeNull();
+
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
+    expect(updateTowerPgDocMock.mock.calls[0][2]).toMatchObject({
+      base_available: false,
+      storage_object_id: expect.any(String),
+    });
+    expect(updateTowerPgDocMock.mock.calls[0][2]).not.toHaveProperty('lease_token');
+    expect(store.docRecovery).toMatchObject({ id: 'recovery-no-base', reason_code: 'base_unavailable' });
+    expect(store.docEditAccessState).toBe('recovery');
+    expect(store.docEditDraftDirty).toBe(false);
+
+    modelRef.current = richDocContentModel('A newer local recovery edit');
+    store.docEditDraftDirty = true;
+    await store.persistSelectedDocDraft();
+    expect(await getDocumentDraft('workspace-1', 'doc-save-race')).toMatchObject({
+      draft_status: 'dirty',
+      recovery_id: 'recovery-no-base',
+      content: modelRef.current.content,
+    });
+  });
+
+  it('promotes and discards recoveries through optimistic Tower actions', async () => {
+    vi.spyOn(globalThis, 'setInterval').mockReturnValue('recovery-renew-timer');
+    releaseTowerPgEditLeaseMock.mockResolvedValue({});
+    acquireTowerPgEditLeaseMock.mockResolvedValue({
+      lease: { id: 'lease-current', lease_token: 'lease-current-head' },
+    });
+    getTowerPgDocRecoveryMock.mockResolvedValue({
+      recovery: { id: 'recovery-1', resolution_state: 'open' },
+      current_head: {
+        row_version: 43,
+        version_id: 'doc-save-race:43',
+        body_sha256_hex: 'b'.repeat(64),
+      },
+    });
+    promoteTowerPgDocRecoveryMock.mockResolvedValue({
+      ...acceptedPgDoc(44, 'Recovered body'),
+      recovery: { id: 'recovery-1', resolution_state: 'promoted' },
+    });
+    const { record, store } = createSyncedPgDocSaveStore({ draftDirty: false });
+    store.docRecovery = { id: 'recovery-1', resolution_state: 'open' };
+    store.docLocalDraft = { content: 'Recovered body', title: 'Race document' };
+
+    await expect(store.promoteSelectedDocRecovery()).resolves.toBe(true);
+    expect(promoteTowerPgDocRecoveryMock).toHaveBeenCalledWith(
+      'workspace-1',
+      'doc-save-race',
+      'recovery-1',
+      {
+        row_version: 43,
+        base_version_id: 'doc-save-race:43',
+        base_body_sha256_hex: 'b'.repeat(64),
+        lease_token: 'lease-current-head',
+      },
+      { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' },
+    );
+    expect(store.docEditBaseRowVersion).toBe(44);
+
+    store.docRecovery = { id: 'recovery-2', resolution_state: 'open' };
+    discardTowerPgDocRecoveryMock.mockResolvedValue({
+      recovery: { id: 'recovery-2', resolution_state: 'discarded' },
+    });
+    store.refreshDocuments = vi.fn();
+    await expect(store.discardSelectedDocRecovery()).resolves.toBe(true);
+    expect(discardTowerPgDocRecoveryMock).toHaveBeenCalledWith(
+      'workspace-1',
+      'doc-save-race',
+      'recovery-2',
+      { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' },
+    );
+    expect(store.docRecovery).toBeNull();
+  });
+});
 
 describe('docsManagerMixin canonical row normalization', () => {
   beforeEach(() => {
@@ -2012,6 +2326,9 @@ describe('docsManagerMixin canonical row normalization', () => {
     expect(store.selectedDocument.content).toBe(model.content);
     expect(store.docEditorContent).toBe(model.content);
     expect(store.docEditDraftDirty).toBe(false);
+    expect(store.docEditBaseVersionId).toBe('doc-save-race:44');
+    expect(store.docEditBaseBodySha256Hex).toBe('a'.repeat(64));
+    expect(await getDocumentDraft('workspace-1', 'doc-save-race')).toBeUndefined();
     expect(store.observeSelectedDocAuthoritativeVersion()).toBe(false);
   });
 
@@ -2168,7 +2485,7 @@ describe('docsManagerMixin canonical row normalization', () => {
     })).toBe(true);
   });
 
-  it('conflict-stops a stale dirty buffer at save time before storage upload or PATCH', async () => {
+  it('submits a stale dirty buffer so Tower can preserve it as a typed recovery', async () => {
     isTowerPgBackendModeMock.mockReturnValue(true);
     const source = buildSyntheticLongDocumentFixture();
     const staleModel = richDocContentModel('Stale editor prefix without the timeline');
@@ -2185,12 +2502,29 @@ describe('docsManagerMixin canonical row normalization', () => {
     };
     store.documents = [authoritative];
 
+    const recoveryError = new Error('Tower preserved recovery');
+    recoveryError.status = 409;
+    recoveryError.code = 'document_recovery_created';
+    recoveryError.payload = {
+      code: 'document_recovery_created',
+      current_head: { row_version: 44, version_id: 'doc-save-race:44', body_sha256_hex: 'c'.repeat(64) },
+      recovery: {
+        id: 'recovery-1',
+        reason_code: 'stale_base',
+        resolution_state: 'open',
+        base: { row_version: 43, version_id: 'doc-save-race:43', body_sha256_hex: 'b'.repeat(64) },
+        head_at_creation: { row_version: 44 },
+        submitted_body: { storage_object_id: 'storage-recovery', body_sha256_hex: 'a'.repeat(64) },
+      },
+    };
+    updateTowerPgDocMock.mockRejectedValueOnce(recoveryError);
+
     await expect(store.saveSelectedPgDocItem(authoritative, 'npub1owner', { autosave: false })).resolves.toBeNull();
-    expect(store.docEditConflict).toEqual({ baseVersion: 43, currentVersion: 44 });
-    expect(store.docEditAccessState).toBe('conflict');
-    expect(store.error).toContain('newer version');
-    expect(store.prepareDocumentContentForEnvelope).not.toHaveBeenCalled();
-    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+    expect(store.docEditConflict).toMatchObject({ baseVersion: 43, currentVersion: 44 });
+    expect(store.docEditAccessState).toBe('recovery');
+    expect(store.docRecovery).toMatchObject({ id: 'recovery-1', reason_code: 'stale_base' });
+    expect(store.prepareDocumentContentForEnvelope).toHaveBeenCalledTimes(1);
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
   });
 
   it('refuses a changed model whose serialized Markdown drops semantic tail content', async () => {
@@ -2241,10 +2575,10 @@ describe('docsManagerMixin canonical row normalization', () => {
     store.documents = [{ ...record, version: 44, content: 'Other client body' }];
 
     expect(store.observeSelectedDocAuthoritativeVersion()).toBe(true);
-    expect(store.docEditConflict).toEqual({ baseVersion: 43, currentVersion: 44 });
+    expect(store.docEditConflict).toMatchObject({ baseVersion: 43, currentVersion: 44 });
     expect(store.docEditDraftDirty).toBe(true);
-    expect(store.docEditAccessState).toBe('conflict');
-    expect(adapter.setEditable).toHaveBeenLastCalledWith(false);
+    expect(store.docEditAccessState).toBe('recovery');
+    expect(adapter.setEditable).toHaveBeenLastCalledWith(true);
     expect(updateTowerPgDocMock).not.toHaveBeenCalled();
   });
 
@@ -2642,7 +2976,7 @@ describe('docsManagerMixin canonical row normalization', () => {
     expect(store.selectedDocument).toMatchObject({ title: 'Server title', content: 'Server body', version: 2 });
     expect(store.docEditorTitle).toBe('Edited title');
     expect(store.docEditorBlocks).toEqual([{ id: 'block-1', type: 'markdown', text: 'Edited body', attrs: {} }]);
-    expect(store.docEditAccessState).toBe('conflict');
+    expect(store.docEditAccessState).toBe('recovery');
     expect(store.docEditDraftDirty).toBe(true);
     expect(store.docAutosaveState).toBe('error');
   });

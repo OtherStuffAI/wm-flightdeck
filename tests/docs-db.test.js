@@ -8,6 +8,9 @@ import {
   getDocumentsByOwner,
   upsertAddressBookPerson,
   getAddressBookPeople,
+  getDocumentDraft,
+  upsertDocumentDraft,
+  deleteDocumentDraft,
 } from '../src/db.js';
 
 const TEST_OWNER = 'npub_test_workspace';
@@ -71,5 +74,29 @@ describe('docs db operations', () => {
     expect(people).toHaveLength(1);
     expect(people[0].npub).toBe('npub_friend');
     expect(people[0].label).toBe('Agent B');
+  });
+
+  it('stores document drafts by exact workspace and document identity', async () => {
+    await upsertDocumentDraft({
+      workspace_id: 'workspace-1',
+      document_id: 'doc-1',
+      content: 'One word changed',
+      title: 'Draft title',
+      base_row_version: 7,
+      base_version_id: 'doc-1:7',
+      base_body_sha256_hex: 'a'.repeat(64),
+      dirty_at: '2026-08-27T01:00:00.000Z',
+    });
+
+    expect(await getDocumentDraft('workspace-1', 'doc-1')).toMatchObject({
+      draft_key: 'workspace-1:doc-1',
+      content: 'One word changed',
+      base_row_version: 7,
+    });
+    expect(await getDocumentDraft('workspace-2', 'doc-1')).toBeUndefined();
+    expect(await getDocumentDraft('workspace-1', 'doc-2')).toBeUndefined();
+
+    await deleteDocumentDraft('workspace-1', 'doc-1');
+    expect(await getDocumentDraft('workspace-1', 'doc-1')).toBeUndefined();
   });
 });

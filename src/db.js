@@ -134,6 +134,10 @@ const WORKSPACE_STORES_V23 = {
   ...WORKSPACE_STORES_V22,
   chat_messages: 'record_id, channel_id, parent_message_id, sync_status, updated_at, [channel_id+updated_at]',
 };
+const WORKSPACE_STORES_V24 = {
+  ...WORKSPACE_STORES_V23,
+  document_drafts: '&draft_key, workspace_id, document_id, recovery_id, dirty_at, updated_at, &[workspace_id+document_id]',
+};
 
 function createWorkspaceDb(workspaceDbKey) {
   const db = new Dexie(`wingman-fd-ws-${workspaceDbKey}`);
@@ -217,6 +221,8 @@ function createWorkspaceDb(workspaceDbKey) {
   db.version(22).stores(WORKSPACE_STORES_V22);
   // v23: additive channel/time index for bounded, thread-aware chat presentation reads.
   db.version(23).stores(WORKSPACE_STORES_V23);
+  // v24: workspace/document-scoped durable editor drafts and recovery metadata.
+  db.version(24).stores(WORKSPACE_STORES_V24);
   return db;
 }
 
@@ -668,6 +674,44 @@ export async function replacePgDocumentsForChannel(channelId, documents = []) {
 
 export async function getDocumentById(recordId) {
   return wsDb().documents.get(recordId);
+}
+
+export function documentDraftKey(workspaceId, documentId) {
+  const normalizedWorkspaceId = String(workspaceId || '').trim();
+  const normalizedDocumentId = String(documentId || '').trim();
+  return normalizedWorkspaceId && normalizedDocumentId
+    ? `${normalizedWorkspaceId}:${normalizedDocumentId}`
+    : '';
+}
+
+export async function getDocumentDraft(workspaceId, documentId) {
+  const draftKey = documentDraftKey(workspaceId, documentId);
+  if (!draftKey || !_currentWorkspaceDb) return null;
+  return wsDb().document_drafts.get(draftKey);
+}
+
+export async function upsertDocumentDraft(draft = {}) {
+  const workspaceId = String(draft?.workspace_id || '').trim();
+  const documentId = String(draft?.document_id || '').trim();
+  const draftKey = documentDraftKey(workspaceId, documentId);
+  if (!draftKey) throw new Error('Document draft requires workspace_id and document_id');
+  const row = sanitizeForStorage({
+    ...draft,
+    draft_key: draftKey,
+    workspace_id: workspaceId,
+    document_id: documentId,
+    updated_at: draft.updated_at || new Date().toISOString(),
+  });
+  if (!_currentWorkspaceDb) return row;
+  await wsDb().document_drafts.put(row);
+  return row;
+}
+
+export async function deleteDocumentDraft(workspaceId, documentId) {
+  const draftKey = documentDraftKey(workspaceId, documentId);
+  if (!draftKey || !_currentWorkspaceDb) return false;
+  await wsDb().document_drafts.delete(draftKey);
+  return true;
 }
 
 // ---------------------------------------------------------------------------

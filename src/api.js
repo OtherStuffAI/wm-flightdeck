@@ -160,6 +160,7 @@ async function buildApiError(resp, { requestUrl = '', method = 'GET', prefix = '
   try {
     const parsed = JSON.parse(text);
     if (parsed && typeof parsed === 'object') {
+      error.payload = parsed;
       error.code = typeof parsed.code === 'string' ? parsed.code : null;
       error.reason = typeof parsed.reason === 'string'
         ? parsed.reason
@@ -1011,6 +1012,72 @@ export async function getTowerPgDocVersions(workspaceId, docId, { baseUrl = _bas
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
   const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
   return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+}
+
+export async function getTowerPgDocRecoveries(workspaceId, docId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, state = 'open', limit = 50 } = {}) {
+  const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
+  const encodedDocId = encodeURIComponent(String(docId || '').trim());
+  if (!encodedWorkspaceId) throw new Error('Tower PG workspace id is required');
+  if (!encodedDocId) throw new Error('Tower PG doc id is required');
+  const params = new URLSearchParams();
+  if (state) params.set('state', String(state));
+  if (limit) params.set('limit', String(limit));
+  const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/docs/${encodedDocId}/recoveries${params.size > 0 ? `?${params.toString()}` : ''}`;
+  const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
+  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
+  return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+}
+
+export async function getTowerPgDocRecovery(workspaceId, docId, recoveryId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
+  const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
+  const encodedDocId = encodeURIComponent(String(docId || '').trim());
+  const encodedRecoveryId = encodeURIComponent(String(recoveryId || '').trim());
+  if (!encodedWorkspaceId) throw new Error('Tower PG workspace id is required');
+  if (!encodedDocId) throw new Error('Tower PG doc id is required');
+  if (!encodedRecoveryId) throw new Error('Tower PG document recovery id is required');
+  const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/docs/${encodedDocId}/recoveries/${encodedRecoveryId}`;
+  const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
+  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
+  return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+}
+
+export async function getTowerPgDocRecoveryBody(workspaceId, docId, recoveryId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
+  const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
+  const encodedDocId = encodeURIComponent(String(docId || '').trim());
+  const encodedRecoveryId = encodeURIComponent(String(recoveryId || '').trim());
+  if (!encodedWorkspaceId) throw new Error('Tower PG workspace id is required');
+  if (!encodedDocId) throw new Error('Tower PG doc id is required');
+  if (!encodedRecoveryId) throw new Error('Tower PG document recovery id is required');
+  const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/docs/${encodedDocId}/recoveries/${encodedRecoveryId}/body`;
+  const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
+  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
+  return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+}
+
+export async function promoteTowerPgDocRecovery(workspaceId, docId, recoveryId, body, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
+  const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
+  const encodedDocId = encodeURIComponent(String(docId || '').trim());
+  const encodedRecoveryId = encodeURIComponent(String(recoveryId || '').trim());
+  if (!encodedWorkspaceId) throw new Error('Tower PG workspace id is required');
+  if (!encodedDocId) throw new Error('Tower PG doc id is required');
+  if (!encodedRecoveryId) throw new Error('Tower PG document recovery id is required');
+  const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/docs/${encodedDocId}/recoveries/${encodedRecoveryId}/promote`;
+  const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
+  const resp = await signedTowerPgFetch(requestPath, { method: 'POST', body, baseUrl, appNpub });
+  return json(resp, { requestUrl, method: 'POST', prefix: 'Tower PG API' });
+}
+
+export async function discardTowerPgDocRecovery(workspaceId, docId, recoveryId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
+  const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
+  const encodedDocId = encodeURIComponent(String(docId || '').trim());
+  const encodedRecoveryId = encodeURIComponent(String(recoveryId || '').trim());
+  if (!encodedWorkspaceId) throw new Error('Tower PG workspace id is required');
+  if (!encodedDocId) throw new Error('Tower PG doc id is required');
+  if (!encodedRecoveryId) throw new Error('Tower PG document recovery id is required');
+  const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/docs/${encodedDocId}/recoveries/${encodedRecoveryId}/discard`;
+  const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
+  const resp = await signedTowerPgFetch(requestPath, { method: 'POST', baseUrl, appNpub });
+  return json(resp, { requestUrl, method: 'POST', prefix: 'Tower PG API' });
 }
 
 export async function getTowerPgDailyNotes(workspaceId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, noteDate = null, ownerActorId = null, ownerNpub = null, scopeId = null, channelId = null, limit = 30 } = {}) {

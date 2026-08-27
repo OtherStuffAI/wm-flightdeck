@@ -822,8 +822,13 @@ export function mapPgDocToLocal(doc, { workspaceOwnerNpub } = {}) {
   const metadata = Array.isArray(doc?.mentions)
     ? { ...sourceMetadata, mentions: doc.mentions }
     : sourceMetadata;
+  const recordId = trimText(doc?.id || doc?.record_id);
+  const canonicalVersion = doc?.canonical_version && typeof doc.canonical_version === 'object'
+    ? doc.canonical_version
+    : {};
+  const canonicalRowVersion = rowVersion(canonicalVersion.row_version || doc?.row_version || doc?.version);
   return {
-    record_id: trimText(doc?.id || doc?.record_id),
+    record_id: recordId,
     activity_version: activityVersion(doc?.activity_version),
     owner_npub: trimText(workspaceOwnerNpub),
     title: trimText(doc?.title) || 'Untitled document',
@@ -837,7 +842,7 @@ export function mapPgDocToLocal(doc, { workspaceOwnerNpub } = {}) {
     content_storage_format: storageObjectId ? 'flightdeck_pg_doc_body' : null,
     content_storage_content_type: trimText(storageObject.content_type),
     content_size_bytes: Number.isFinite(Number(storageObject.size_bytes)) ? Number(storageObject.size_bytes) : null,
-    content_sha256_hex: trimText(storageObject.sha256_hex),
+    content_sha256_hex: trimText(canonicalVersion.body_sha256_hex || storageObject.sha256_hex),
     content_storage_status: storageObjectId ? 'remote' : null,
     content_storage_error: null,
     parent_directory_id: null,
@@ -856,7 +861,7 @@ export function mapPgDocToLocal(doc, { workspaceOwnerNpub } = {}) {
     sync_status: 'synced',
     record_state: doc?.archived_at || doc?.record_state === 'archived' ? 'archived' : 'active',
     archived_at: doc?.archived_at ? isoTimestamp(doc.archived_at) : null,
-    version: rowVersion(doc?.row_version || doc?.version),
+    version: canonicalRowVersion,
     created_at: isoTimestamp(doc?.created_at || updatedAt),
     updated_at: updatedAt,
     pg_backend: true,
@@ -867,6 +872,12 @@ export function mapPgDocToLocal(doc, { workspaceOwnerNpub } = {}) {
     pg_body_route: trimText(doc?.body?.route),
     pg_created_by_actor_id: trimText(doc?.created_by_actor_id),
     pg_updated_by_actor_id: trimText(doc?.updated_by_actor_id),
+    pg_canonical_version_id: trimText(canonicalVersion.version_id) || (recordId && canonicalRowVersion ? `${recordId}:${canonicalRowVersion}` : null),
+    pg_canonical_storage_object_id: trimText(canonicalVersion.storage_object_id || storageObjectId) || null,
+    pg_canonical_body_sha256_hex: trimText(canonicalVersion.body_sha256_hex || storageObject.sha256_hex) || null,
+    pg_canonical_size_bytes: Number.isFinite(Number(canonicalVersion.size_bytes))
+      ? Number(canonicalVersion.size_bytes)
+      : (Number.isFinite(Number(storageObject.size_bytes)) ? Number(storageObject.size_bytes) : null),
     pg_metadata: metadata,
   };
 }
@@ -2122,11 +2133,17 @@ export async function hydrateTowerPgDoc(store, docId, deps = {}) {
   }
 
   if (!doc) return null;
-  const row = mapPgDocToLocal(doc, { workspaceOwnerNpub: context.workspaceOwnerNpub });
+  const row = mapPgDocToLocal({
+    ...doc,
+    canonical_version: result?.canonical_version || null,
+  }, { workspaceOwnerNpub: context.workspaceOwnerNpub });
   if (!row.record_id) return null;
   const hydrated = result?.body
     ? await hydratePgDocBodyContent(row, result)
     : await hydratePgDocStorageContent(row, deps);
+  if (hydrated.content_sha256_hex && !hydrated.pg_canonical_body_sha256_hex) {
+    hydrated.pg_canonical_body_sha256_hex = hydrated.content_sha256_hex;
+  }
 
   await (deps.upsertDocument || upsertDocument)(hydrated);
   return hydrated;
