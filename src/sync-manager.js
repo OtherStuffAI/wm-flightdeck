@@ -107,6 +107,7 @@ import { resolveFlightDeckRecordCheckoutPolicy } from './record-checkout-policy.
 import { isTowerPgBackendMode } from './backend-mode.js';
 import { isFlightDeckSurfaceDisabled } from './disabled-surfaces.js';
 import { replaceTowerSyncService } from './tower-sync-service.js';
+import { TowerPgMaterializationWorkerClient } from './tower-pg-materialization-worker-client.js';
 import { prepareTowerWorkspaceCommand } from './tower-command-port.js';
 
 const PG_RECORD_SYNC_DISABLED_MESSAGE = 'Tower PG mode active; encrypted record sync is disabled.';
@@ -314,12 +315,17 @@ export const syncManagerMixin = {
         runFallbackPoll: () => this.backgroundSyncTick(),
         hydrateInitial: (options) => (
           this.isEncryptedRecordSyncDisabled
-            ? syncTowerPgWorkspace(this, options)
+            ? this.runTowerPgWorkspaceSync(options)
             : this.performSync({ silent: true })
         ),
         ensureLoaded: (family, id, options) => this.loadTowerSyncTarget(family, id, options),
         recoverCursor: ({ events = [] } = {}) => this.queueTowerPgSSEHydration(events),
-        materialize: (_family, payload) => payload,
+        materialize: (family, payload, options) => (
+          family === 'workspace-bundle'
+            ? this.materializeTowerPgWorkspaceBundle(payload, options)
+            : payload
+        ),
+        disposeMaterializer: ({ reason }) => this.disposeTowerPgMaterializationWorker(reason),
         freshness: () => null,
         prepareCommand: (name, input, options) => prepareTowerWorkspaceCommand(this, name, input, options),
       },
@@ -329,6 +335,51 @@ export const syncManagerMixin = {
       },
     });
     return this._towerSyncService;
+  },
+
+  getTowerPgMaterializationWorker() {
+    const service = this._towerSyncService || this.getTowerSyncService();
+    if (!service) throw new Error('TowerSyncService is unavailable for PG materialisation');
+    if (
+      this._towerPgMaterializationWorker?.workspaceKey === service.workspaceKey
+      && !this._towerPgMaterializationWorker.disposed
+    ) {
+      return this._towerPgMaterializationWorker;
+    }
+    this._towerPgMaterializationWorker?.dispose('workspace-owner-replaced');
+    this._towerPgMaterializationWorker = new TowerPgMaterializationWorkerClient({
+      workspaceKey: service.workspaceKey,
+    });
+    return this._towerPgMaterializationWorker;
+  },
+
+  buildTowerPgMaterializationStoreSnapshot() {
+    const workspace = this.currentWorkspace || {};
+    const descriptor = workspace.pgDescriptor || {};
+    const identity = descriptor.identity || {};
+    return {
+      workspaceOwnerNpub: this.workspaceOwnerNpub || workspace.workspaceOwnerNpub || identity.workspace_owner_npub || '',
+      currentWorkspaceActorId: this.currentWorkspaceActorId || this.pgActorId || this.currentActorId || '',
+      session: { npub: this.session?.npub || '' },
+      currentWorkspace: {
+        workspaceId: workspace.workspaceId || workspace.workspace_id || identity.workspace_id || '',
+        workspaceOwnerNpub: workspace.workspaceOwnerNpub || identity.workspace_owner_npub || this.workspaceOwnerNpub || '',
+      },
+    };
+  },
+
+  materializeTowerPgWorkspaceBundle(bundle, options = {}) {
+    return this.getTowerPgMaterializationWorker().materialize({
+      workspaceDbKey: options.workspaceDbKey || this.workspaceDbKey,
+      store: options.store || this.buildTowerPgMaterializationStoreSnapshot(),
+      bundle,
+    });
+  },
+
+  disposeTowerPgMaterializationWorker(reason = 'dispose') {
+    const worker = this._towerPgMaterializationWorker;
+    this._towerPgMaterializationWorker = null;
+    worker?.dispose(reason);
   },
 
   disposeTowerSyncService(reason = 'dispose') {
@@ -358,7 +409,7 @@ export const syncManagerMixin = {
       case 'workrooms': return hydrateTowerPgWorkrooms(this, options);
       case 'workroom': return hydrateTowerPgWorkroom(this, id, options);
       case 'workroom-participants': return hydrateTowerPgWorkroomParticipants(this, id, options);
-      case 'workspace': return syncTowerPgWorkspace(this, options);
+      case 'workspace': return this.runTowerPgWorkspaceSync(options);
       case 'wapp-activity': return hydrateTowerPgWappActivity(this, options);
       case 'wapp-mutes': return hydrateTowerPgWappActivity(this, options).then((result) => result.mutes || []);
       case 'wapp-publishing-grants': return hydrateTowerPgWappPublishingGrants(this, options);
@@ -454,12 +505,18 @@ export const syncManagerMixin = {
   async runTowerPgWorkspaceSync(options = {}) {
     this.beginStartupSyncProgress();
     try {
+      const service = this.getTowerSyncService();
       const result = await syncTowerPgWorkspace(this, {
         ...options,
         onProgress: (update) => {
           this.updateStartupSyncProgress(update);
           options.onProgress?.(update);
         },
+      }, {
+        hydrateTowerPgSyncBundle: (_store, bundle) => service.materialize('workspace-bundle', bundle, {
+          workspaceDbKey: this.workspaceDbKey,
+          store: this.buildTowerPgMaterializationStoreSnapshot(),
+        }),
       });
       this.finishStartupSyncProgress();
       return result;
@@ -2611,10 +2668,12 @@ export const syncManagerMixin = {
     }
 
     if (status === 'connected') {
-      if (this.isEncryptedRecordSyncDisabled) this.queueTowerPgSSEHydration([]);
+      const pgHydration = this.isEncryptedRecordSyncDisabled
+        ? this.queueTowerPgSSEHydration([])
+        : null;
       // Widen heartbeat polling now that SSE is live
       this.scheduleBackgroundSync();
-      return;
+      return pgHydration;
     }
 
     if (status === 'fallback-polling') {
@@ -2706,7 +2765,7 @@ export const syncManagerMixin = {
           && Date.now() - Number(this.towerPgLastReplayDeltaAt || 0) < 30_000;
         const ranWorkspaceDelta = deltaRequested && !recentEventDelta;
         if (ranWorkspaceDelta) {
-          await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? syncTowerPgWorkspace(this));
+          await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? this.runTowerPgWorkspaceSync());
           this.towerPgLastReplayDeltaAt = Date.now();
           const activityChannelIds = new Set(events
             .filter((event) => String(event?.entity_type || '').trim() === 'agent_activity')
@@ -2891,7 +2950,7 @@ export const syncManagerMixin = {
     try {
       if (this.isEncryptedRecordSyncDisabled) {
         this.markEncryptedRecordSyncDisabled();
-        await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? syncTowerPgWorkspace(this));
+        await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? this.runTowerPgWorkspaceSync());
       } else {
         await this.performSync({ silent: true });
       }
@@ -3240,7 +3299,7 @@ export const syncManagerMixin = {
         pulled: 0,
       });
       const result = await (this.requestTowerSyncFamily?.('workspace-bootstrap', '', { force: manual })
-        ?? syncTowerPgWorkspace(this));
+        ?? this.runTowerPgWorkspaceSync());
       pulled = Number(result?.applied || 0);
       const workspaceKey = String(this.currentWorkspaceKey || '').trim();
       const needsWappBootstrap = this.wappActivityReconciledWorkspaceKey !== workspaceKey;

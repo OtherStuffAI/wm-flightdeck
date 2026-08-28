@@ -1005,6 +1005,13 @@
       "label": "UI freeze investigation evidence",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1853,
+      "label": "Responsive large workspace updates",
+      "notes": [
+        "Keep typing and navigation responsive while large Tower workspace updates commit records and their sync cursor atomically in the background."
+      ]
     }
   ]
 }

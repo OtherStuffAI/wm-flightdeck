@@ -1718,6 +1718,39 @@ describe('syncProgressLabel', () => {
 });
 
 describe('PG workspace startup progress', () => {
+  it('routes physical workspace bundle materialisation through the TowerSyncService worker port', async () => {
+    const bundle = { mode: 'delta', next_cursor: 'cursor-2', channel_bundles: [] };
+    syncTowerPgWorkspace.mockImplementationOnce(async (target, _options, deps) => {
+      const applied = await deps.hydrateTowerPgSyncBundle(target, bundle);
+      return { ...applied, pages: 1 };
+    });
+    const materializeTowerPgWorkspaceBundle = vi.fn(async () => ({ applied: 3, cursor: 'cursor-2' }));
+    const { fn, store } = bindMethod('runTowerPgWorkspaceSync', {
+      backendUrl: 'https://tower.example',
+      currentWorkspaceKey: 'workspace-db',
+      currentWorkspaceActorId: 'actor-1',
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        workspaceOwnerNpub: 'npub1owner',
+      },
+      session: { npub: 'npub1viewer' },
+      materializeTowerPgWorkspaceBundle,
+    });
+
+    await expect(fn()).resolves.toMatchObject({ applied: 3, cursor: 'cursor-2', pages: 1 });
+
+    expect(materializeTowerPgWorkspaceBundle).toHaveBeenCalledWith(bundle, expect.objectContaining({
+      workspaceDbKey: 'workspace-db',
+      store: expect.objectContaining({
+        workspaceOwnerNpub: 'npub1owner',
+        currentWorkspaceActorId: 'actor-1',
+        session: { npub: 'npub1viewer' },
+        currentWorkspace: expect.objectContaining({ workspaceId: 'workspace-1' }),
+      }),
+    }));
+    expect(store.towerSyncInstrumentation).toMatchObject({ materialisationsCommitted: 1 });
+  });
+
   it('does not show progress for a fast workspace delta', async () => {
     vi.useFakeTimers();
     try {

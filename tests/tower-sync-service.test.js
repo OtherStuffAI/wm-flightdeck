@@ -86,6 +86,36 @@ describe('TowerSyncService ownership', () => {
     expect(materialize).toHaveBeenCalledOnce();
   });
 
+  it('owns worker materialisation completion and rejects late completion after disposal', async () => {
+    let release;
+    const disposeMaterializer = vi.fn();
+    const service = new TowerSyncService({
+      workspaceKey: 'workspace-a',
+      ports: {
+        materialize: () => new Promise((resolve) => { release = resolve; }),
+        disposeMaterializer,
+      },
+    });
+    const pending = service.materialize('workspace-bundle', { rows: ['message-1'] });
+    await Promise.resolve();
+    expect(service.snapshot()).toMatchObject({
+      materialisationsStarted: 1,
+      materialisationsCommitted: 0,
+      materialisationsFailed: 0,
+    });
+
+    service.dispose('workspace-switch');
+    release({ applied: 1, cursor: 'cursor-2' });
+
+    await expect(pending).rejects.toThrow('disposed');
+    expect(disposeMaterializer).toHaveBeenCalledWith({ reason: 'workspace-switch' });
+    expect(service.snapshot()).toMatchObject({
+      materialisationsCommitted: 0,
+      materialisationsFailed: 1,
+      disposed: true,
+    });
+  });
+
   it('keys collection coverage by family and target while coalescing identical loads', async () => {
     let release;
     const load = vi.fn(() => new Promise((resolve) => { release = resolve; }));

@@ -22,8 +22,8 @@ export const FLIGHT_DECK_PG_APP_NPUB = requireNpub(
   'FLIGHT_DECK_PG_APP_NPUB',
 );
 export const APP_NPUB = FLIGHT_DECK_PG_APP_NPUB;
-export const APP_NAME = String(import.meta.env.VITE_FLIGHT_DECK_APP_NAME || 'Flight Deck').trim();
-export const DEFAULT_SUPERBASED_URL = String(import.meta.env.VITE_DEFAULT_SUPERBASED_URL || '').trim();
+export const APP_NAME = String(import.meta.env?.VITE_FLIGHT_DECK_APP_NAME || 'Flight Deck').trim();
+export const DEFAULT_SUPERBASED_URL = String(import.meta.env?.VITE_DEFAULT_SUPERBASED_URL || '').trim();
 
 export function recordFamilyNamespace() {
   return APP_NPUB;

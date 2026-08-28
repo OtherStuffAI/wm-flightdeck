@@ -1,0 +1,53 @@
+import { openWorkspaceDb } from '../db.js';
+import { hydrateTowerPgSyncBundle } from '../pg-read-hydrator.js';
+
+const REQUEST_TYPE = 'tower-pg-materializer:request';
+const RESPONSE_TYPE = 'tower-pg-materializer:response';
+
+let boundWorkspaceKey = null;
+let materializationQueue = Promise.resolve();
+
+function serializeError(error) {
+  return {
+    name: error?.name || 'Error',
+    message: error?.message || String(error || 'Tower PG materialisation failed'),
+    stack: error?.stack || '',
+  };
+}
+
+async function applyBundle(message) {
+  const workspaceKey = String(message?.workspaceKey || '').trim();
+  const workspaceDbKey = String(message?.workspaceDbKey || '').trim();
+  if (!workspaceKey || !workspaceDbKey) throw new Error('Invalid Tower PG materialisation request context');
+  if (boundWorkspaceKey && boundWorkspaceKey !== workspaceKey) {
+    throw new Error('Tower PG materialisation worker cannot switch workspace ownership');
+  }
+  boundWorkspaceKey = workspaceKey;
+  openWorkspaceDb(workspaceDbKey);
+  return hydrateTowerPgSyncBundle(message.store || {}, message.bundle || {});
+}
+
+self.addEventListener('message', (event) => {
+  const message = event?.data;
+  if (message?.type !== REQUEST_TYPE) return;
+  materializationQueue = materializationQueue.then(async () => {
+    try {
+      const value = await applyBundle(message);
+      self.postMessage({
+        type: RESPONSE_TYPE,
+        id: message.id,
+        workspaceKey: message.workspaceKey,
+        ok: true,
+        value,
+      });
+    } catch (error) {
+      self.postMessage({
+        type: RESPONSE_TYPE,
+        id: message.id,
+        workspaceKey: message.workspaceKey,
+        ok: false,
+        error: serializeError(error),
+      });
+    }
+  });
+});

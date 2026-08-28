@@ -30,6 +30,9 @@ export class TowerSyncService {
       commandsAcknowledged: 0,
       commandsFailed: 0,
       staleAcknowledgements: 0,
+      materialisationsStarted: 0,
+      materialisationsCommitted: 0,
+      materialisationsFailed: 0,
       disposed: false,
     };
   }
@@ -103,7 +106,19 @@ export class TowerSyncService {
 
   async materialize(family, payload, options = {}) {
     this.assertActive();
-    return this.ports.materialize?.(family, payload, options);
+    this.instrumentation.materialisationsStarted += 1;
+    this.emitState();
+    try {
+      const result = await this.ports.materialize?.(family, payload, options);
+      this.assertActive();
+      this.instrumentation.materialisationsCommitted += 1;
+      this.emitState();
+      return result;
+    } catch (error) {
+      this.instrumentation.materialisationsFailed += 1;
+      this.emitState();
+      throw error;
+    }
   }
 
   async freshness(family, id = '') {
@@ -205,6 +220,7 @@ export class TowerSyncService {
     this.clearFallbackTimer();
     this.ports.disconnectSSE?.({ reason });
     this.ports.stopFlushTimer?.();
+    this.ports.disposeMaterializer?.({ reason });
     this.started = false;
     this.familyFreshAt.clear();
     this.commandGenerations.clear();

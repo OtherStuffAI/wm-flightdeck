@@ -44,6 +44,7 @@ import {
 import {
   deleteWorkspaceDb,
   getMessagesByChannel,
+  getSyncState,
   getWappActivityProjection,
   openWorkspaceDb,
 } from '../src/db.js';
@@ -2793,6 +2794,35 @@ describe('PG read hydrator', () => {
       'cursor-8',
     );
     expect(calls.indexOf('cursor')).toBeLessThan(calls.indexOf('transaction:commit'));
+  });
+
+  it('rolls back bundle rows and cursor together when the atomic transaction fails', async () => {
+    const workspaceDbKey = `pg-bundle-atomic-failure-${Date.now()}`;
+    openWorkspaceDb(workspaceDbKey);
+    const target = store();
+    const cursorKey = 'tower_pg_sync_cursor:workspace-1:npub1operator-a';
+    try {
+      await expect(hydrateTowerPgSyncBundle(target, {
+        mode: 'delta',
+        next_cursor: 'cursor-must-not-commit',
+        scopes: [],
+        channels: [],
+        channel_bundles: [{
+          channel_id: 'channel-1',
+          threads: [],
+          messages: [{ id: 'message-must-roll-back', channel_id: 'channel-1', body: 'Atomic' }],
+          tasks: [], task_comments: [], docs: [], doc_comments: [], files: [], file_folders: [], audio_notes: [],
+        }],
+        tombstones: [],
+      }, {
+        beforeCursorCommit: async () => { throw new Error('synthetic transaction failure'); },
+      })).rejects.toThrow('synthetic transaction failure');
+
+      await expect(getMessagesByChannel('channel-1')).resolves.toEqual([]);
+      await expect(getSyncState(cursorKey)).resolves.toBeNull();
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
   });
 
   it('hydrates directory groups without assigning the getter-only currentWorkspaceGroups property', async () => {

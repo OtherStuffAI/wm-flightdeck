@@ -1679,6 +1679,7 @@ export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
       await (deps.reconcileTowerPgSnapshot || reconcileTowerPgSnapshot)(manifest);
       await (deps.deleteSyncState || deleteSyncState)(snapshotManifestKey);
     }
+    await deps.beforeCursorCommit?.();
     if (cursor) await (deps.setSyncState || setSyncState)(towerPgSyncCursorKey(store), cursor);
   });
 
@@ -1731,7 +1732,8 @@ export async function syncTowerPgWorkspace(store, options = {}, deps = {}) {
       hasMore: bundle?.has_more === true,
       applied: totalApplied,
     });
-    const applied = await hydrateTowerPgSyncBundle(store, bundle, deps);
+    const materializeBundle = deps.hydrateTowerPgSyncBundle || hydrateTowerPgSyncBundle;
+    const applied = await materializeBundle(store, bundle, deps);
     totalApplied += applied.applied;
     pageCount += 1;
     cursor = applied.cursor;
