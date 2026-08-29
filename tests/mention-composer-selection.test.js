@@ -49,6 +49,47 @@ describe('mention composer selection range', () => {
     expect(store.mentionActive).toBe(false);
   });
 
+  it('does not treat an inserted mention pill as a growing typeahead query while typing', async () => {
+    const store = await createStore();
+    const root = document.createElement('div');
+    root.setAttribute('contenteditable', 'true');
+    root.dataset.chatComposer = 'thread';
+    document.body.append(root);
+    hydrateMentionComposer(root, '@[Test Agent](mention:agent:npub1testagent) ');
+    store.searchMentions = vi.fn(() => []);
+    store.refreshMentionResultsFromLocalIndex = vi.fn();
+
+    const suffix = root.lastChild;
+    const sustainedInput = 'this sentence keeps growing while the user types continuously '.repeat(3);
+    for (const character of sustainedInput) {
+      suffix.nodeValue += character;
+      setCaret(suffix, suffix.nodeValue.length);
+      store.handleMentionInput(root);
+    }
+
+    expect(store.mentionActive).toBe(false);
+    expect(store.searchMentions).not.toHaveBeenCalled();
+    expect(store.refreshMentionResultsFromLocalIndex).not.toHaveBeenCalled();
+  });
+
+  it('still opens typeahead for a new editable @ query after an existing pill', async () => {
+    const store = await createStore();
+    const root = document.createElement('div');
+    root.setAttribute('contenteditable', 'true');
+    root.dataset.chatComposer = 'thread';
+    document.body.append(root);
+    hydrateMentionComposer(root, '@[Test Agent](mention:agent:npub1testagent) follow up with @Ope');
+    setCaret(root.lastChild, root.lastChild.nodeValue.length);
+    store.searchMentions = vi.fn(() => [{ type: 'person', id: 'npub1operator', label: 'Operator' }]);
+    store.refreshMentionResultsFromLocalIndex = vi.fn();
+
+    store.handleMentionInput(root);
+
+    expect(store.mentionActive).toBe(true);
+    expect(store.mentionQuery).toBe('Ope');
+    expect(store.searchMentions).toHaveBeenCalledOnce();
+  });
+
   it.each(['message', 'thread'])('preserves a long multiline %s suffix when click selection moves focus outside the composer', async (composer) => {
     const store = await createStore();
     const existing = '@[Operator A](mention:person:npub1operator-a)';

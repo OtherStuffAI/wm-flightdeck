@@ -1019,6 +1019,13 @@
       "notes": [
         "Keep a normal document save in the Saved state when its own same-version Tower update hydrates, while preserving genuine stale drafts as recoveries."
       ]
+    },
+    {
+      "buildNumber": 1856,
+      "label": "Responsive mobile mention typing",
+      "notes": [
+        "Keep thread typing responsive after inserting a mention pill by searching suggestions only for a new editable @ query."
+      ]
     }
   ]
 }

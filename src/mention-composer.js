@@ -80,6 +80,50 @@ export function composerCaretOffset(root) {
   return wrapper.textContent.length;
 }
 
+export function composerMentionQueryAtSelection(root) {
+  const selection = root?.ownerDocument?.getSelection?.();
+  if (!selection?.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !root.contains(range.endContainer)) return null;
+
+  const before = range.cloneRange();
+  before.selectNodeContents(root);
+  before.setEnd(range.endContainer, range.endOffset);
+  const fragment = before.cloneContents();
+  const prefixLength = fragment.textContent?.length || 0;
+  let trailingEditableText = '';
+  const appendTrailingText = (node) => {
+    if (node.nodeType === 3) {
+      trailingEditableText += node.nodeValue || '';
+      const newlineIndex = Math.max(
+        trailingEditableText.lastIndexOf('\n'),
+        trailingEditableText.lastIndexOf('\r'),
+      );
+      if (newlineIndex >= 0) trailingEditableText = trailingEditableText.slice(newlineIndex + 1);
+      return;
+    }
+    if (node.nodeType !== 1) {
+      for (const child of (node.childNodes || [])) appendTrailingText(child);
+      return;
+    }
+    if (tokenFor(node) || node.tagName === 'BR') {
+      trailingEditableText = '';
+      return;
+    }
+    if (node.tagName === 'DIV') trailingEditableText = '';
+    for (const child of node.childNodes) appendTrailingText(child);
+  };
+  for (const child of fragment.childNodes) appendTrailingText(child);
+
+  const atIndex = trailingEditableText.lastIndexOf('@');
+  if (atIndex < 0 || (atIndex > 0 && !/\s/.test(trailingEditableText[atIndex - 1]))) return null;
+  return {
+    query: trailingEditableText.slice(atIndex + 1),
+    start: prefixLength - (trailingEditableText.length - atIndex),
+    end: prefixLength,
+  };
+}
+
 function boundaryForOffset(root, offset) {
   let remaining = Math.max(0, offset);
   for (const node of textNodes(root)) {

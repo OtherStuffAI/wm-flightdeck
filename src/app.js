@@ -116,6 +116,7 @@ import { renderDeckCardTextToHtml, renderMarkdownToHtml } from './markdown.js';
 import {
   canonicalActorMentions,
   composerCaretOffset,
+  composerMentionQueryAtSelection,
   insertMentionAtComposerSelection,
   createMentionPill,
   hydrateMentionComposer,
@@ -8423,19 +8424,23 @@ export function initApp() {
         this.closeMentionPopover();
         return;
       }
-      const cursorPos = contentEditable ? composerCaretOffset(el) : el.selectionStart;
+      const activeQuery = contentEditable ? composerMentionQueryAtSelection(el) : null;
+      const cursorPos = contentEditable ? activeQuery?.end : el.selectionStart;
 
-      // Find the @ that starts the current mention (allow spaces in query, break on newline)
-      let atPos = -1;
-      for (let i = cursorPos - 1; i >= 0; i--) {
-        const ch = value[i];
-        if (ch === '\n' || ch === '\r') break;
-        if (ch === '@') {
-          // Only trigger if @ is at start of input or preceded by whitespace
-          if (i === 0 || /\s/.test(value[i - 1])) {
-            atPos = i;
+      // Find the @ that starts the current mention (allow spaces in query, break on newline).
+      // A rendered mention pill is a boundary, not another editable @ trigger.
+      let atPos = contentEditable ? activeQuery?.start ?? -1 : -1;
+      if (!contentEditable) {
+        for (let i = cursorPos - 1; i >= 0; i--) {
+          const ch = value[i];
+          if (ch === '\n' || ch === '\r') break;
+          if (ch === '@') {
+            // Only trigger if @ is at start of input or preceded by whitespace
+            if (i === 0 || /\s/.test(value[i - 1])) {
+              atPos = i;
+            }
+            break;
           }
-          break;
         }
       }
 
@@ -8444,7 +8449,7 @@ export function initApp() {
         return;
       }
 
-      const query = value.slice(atPos + 1, cursorPos);
+      const query = contentEditable ? activeQuery.query : value.slice(atPos + 1, cursorPos);
       const mentionOptions = {
         visibleOnly: el.dataset.workroomComposer === 'true' || el.dataset.channelVisibleMentions === 'true',
       };
