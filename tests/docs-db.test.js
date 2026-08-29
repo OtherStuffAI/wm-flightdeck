@@ -4,6 +4,7 @@ import {
   getSharedDb,
   upsertDirectory,
   upsertDocument,
+  replacePgDocumentsForChannel,
   getDirectoriesByOwner,
   getDocumentsByOwner,
   upsertAddressBookPerson,
@@ -98,5 +99,48 @@ describe('docs db operations', () => {
 
     await deleteDocumentDraft('workspace-1', 'doc-1');
     expect(await getDocumentDraft('workspace-1', 'doc-1')).toBeUndefined();
+  });
+
+  it('keeps complete same-version accepted content through sparse PG collection replacement', async () => {
+    const accepted = {
+      record_id: 'doc-pg-1',
+      owner_npub: 'npub_owner',
+      title: 'Accepted document',
+      content: 'Accepted body',
+      content_blocks: [{ id: 'block-1', raw: 'Accepted body' }],
+      editor_state: { type: 'doc', content: [] },
+      pg_backend: true,
+      pg_record_type: 'doc',
+      pg_channel_id: 'channel-1',
+      sync_status: 'synced',
+      record_state: 'active',
+      version: 5,
+      content_storage_object_id: 'object-5',
+      content_storage_status: 'remote',
+      content_sha256_hex: 'a'.repeat(64),
+      pg_canonical_version_id: 'doc-pg-1:5',
+      pg_canonical_storage_object_id: 'object-5',
+      pg_canonical_body_sha256_hex: 'a'.repeat(64),
+    };
+    await upsertDocument(accepted);
+
+    await replacePgDocumentsForChannel('channel-1', [{
+      ...accepted,
+      content_blocks: [],
+      editor_state: null,
+      content_storage_status: 'remote',
+      content_sha256_hex: null,
+      pg_canonical_body_sha256_hex: null,
+    }]);
+
+    expect(await getDocumentsByOwner('npub_owner')).toEqual([
+      expect.objectContaining({
+        content: 'Accepted body',
+        content_blocks: accepted.content_blocks,
+        editor_state: accepted.editor_state,
+        content_sha256_hex: 'a'.repeat(64),
+        pg_canonical_body_sha256_hex: 'a'.repeat(64),
+      }),
+    ]);
   });
 });

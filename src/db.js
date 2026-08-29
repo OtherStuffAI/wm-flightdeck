@@ -1,6 +1,5 @@
 import Dexie from 'dexie';
 import {
-  preferNewerDocumentRow,
   preserveHydratedDocumentContent,
 } from './document-selection.js';
 import { getSyncFamily, getSyncStateKeyForFamily } from './sync-families.js';
@@ -643,24 +642,7 @@ export async function replacePgDocumentsForChannel(channelId, documents = []) {
     const existingById = new Map(existing.map((document) => [document?.record_id, document]));
     const rows = incomingRows.map((document) => {
       const cached = existingById.get(document.record_id);
-      const newest = preferNewerDocumentRow(cached, document);
-      if (newest !== document) return newest;
-      const preservesLoadedBody = document?.pg_record_type === 'doc'
-        && cached?.content_storage_status === 'loaded'
-        && cached?.content_storage_object_id
-        && cached.content_storage_object_id === document.content_storage_object_id;
-      if (!preservesLoadedBody) return document;
-      return {
-        ...document,
-        content: cached.content,
-        content_format: cached.content_format,
-        content_blocks: cached.content_blocks,
-        editor_state: cached.editor_state,
-        editor_state_format: cached.editor_state_format,
-        editor_state_version: cached.editor_state_version,
-        content_storage_status: 'loaded',
-        content_storage_error: null,
-      };
+      return preserveHydratedDocumentContent(cached, document);
     });
     const pgDocumentIds = existing
       .filter((document) => document?.pg_backend === true && document?.pg_channel_id === channelId)

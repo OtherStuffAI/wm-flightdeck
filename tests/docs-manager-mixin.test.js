@@ -2020,6 +2020,74 @@ describe('docsManagerMixin durable recovery drafts', () => {
     expect(store.docEditorContent).toBe('Workspace two canonical body');
   });
 
+  it('restores a fresh single-client v5 draft when sparse hydration omits optional head identity', async () => {
+    const restoredModel = richDocContentModel('Fresh single-client edit');
+    await upsertDocumentDraft({
+      workspace_id: 'workspace-1',
+      document_id: 'doc-save-race',
+      title: 'Race document',
+      ...restoredModel,
+      base_available: true,
+      base_row_version: 5,
+      base_version_id: 'doc-save-race:5',
+      base_body_sha256_hex: 'b'.repeat(64),
+      base_storage_object_id: 'storage-base-5',
+      draft_status: 'dirty',
+    });
+    const { adapter, record, store } = createSyncedPgDocSaveStore({ version: 5, draftDirty: false });
+    const sparseHead = {
+      ...record,
+      version: 5,
+      content_blocks: [],
+      editor_state: null,
+      content_storage_status: 'remote',
+      content_sha256_hex: null,
+      pg_canonical_version_id: null,
+      pg_canonical_body_sha256_hex: null,
+    };
+    store.documents = [sparseHead];
+    store.docEditAccessGeneration = 6;
+    store.beginSelectedDocLeaseAcquisition = vi.fn();
+
+    await store.restoreSelectedDocDraft(sparseHead, { generation: 6 });
+
+    expect(store.docEditorContent).toBe(restoredModel.content);
+    expect(store.docEditBaseRowVersion).toBe(5);
+    expect(store.docEditDraftDirty).toBe(true);
+    expect(store.docEditConflict).toBeFalsy();
+    expect(store.docEditAccessState).not.toBe('recovery');
+    expect(adapter.setEditable).not.toHaveBeenCalledWith(true);
+  });
+
+  it('clears a restored local draft whose content already matches the canonical head', async () => {
+    const canonical = richDocContentModel('Canonical body already saved');
+    const { record, store } = createSyncedPgDocSaveStore({
+      content: canonical.content,
+      currentModel: canonical,
+      draftDirty: false,
+    });
+    await upsertDocumentDraft({
+      workspace_id: 'workspace-1',
+      document_id: record.record_id,
+      title: record.title,
+      ...canonical,
+      base_available: true,
+      base_row_version: 43,
+      base_version_id: 'doc-save-race:43',
+      base_body_sha256_hex: 'b'.repeat(64),
+      base_storage_object_id: 'storage-base-43',
+      draft_status: 'dirty',
+    });
+    store.docEditAccessGeneration = 7;
+
+    await expect(store.restoreSelectedDocDraft(record, { generation: 7 })).resolves.toBeNull();
+
+    expect(await getDocumentDraft('workspace-1', record.record_id)).toBeUndefined();
+    expect(store.docEditDraftDirty).toBe(false);
+    expect(store.docAutosaveState).toBe('saved');
+    expect(store.docEditConflict).toBeNull();
+  });
+
   it('snapshots the outgoing document draft before navigation changes selection', async () => {
     const outgoingModel = richDocContentModel('Last word before navigation');
     const { record, store } = createSyncedPgDocSaveStore({ currentModel: outgoingModel });
@@ -2298,6 +2366,42 @@ describe('docsManagerMixin canonical row normalization', () => {
     expect(store.selectedDocument).toMatchObject({ content: savedModel.content, version: 44 });
     expect(store.docEditBaseRowVersion).toBe(44);
     expect(store.observeSelectedDocAuthoritativeVersion()).toBe(false);
+  });
+
+  it('keeps an accepted N+1 base and complete model when same-version hydration is sparse', async () => {
+    const wsDb = openWorkspaceDb('npub1signedinactor');
+    await wsDb.open();
+    await Promise.all(wsDb.tables.map((table) => table.clear()));
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    updateTowerPgDocMock.mockReset();
+    const savedModel = richDocContentModel('Accepted body before sparse hydration');
+    updateTowerPgDocMock.mockResolvedValueOnce(acceptedPgDoc(44, savedModel.content));
+    const { record, store } = createSyncedPgDocSaveStore({ currentModel: savedModel });
+
+    await store.saveSelectedDocItem({ autosave: false });
+    const accepted = await getDocumentById(record.record_id);
+    await upsertDocument({
+      ...accepted,
+      content_blocks: [],
+      editor_state: null,
+      content_storage_status: 'remote',
+      content_sha256_hex: null,
+      pg_canonical_body_sha256_hex: null,
+    });
+    const reconciled = await getDocumentById(record.record_id);
+    store.documents = [reconciled];
+
+    expect(reconciled).toMatchObject({
+      version: 44,
+      content: savedModel.content,
+      content_blocks: savedModel.content_blocks,
+      editor_state: savedModel.editor_state,
+      content_sha256_hex: 'a'.repeat(64),
+      pg_canonical_body_sha256_hex: 'a'.repeat(64),
+    });
+    expect(store.docEditBaseRowVersion).toBe(44);
+    expect(store.observeSelectedDocAuthoritativeVersion()).toBe(false);
+    expect(store.docEditConflict).toBeNull();
   });
 
   it('serializes edits entered during a PATCH and saves the follow-up once against N+1', async () => {

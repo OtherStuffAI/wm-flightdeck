@@ -198,6 +198,94 @@ test('typing stays visible during delayed lease acquisition and continues in the
   expect(editing.selectionFrom).toBeGreaterThan(1);
 });
 
+test('an accepted single-client save stays saved through same-version sparse hydration', async ({ page }) => {
+  await page.goto('/');
+  await seedSelectedDocument(page, { enterEdit: false });
+  await expect(page.locator('.doc-rich-editor .ProseMirror')).toBeVisible();
+
+  const result = await page.evaluate(() => {
+    const store = window.Alpine.store('chat');
+    const initial = {
+      ...store.selectedDocument,
+      version: 5,
+      pg_backend: true,
+      pg_record_type: 'doc',
+      pg_workspace_id: 'workspace-1',
+      pg_channel_id: 'channel-1',
+      content_storage_object_id: 'storage-v5',
+      content_storage_status: 'loaded',
+      content_sha256_hex: 'b'.repeat(64),
+      pg_canonical_version_id: 'doc-rich-default:5',
+      pg_canonical_storage_object_id: 'storage-v5',
+      pg_canonical_body_sha256_hex: 'b'.repeat(64),
+    };
+    store.documents = [initial];
+    store.docRichEditorAdapter.setContent({
+      type: 'doc',
+      content: [{
+        type: 'paragraph',
+        attrs: { fdBlockId: 'saved-block' },
+        content: [{ type: 'text', text: 'Edited once by this client.' }],
+      }],
+    }, { emitUpdate: false });
+    const submitted = {
+      ...initial,
+      ...store.docRichEditorAdapter.getContentModel(),
+      content_storage_object_id: 'storage-v6',
+      content_sha256_hex: 'a'.repeat(64),
+    };
+    store.docEditBaseRecordId = initial.record_id;
+    store.docEditBaseRowVersion = 5;
+    store.docEditBaseVersionId = 'doc-rich-default:5';
+    store.docEditBaseBodySha256Hex = 'b'.repeat(64);
+    store.docEditBaseStorageObjectId = 'storage-v5';
+    store.docEditBaseAvailable = true;
+    store.docEditDraftDirty = true;
+    store.docEditAccessState = 'editing';
+
+    const accepted = store.acceptSelectedPgDocSaveCanonical({
+      ...initial,
+      version: 6,
+      content_storage_object_id: 'storage-v6',
+      content_storage_status: 'remote',
+      content_sha256_hex: 'a'.repeat(64),
+      pg_canonical_version_id: 'doc-rich-default:6',
+      pg_canonical_storage_object_id: 'storage-v6',
+      pg_canonical_body_sha256_hex: 'a'.repeat(64),
+    }, submitted);
+    store.docAutosaveState = 'saved';
+    store.applyDocuments([{
+      ...accepted,
+      content_blocks: [],
+      editor_state: null,
+      content_storage_status: 'remote',
+      content_sha256_hex: null,
+      pg_canonical_body_sha256_hex: null,
+    }]);
+    store.observeSelectedDocAuthoritativeVersion();
+
+    return {
+      baseVersion: store.docEditBaseRowVersion,
+      bodyHash: store.selectedDocument.pg_canonical_body_sha256_hex,
+      dirty: store.docEditDraftDirty,
+      autosaveState: store.docAutosaveState,
+      accessState: store.docEditAccessState,
+      conflict: store.docEditConflict,
+      contentPreserved: store.selectedDocument.content === submitted.content,
+    };
+  });
+
+  expect(result).toEqual({
+    baseVersion: 6,
+    bodyHash: 'a'.repeat(64),
+    dirty: false,
+    autosaveState: 'saved',
+    accessState: 'editing',
+    conflict: null,
+    contentPreserved: true,
+  });
+});
+
 test('rich document edit mode displays stored images while editing', async ({ page }) => {
   await page.goto('/');
 

@@ -12,7 +12,17 @@ const DOCUMENT_CONTENT_FIELDS = [
   'content_sha256_hex',
   'content_storage_status',
   'content_storage_error',
+  'pg_canonical_version_id',
+  'pg_canonical_storage_object_id',
+  'pg_canonical_body_sha256_hex',
+  'pg_canonical_size_bytes',
 ];
+
+function hasCompleteDocumentContent(document = {}) {
+  if (document.content_storage_status === 'loaded') return true;
+  if (Array.isArray(document.content_blocks) && document.content_blocks.length > 0) return true;
+  return document.editor_state?.type === 'doc';
+}
 
 function documentVersion(document = {}) {
   const version = Number(document?.version ?? document?.row_version ?? 0);
@@ -40,7 +50,7 @@ export function preserveHydratedDocumentContent(current = null, incoming = null)
   if (!current || !incoming) return incoming;
   if (String(current.record_id || '') !== String(incoming.record_id || '')) return incoming;
   if (documentVersion(current) !== documentVersion(incoming)) return incoming;
-  if (current.content_storage_status !== 'loaded' || incoming.content_storage_status === 'loaded') return incoming;
+  if (!hasCompleteDocumentContent(current) || hasCompleteDocumentContent(incoming)) return incoming;
   if (
     current.content_storage_object_id
     && incoming.content_storage_object_id

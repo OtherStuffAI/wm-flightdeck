@@ -1012,6 +1012,13 @@
       "notes": [
         "Keep typing and navigation responsive while large Tower workspace updates commit records and their sync cursor atomically in the background."
       ]
+    },
+    {
+      "buildNumber": 1854,
+      "label": "Reliable single-client document saves",
+      "notes": [
+        "Keep a normal document save in the Saved state when its own same-version Tower update hydrates, while preserving genuine stale drafts as recoveries."
+      ]
     }
   ]
 }

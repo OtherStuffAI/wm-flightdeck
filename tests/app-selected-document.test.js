@@ -126,6 +126,44 @@ describe('preserveHydratedDocumentContent', () => {
 
     expect(preserveHydratedDocumentContent(accepted, staleHydration)).toBe(accepted);
   });
+
+  it('keeps complete accepted content identity when same-version hydration is sparse', () => {
+    const accepted = {
+      record_id: 'doc-1',
+      version: 5,
+      title: 'Accepted title',
+      content: '# Accepted body',
+      content_blocks: [{ id: 'block-1', raw: '# Accepted body' }],
+      editor_state: { type: 'doc', content: [] },
+      content_storage_object_id: 'object-5',
+      content_storage_status: 'remote',
+      content_sha256_hex: 'a'.repeat(64),
+      pg_canonical_version_id: 'doc-1:5',
+      pg_canonical_storage_object_id: 'object-5',
+      pg_canonical_body_sha256_hex: 'a'.repeat(64),
+    };
+    const sparseHydration = {
+      record_id: 'doc-1',
+      version: 5,
+      title: 'Accepted title',
+      content: '# Accepted body',
+      content_blocks: [],
+      editor_state: null,
+      content_storage_object_id: 'object-5',
+      content_storage_status: 'remote',
+      content_sha256_hex: null,
+      pg_canonical_version_id: 'doc-1:5',
+      pg_canonical_storage_object_id: 'object-5',
+      pg_canonical_body_sha256_hex: null,
+    };
+
+    expect(preserveHydratedDocumentContent(accepted, sparseHydration)).toMatchObject({
+      content_blocks: accepted.content_blocks,
+      editor_state: accepted.editor_state,
+      content_sha256_hex: 'a'.repeat(64),
+      pg_canonical_body_sha256_hex: 'a'.repeat(64),
+    });
+  });
 });
 
 describe('documentLinkViewState', () => {

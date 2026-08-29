@@ -166,6 +166,34 @@ export function documentEditorBaseIdentity(item = {}) {
   };
 }
 
+function normalizedOptionalIdentity(value, { lowerCase = false } = {}) {
+  const normalized = String(value || '').trim();
+  return normalized ? (lowerCase ? normalized.toLowerCase() : normalized) : null;
+}
+
+function optionalIdentityMatches(left, right, options = {}) {
+  const normalizedLeft = normalizedOptionalIdentity(left, options);
+  const normalizedRight = normalizedOptionalIdentity(right, options);
+  return !normalizedLeft || !normalizedRight || normalizedLeft === normalizedRight;
+}
+
+export function draftBaseMatchesHead(draft = {}, head = {}) {
+  const draftRowVersion = Number(draft.base_row_version || draft.row_version || 0);
+  const headRowVersion = Number(head.base_row_version || head.row_version || 0);
+  if (draft.base_available !== true || draftRowVersion <= 0 || headRowVersion <= 0) return false;
+  if (draftRowVersion !== headRowVersion) return false;
+  return optionalIdentityMatches(draft.base_version_id || draft.version_id, head.base_version_id || head.version_id)
+    && optionalIdentityMatches(
+      draft.base_body_sha256_hex || draft.body_sha256_hex,
+      head.base_body_sha256_hex || head.body_sha256_hex,
+      { lowerCase: true },
+    )
+    && optionalIdentityMatches(
+      draft.base_storage_object_id || draft.storage_object_id,
+      head.base_storage_object_id || head.storage_object_id,
+    );
+}
+
 function decodeStoredRecoveryContent(bodyResult = {}) {
   const encoded = String(bodyResult?.body?.base64_data || '').trim();
   if (!encoded) return null;
@@ -1255,10 +1283,21 @@ export const docsManagerMixin = {
     if (this.selectedDocId !== item.record_id || draft.workspace_id !== workspaceId || draft.document_id !== item.record_id) return null;
 
     const head = documentEditorBaseIdentity(item);
-    const sameRow = Number(draft.base_row_version || 0) === Number(head.base_row_version || 0);
-    const sameHash = Boolean(draft.base_body_sha256_hex)
-      && draft.base_body_sha256_hex === head.base_body_sha256_hex;
-    const sameBase = draft.base_available === true && head.base_available === true && sameRow && sameHash;
+    const sameBase = draftBaseMatchesHead(draft, head);
+    const draftAlreadyCanonical = sameBase
+      && !draft.recovery_id
+      && isDocumentContentReadyForEditor(item)
+      && String(draft.title || item.title || 'Untitled document') === String(item.title || 'Untitled document')
+      && String(draft.content || '') === String(item.content || '');
+    if (draftAlreadyCanonical) {
+      this.docEditDraftDirty = false;
+      this.docAutosaveState = 'saved';
+      this.docEditConflict = null;
+      this.docRecovery = null;
+      this.docEditAccessMessage = '';
+      await this.clearSelectedDocDraft(item);
+      return null;
+    }
     const contentModel = {
       content: String(draft.content || ''),
       content_format: draft.content_format || null,
@@ -3622,6 +3661,10 @@ export const docsManagerMixin = {
           content_sha256_hex: contentPayload.content_sha256_hex,
           content_storage_status: 'remote',
           content_storage_error: null,
+          pg_canonical_version_id: canonicalDocVersionId(accepted),
+          pg_canonical_storage_object_id: contentPayload.content_storage_object_id,
+          pg_canonical_body_sha256_hex: contentPayload.content_sha256_hex,
+          pg_canonical_size_bytes: contentPayload.content_size_bytes,
           pg_thread_id: pgContext.threadId || accepted.pg_thread_id || null,
         };
         await upsertDocument(acceptedRow);
