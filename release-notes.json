@@ -1026,6 +1026,13 @@
       "notes": [
         "Keep thread typing responsive after inserting a mention pill by searching suggestions only for a new editable @ query."
       ]
+    },
+    {
+      "buildNumber": 1857,
+      "label": "Bounded startup recovery",
+      "notes": [
+        "Stop repeated stale-asset refreshes after one automatic recovery attempt and show a stable retry screen without clearing local workspace data."
+      ]
     }
   ]
 }

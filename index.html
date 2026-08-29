@@ -11,7 +11,73 @@
     (() => {
       const guardKey = 'flightdeck:asset-recovery-attempted';
       const recoveryParam = 'flightdeck-asset-recovery';
+      const failurePanelId = 'flightdeck-asset-recovery-failed';
+      const isRecoveryDocument = new URL(location.href).searchParams.has(recoveryParam);
       let assetFailureSeen = false;
+      const recoveryAttempted = () => {
+        try {
+          return sessionStorage.getItem(guardKey) === '1';
+        } catch {
+          return true;
+        }
+      };
+      const markRecoveryAttempted = () => {
+        try {
+          sessionStorage.setItem(guardKey, '1');
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const clearRecoveryAttempt = () => {
+        try { sessionStorage.removeItem(guardKey); } catch {}
+      };
+      const showRecoveryFailure = () => {
+        const render = () => {
+          if (!document.body || document.getElementById(failurePanelId)) return;
+          document.body.removeAttribute('x-cloak');
+          const panel = document.createElement('main');
+          panel.id = failurePanelId;
+          panel.setAttribute('role', 'alert');
+          Object.assign(panel.style, {
+            position: 'fixed',
+            inset: '0',
+            zIndex: '2147483647',
+            display: 'grid',
+            placeContent: 'center',
+            gap: '16px',
+            padding: '32px',
+            color: '#f5f7fb',
+            background: '#111827',
+            fontFamily: 'system-ui, sans-serif',
+            textAlign: 'center',
+          });
+          const title = document.createElement('h1');
+          title.textContent = 'Flight Deck could not finish loading';
+          const message = document.createElement('p');
+          message.textContent = 'A required application file is still unavailable. Your local workspace data has not been cleared.';
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.textContent = 'Retry loading';
+          Object.assign(retry.style, {
+            justifySelf: 'center',
+            padding: '12px 18px',
+            border: '0',
+            borderRadius: '8px',
+            font: 'inherit',
+            fontWeight: '700',
+            cursor: 'pointer',
+          });
+          retry.addEventListener('click', () => {
+            clearRecoveryAttempt();
+            location.reload();
+          });
+          panel.append(title, message, retry);
+          document.body.append(panel);
+        };
+        if (document.body) render();
+        else window.addEventListener('DOMContentLoaded', render, { once: true });
+      };
       const isAssetFailure = (event) => {
         const target = event?.target;
         if (target?.tagName === 'LINK') return target.rel === 'stylesheet' && /\/assets\//.test(target.href || '');
@@ -22,8 +88,10 @@
       const recoverOnce = (event) => {
         if (!isAssetFailure(event)) return;
         assetFailureSeen = true;
-        if (sessionStorage.getItem(guardKey)) return;
-        sessionStorage.setItem(guardKey, '1');
+        if (recoveryAttempted() || !markRecoveryAttempted()) {
+          showRecoveryFailure();
+          return;
+        }
         const recoveryUrl = new URL(location.href);
         recoveryUrl.searchParams.set(recoveryParam, Date.now().toString(36));
         location.replace(recoveryUrl.href);
@@ -31,12 +99,11 @@
       window.addEventListener('error', recoverOnce, true);
       window.addEventListener('unhandledrejection', recoverOnce);
       window.addEventListener('load', () => {
-        if (assetFailureSeen) return;
-        sessionStorage.removeItem(guardKey);
-        const cleanUrl = new URL(location.href);
-        if (!cleanUrl.searchParams.has(recoveryParam)) return;
-        cleanUrl.searchParams.delete(recoveryParam);
-        history.replaceState(history.state, '', `${cleanUrl.pathname}${cleanUrl.search}${cleanUrl.hash}`);
+        if (!isRecoveryDocument && !assetFailureSeen) clearRecoveryAttempt();
+        if (!isRecoveryDocument) return;
+        const recoveryUrl = new URL(location.href);
+        recoveryUrl.searchParams.delete(recoveryParam);
+        history.replaceState(history.state, '', `${recoveryUrl.pathname}${recoveryUrl.search}${recoveryUrl.hash}`);
       }, { once: true });
     })();
   </script>
