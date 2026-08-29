@@ -1033,6 +1033,13 @@
       "notes": [
         "Stop repeated stale-asset refreshes after one automatic recovery attempt and show a stable retry screen without clearing local workspace data."
       ]
+    },
+    {
+      "buildNumber": 1859,
+      "label": "Faster mobile chat drafts",
+      "notes": [
+        "Keep mobile chat typing responsive as drafts and mention pills grow by avoiding duplicate composer scans, selection cloning, repeated mention-chip work, and unnecessary layout setup."
+      ]
     }
   ]
 }

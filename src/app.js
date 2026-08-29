@@ -124,6 +124,7 @@ import {
   removeAdjacentMentionPill,
   replaceComposerTextRange,
   serializeMentionComposer,
+  serializeMentionComposerState,
 } from './mention-composer.js';
 import { createRecentActorMentionResolver } from './recent-mentions.js';
 import { resolveChannelLabel, resolveChannelParticipants } from './channel-labels.js';
@@ -366,6 +367,7 @@ function documentRecordSignature(document = {}) {
 const NUMBER_FORMATTER = new Intl.NumberFormat();
 const RECENT_ACTOR_MENTION_RESOLVERS = new WeakMap();
 const MENTION_PEOPLE_CACHE = new WeakMap();
+const MENTION_COMPOSER_MODELS = new WeakMap();
 const MENTION_DOCUMENT_INDEX_MAX_AGE_MS = 30_000;
 const PG_TASK_WRITE_QUEUE_SYNC_STATE_KEY = 'pg_task_write_queue:v1';
 const PG_TASK_WRITE_BATCH_SIZE = 6;
@@ -690,6 +692,7 @@ export function initApp() {
     recentNavigationTimings: [],
     chatPresentationCache: createChatPresentationCache(),
     messages: [],
+    messageCollectionRevision: 0,
     reactionRows: [],
     channelResponseActivities: [],
     threadResponseActivities: [],
@@ -7920,6 +7923,7 @@ export function initApp() {
           this.currentPgActorNpub,
           this.session?.npub,
           this.messages,
+          this.messageCollectionRevision,
           this.threadReplies,
           this.channels,
           this.groups,
@@ -7934,6 +7938,7 @@ export function initApp() {
         threadId: this.activeThreadId,
         currentUserNpub: this.currentPgActorNpub || this.session?.npub,
         draft,
+        draftMentions: this.selectedAgentMentionsByComposer?.[composer] || [],
         limit,
         buildMentionPeople: () => this.getMentionPeople({ visibleOnly: true }),
         resolveAvatar: (person) => this.getSenderAvatar?.(person.id),
@@ -8415,12 +8420,23 @@ export function initApp() {
       return results;
     },
 
-    handleMentionInput(el) {
+    handleMentionInput(el, event = null) {
       const contentEditable = el?.isContentEditable || el?.getAttribute?.('contenteditable') === 'true';
-      const value = contentEditable ? (el.textContent || '') : el.value;
-      // Most composer input is ordinary text. Avoid cloning and walking the
-      // current selection range on every keystroke unless a mention can exist.
-      if (!value.includes('@')) {
+      const value = contentEditable ? '' : el.value;
+      const continuingQuery = this.mentionActive && this._mentionTargetEl === el;
+      if (
+        contentEditable
+        && event
+        && !continuingQuery
+        && event.inputType === 'insertText'
+        && !String(event.data || '').includes('@')
+      ) {
+        this.closeMentionPopover();
+        return;
+      }
+      // Contenteditable detection walks only the editable DOM up to the caret;
+      // it does not clone the growing composer or cross an atomic mention pill.
+      if ((!contentEditable && !value.includes('@')) || (contentEditable && !event && !String(el.textContent || '').includes('@'))) {
         this.closeMentionPopover();
         return;
       }
@@ -8584,13 +8600,16 @@ export function initApp() {
               : composer === 'doc-comment' ? this.newDocCommentBody
                 : this.newDocCommentReplyBody;
       hydrateMentionComposer(el, value);
+      MENTION_COMPOSER_MODELS.set(el, String(value || ''));
       this.autosizeComposer(el);
     },
 
     syncMentionComposerModel(el) {
       const composer = String(el?.dataset?.chatComposer || '').trim();
       if (!['message', 'thread', 'task-description', 'task-comment', 'doc-comment', 'doc-reply'].includes(composer)) return '';
-      const value = serializeMentionComposer(el);
+      const previousValue = MENTION_COMPOSER_MODELS.get(el);
+      const { value, actorMentions: mentions } = serializeMentionComposerState(el);
+      MENTION_COMPOSER_MODELS.set(el, value);
       if (composer === 'thread') this.threadInput = value;
       else if (composer === 'message') this.messageInput = value;
       else if (composer === 'task-description' && this.editingTask) {
@@ -8599,7 +8618,6 @@ export function initApp() {
       } else if (composer === 'task-comment') this.newTaskCommentBody = value;
       else if (composer === 'doc-comment') this.newDocCommentBody = value;
       else if (composer === 'doc-reply') this.newDocCommentReplyBody = value;
-      const mentions = canonicalActorMentions(value);
       const currentMentions = this.selectedAgentMentionsByComposer?.[composer] || [];
       const mentionsChanged = mentions.length !== currentMentions.length
         || mentions.some((mention, index) => (
@@ -8613,14 +8631,23 @@ export function initApp() {
           [composer]: mentions,
         };
       }
-      this.scheduleComposerElementAutosize(el);
+      this.scheduleComposerElementAutosize(el, {
+        canShrink: previousValue != null && value !== previousValue && value.length <= previousValue.length,
+      });
       return value;
     },
 
     syncMentionComposerFromModel(el, composer, value) {
       if (!el || !['message', 'thread', 'task-description', 'task-comment', 'doc-comment', 'doc-reply'].includes(composer)) return;
-      if (serializeMentionComposer(el) === String(value || '')) return;
-      hydrateMentionComposer(el, value);
+      const normalizedValue = String(value || '');
+      const cachedValue = MENTION_COMPOSER_MODELS.get(el);
+      if (cachedValue === normalizedValue) return;
+      if (cachedValue == null && serializeMentionComposer(el) === normalizedValue) {
+        MENTION_COMPOSER_MODELS.set(el, normalizedValue);
+        return;
+      }
+      hydrateMentionComposer(el, normalizedValue);
+      MENTION_COMPOSER_MODELS.set(el, normalizedValue);
       this.autosizeComposer(el);
     },
 

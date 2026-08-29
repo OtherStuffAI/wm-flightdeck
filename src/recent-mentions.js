@@ -67,7 +67,7 @@ export function createRecentActorMentionResolver() {
   let initialized = false;
   let previousSourceReferences = [];
   let rankedPeople = [];
-  let previousDraft = null;
+  let previousDraftMentionSignature = null;
   let previousLimit = null;
   let previousResult = [];
 
@@ -77,6 +77,7 @@ export function createRecentActorMentionResolver() {
     threadId = '',
     currentUserNpub = '',
     draft = '',
+    draftMentions = null,
     limit = 8,
     buildMentionPeople = () => [],
     resolveAvatar = () => '',
@@ -93,18 +94,23 @@ export function createRecentActorMentionResolver() {
       });
       previousSourceReferences = [...sourceReferences];
       initialized = true;
-      previousDraft = null;
+      previousDraftMentionSignature = null;
       previousLimit = null;
     }
 
-    const normalizedDraft = String(draft || '');
+    const normalizedDraftMentions = Array.isArray(draftMentions)
+      ? draftMentions
+      : canonicalActorMentions(String(draft || ''));
+    const draftMentionSignature = normalizedDraftMentions
+      .map((mention) => `${String(mention?.type || '')}:${String(mention?.npub || mention?.id || '')}`)
+      .join('|');
     const normalizedLimit = Math.max(0, Number(limit) || 0);
-    if (!sourcesChanged && normalizedDraft === previousDraft && normalizedLimit === previousLimit) {
+    if (!sourcesChanged && draftMentionSignature === previousDraftMentionSignature && normalizedLimit === previousLimit) {
       return previousResult;
     }
 
     const excluded = new Set(
-      canonicalActorMentions(normalizedDraft)
+      normalizedDraftMentions
         .map((mention) => String(mention.npub || '').trim())
         .filter(Boolean),
     );
@@ -115,7 +121,7 @@ export function createRecentActorMentionResolver() {
         ...person,
         avatarUrl: resolveAvatar(person) || '',
       }));
-    previousDraft = normalizedDraft;
+    previousDraftMentionSignature = draftMentionSignature;
     previousLimit = normalizedLimit;
     return previousResult;
   };

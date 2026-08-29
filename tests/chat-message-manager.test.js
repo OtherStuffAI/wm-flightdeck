@@ -1200,7 +1200,40 @@ describe('scroll and composer methods', () => {
       expect(callbacks.has(1)).toBe(false);
       callbacks.get(2)();
       expect(store.autosizeComposer).toHaveBeenCalledTimes(1);
-      expect(store.autosizeComposer).toHaveBeenCalledWith(element);
+      expect(store.autosizeComposer).toHaveBeenCalledWith(element, { canShrink: false });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reuses composer style metrics and reads scroll height once on growing input', () => {
+    const { fn } = bindMethod('autosizeComposer');
+    let scrollHeightReads = 0;
+    const element = {
+      dataset: { chatComposer: 'thread' },
+      style: { height: '42px', overflowY: 'hidden' },
+      get scrollHeight() {
+        scrollHeightReads += 1;
+        return 42;
+      },
+    };
+    const getComputedStyle = vi.fn(() => ({
+      height: '42px',
+      lineHeight: '20px',
+      paddingTop: '8px',
+      paddingBottom: '8px',
+      borderTopWidth: '1px',
+      borderBottomWidth: '1px',
+      minHeight: '38px',
+    }));
+    vi.stubGlobal('window', { innerWidth: 390, getComputedStyle });
+
+    try {
+      fn(element, { canShrink: false });
+      fn(element, { canShrink: false });
+      expect(getComputedStyle).toHaveBeenCalledTimes(1);
+      expect(scrollHeightReads).toBe(2);
+      expect(element.style.height).toBe('42px');
     } finally {
       vi.unstubAllGlobals();
     }
@@ -1250,6 +1283,48 @@ describe('applyMessages', () => {
     expect(scheduleChatPreviewMeasurement).not.toHaveBeenCalled();
     expect(scheduleStorageImageHydration).not.toHaveBeenCalled();
     expect(refreshReactionsForVisibleTargets).not.toHaveBeenCalled();
+  });
+
+  it('patches a small stable-order live update without replacing the message collection', async () => {
+    const messages = Array.from({ length: 80 }, (_, index) => ({
+      record_id: `message-${index}`,
+      sender_npub: 'npub1a',
+      parent_message_id: index === 0 ? null : 'message-0',
+      body: `Message ${index}`,
+      updated_at: new Date(Date.UTC(2024, 0, 1, 0, 0, index)).toISOString(),
+      version: 1,
+    }));
+    const originalCollection = messages;
+    const originalUnchangedMessage = messages[20];
+    const { fn, store } = bindMethod('applyMessages', {
+      messages,
+      activeThreadId: 'message-0',
+      messageCollectionRevision: 4,
+    });
+    const next = messages.map((message, index) => index === 10
+      ? { ...message, body: 'Live update', updated_at: '2024-01-01T01:00:00Z', version: 2 }
+      : message);
+
+    await fn(next);
+
+    expect(store.messages).toBe(originalCollection);
+    expect(store.messages.find((message) => message.record_id === 'message-20')).toBe(originalUnchangedMessage);
+    expect(store.messages.find((message) => message.record_id === 'message-10')?.body).toBe('Live update');
+    expect(store.messageCollectionRevision).toBe(5);
+  });
+
+  it('replaces the message collection when live updates change its structure', async () => {
+    const messages = [{ record_id: 'm1', updated_at: '2024-01-01T00:00:00Z', version: 1 }];
+    const { fn, store } = bindMethod('applyMessages', { messages, messageCollectionRevision: 2 });
+
+    await fn([
+      messages[0],
+      { record_id: 'm2', updated_at: '2024-01-01T00:01:00Z', version: 1 },
+    ]);
+
+    expect(store.messages).not.toBe(messages);
+    expect(store.messages).toHaveLength(2);
+    expect(store.messageCollectionRevision).toBe(3);
   });
 
   it('closes thread if thread messages disappear', async () => {

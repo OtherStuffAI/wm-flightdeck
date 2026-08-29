@@ -48,7 +48,7 @@ import {
 } from './chat-get-it-done.js';
 import { buildStoredFlowKickoffScopeAssignment } from './task-flow-helpers.js';
 import { UNSCOPED_TASK_BOARD_ID } from './task-board-state.js';
-import { sameListBySignature } from './utils/state-helpers.js';
+import { defaultRecordSignature, sameListBySignature } from './utils/state-helpers.js';
 import { getRecordWriteFieldsForStore } from './preferred-write-group.js';
 import { isTowerPgBackendMode } from './backend-mode.js';
 import { DM_SCOPE_ID, buildDmChannelDescription, findExistingDmChannel } from './dm-scope.js';
@@ -94,6 +94,32 @@ const THREAD_REPLY_PREVIEW_WORD_LIMIT = 50;
 const RESPONSE_ACTIVITY_WORDS = ['Thinking', 'Implementing', 'Writing'];
 const RESPONSE_ACTIVITY_SUFFIXES = ['.', '.+', '.*', '..+', '..*', '...', '+', '*'];
 const composerAutosizeFrames = new WeakMap();
+const composerAutosizeMetrics = new WeakMap();
+const MAX_INCREMENTAL_MESSAGE_UPDATES = 12;
+
+function incrementalMessagePatch(current = [], next = []) {
+  if (!Array.isArray(current) || !Array.isArray(next) || current.length !== next.length) return null;
+  const currentById = new Map(current.map((message) => [message?.record_id, message]));
+  if (currentById.size !== current.length || next.some((message) => !currentById.has(message?.record_id))) return null;
+  const updates = [];
+  for (let index = 0; index < next.length; index += 1) {
+    if (defaultRecordSignature(currentById.get(next[index]?.record_id)) === defaultRecordSignature(next[index])) continue;
+    updates.push({ index, message: next[index] });
+    if (updates.length > MAX_INCREMENTAL_MESSAGE_UPDATES) return null;
+  }
+  const orderedIds = current.map((message) => message.record_id);
+  const moves = [];
+  for (const { message } of updates) {
+    const recordId = message.record_id;
+    const from = orderedIds.indexOf(recordId);
+    const to = next.findIndex((candidate) => candidate?.record_id === recordId);
+    if (from < 0 || to < 0 || from === to) continue;
+    orderedIds.splice(to, 0, orderedIds.splice(from, 1)[0]);
+    moves.push({ from, to });
+  }
+  if (orderedIds.some((recordId, index) => recordId !== next[index]?.record_id)) return null;
+  return { moves, updates };
+}
 
 function isVisibleResponseActivity(activity = {}, nowMs = Date.now()) {
   if (!activity?.record_id) return false;
@@ -827,48 +853,68 @@ export const chatMessageManagerMixin = {
 
   // --- composer autosize ---
 
-  autosizeComposer(textarea) {
+  autosizeComposer(textarea, options = {}) {
     if (!textarea || typeof window === 'undefined') return;
-    const styles = window.getComputedStyle(textarea);
-    const lineHeight = parseFloat(styles.lineHeight) || 20;
-    const paddingY = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
-    const borderY = (parseFloat(styles.borderTopWidth) || 0) + (parseFloat(styles.borderBottomWidth) || 0);
-    const minHeight = parseFloat(styles.minHeight) || (lineHeight + paddingY + borderY);
-    const maxHeight = (lineHeight * this.COMPOSER_MAX_LINES) + paddingY + borderY;
+    const viewportWidth = Number(window.innerWidth) || 0;
+    let metrics = composerAutosizeMetrics.get(textarea);
+    if (!metrics || metrics.viewportWidth !== viewportWidth || options.refreshMetrics === true) {
+      const styles = window.getComputedStyle(textarea);
+      const lineHeight = parseFloat(styles.lineHeight) || 20;
+      const paddingY = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
+      const borderY = (parseFloat(styles.borderTopWidth) || 0) + (parseFloat(styles.borderBottomWidth) || 0);
+      metrics = {
+        viewportWidth,
+        minHeight: parseFloat(styles.minHeight) || (lineHeight + paddingY + borderY),
+        maxHeight: (lineHeight * this.COMPOSER_MAX_LINES) + paddingY + borderY,
+        renderedHeight: parseFloat(styles.height) || 0,
+      };
+      composerAutosizeMetrics.set(textarea, metrics);
+    }
+    const { minHeight, maxHeight } = metrics;
 
     const composer = String(textarea.dataset?.chatComposer || '').trim();
     const preservesManualSize = ['task-comment', 'doc-comment', 'doc-reply'].includes(composer);
     if (preservesManualSize) {
       const scrollTop = textarea.scrollTop;
       const renderedHeight = textarea.getBoundingClientRect?.().height
-        || parseFloat(styles.height)
+        || metrics.renderedHeight
         || parseFloat(textarea.style.height)
         || 0;
+      const scrollHeight = textarea.scrollHeight;
       const nextHeight = Math.max(
-        Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight),
+        Math.min(Math.max(scrollHeight, minHeight), maxHeight),
         renderedHeight,
       );
-      textarea.style.height = `${Math.max(nextHeight, 0)}px`;
-      textarea.style.overflowY = textarea.scrollHeight > nextHeight ? 'auto' : 'hidden';
+      const height = `${Math.max(nextHeight, 0)}px`;
+      const overflowY = scrollHeight > nextHeight ? 'auto' : 'hidden';
+      if (textarea.style.height !== height) textarea.style.height = height;
+      if (textarea.style.overflowY !== overflowY) textarea.style.overflowY = overflowY;
       textarea.scrollTop = scrollTop;
       return;
     }
 
-    textarea.style.height = 'auto';
-    const nextHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
-    textarea.style.height = `${Math.max(nextHeight, 0)}px`;
-    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    if (options.canShrink !== false) textarea.style.height = 'auto';
+    const scrollHeight = textarea.scrollHeight;
+    const nextHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+    const height = `${Math.max(nextHeight, 0)}px`;
+    const overflowY = scrollHeight > maxHeight ? 'auto' : 'hidden';
+    if (textarea.style.height !== height) textarea.style.height = height;
+    if (textarea.style.overflowY !== overflowY) textarea.style.overflowY = overflowY;
   },
 
-  scheduleComposerElementAutosize(element) {
+  scheduleComposerElementAutosize(element, options = {}) {
     if (!element || typeof window === 'undefined') return;
-    const previousFrame = composerAutosizeFrames.get(element);
-    if (previousFrame != null) window.cancelAnimationFrame(previousFrame);
+    const previous = composerAutosizeFrames.get(element);
+    if (previous?.frame != null) window.cancelAnimationFrame(previous.frame);
+    const autosizeOptions = {
+      ...options,
+      canShrink: options.canShrink === true || previous?.options?.canShrink === true,
+    };
     const frame = window.requestAnimationFrame(() => {
       composerAutosizeFrames.delete(element);
-      this.autosizeComposer(element);
+      this.autosizeComposer(element, autosizeOptions);
     });
-    composerAutosizeFrames.set(element, frame);
+    composerAutosizeFrames.set(element, { frame, options: autosizeOptions });
   },
 
   scheduleComposerAutosize(context) {
@@ -965,7 +1011,19 @@ export const chatMessageManagerMixin = {
       : null;
 
     if (messagesChanged) {
-      this.messages = nextMessages;
+      const incrementalPatch = incrementalMessagePatch(this.messages, nextMessages);
+      if (incrementalPatch) {
+        for (const { from, to } of incrementalPatch.moves) {
+          const [message] = this.messages.splice(from, 1);
+          this.messages.splice(to, 0, message);
+        }
+        for (const { index, message } of incrementalPatch.updates) this.messages.splice(index, 1, message);
+        chatDerivedCache.delete(this);
+        nextMessages = this.messages;
+      } else {
+        this.messages = nextMessages;
+      }
+      this.messageCollectionRevision = Number(this.messageCollectionRevision || 0) + 1;
       const tracedMessageIds = nextMessages
         .map((message) => message.record_id)
         .filter((recordId) => this.flightDeckTimingMessageIds?.has?.(recordId));
@@ -1171,12 +1229,15 @@ export const chatMessageManagerMixin = {
     const index = this.messages.findIndex((item) => item.record_id === nextMessage.record_id);
     if (index >= 0) {
       this.messages.splice(index, 1, { ...this.messages[index], ...nextMessage });
+      chatDerivedCache.delete(this);
+      this.messageCollectionRevision = Number(this.messageCollectionRevision || 0) + 1;
       this.syncChatPreviewState();
       this.scheduleChatPreviewMeasurement();
       this.scheduleStorageImageHydration();
       return;
     }
     this.messages = sortMessagesByUpdatedAt([...this.messages, nextMessage]);
+    this.messageCollectionRevision = Number(this.messageCollectionRevision || 0) + 1;
     this.syncChatPreviewState();
     this.scheduleChatPreviewMeasurement();
     this.scheduleStorageImageHydration();

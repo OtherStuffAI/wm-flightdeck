@@ -8,6 +8,7 @@ import {
   insertPlainTextAtSelection,
   removeAdjacentMentionPill,
   serializeMentionComposer,
+  serializeMentionComposerState,
 } from '../src/mention-composer.js';
 
 const testagent = 'npub1testagent';
@@ -82,6 +83,22 @@ describe('tokenized mention composer', () => {
       document.createTextNode(' after'),
     );
     expect(serializeMentionComposer(root)).toBe(`before @[Test Agent](mention:agent:${testagent}) after`);
+  });
+
+  it('collects pill and plain canonical mentions during the serialization pass', () => {
+    const root = composer();
+    root.replaceChildren(
+      createMentionPill(document, { label: 'Test Agent', type: 'agent', npub: testagent }),
+      document.createTextNode(' and @[Operator](mention:person:npub1operator)'),
+    );
+
+    expect(serializeMentionComposerState(root)).toEqual({
+      value: `@[Test Agent](mention:agent:${testagent}) and @[Operator](mention:person:npub1operator)`,
+      actorMentions: [
+        { label: 'Test Agent', type: 'agent', npub: testagent },
+        { label: 'Operator', type: 'person', npub: 'npub1operator' },
+      ],
+    });
   });
 
   it('removes the whole pill with one adjacent backspace', () => {

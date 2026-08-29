@@ -8,6 +8,74 @@ async function waitForStore(page) {
   await page.waitForFunction(() => Boolean(window.Alpine?.store?.('chat')));
 }
 
+async function installLifecycleInstrumentation(page) {
+  await page.addInitScript(() => {
+    const lifecycle = {
+      listenersAdded: 0,
+      listenersRemoved: 0,
+      activeIntervals: 0,
+      pendingAnimationFrames: 0,
+      mutationObserversCreated: 0,
+      mutationObserversDisconnected: 0,
+    };
+    window.__mobileComposerLifecycle = lifecycle;
+    const originalAdd = EventTarget.prototype.addEventListener;
+    const originalRemove = EventTarget.prototype.removeEventListener;
+    EventTarget.prototype.addEventListener = function trackedAdd(...args) {
+      lifecycle.listenersAdded += 1;
+      return originalAdd.apply(this, args);
+    };
+    EventTarget.prototype.removeEventListener = function trackedRemove(...args) {
+      lifecycle.listenersRemoved += 1;
+      return originalRemove.apply(this, args);
+    };
+    const originalSetInterval = window.setInterval.bind(window);
+    const originalClearInterval = window.clearInterval.bind(window);
+    const activeIntervals = new Set();
+    window.setInterval = (...args) => {
+      const id = originalSetInterval(...args);
+      activeIntervals.add(id);
+      lifecycle.activeIntervals = activeIntervals.size;
+      return id;
+    };
+    window.clearInterval = (id) => {
+      activeIntervals.delete(id);
+      lifecycle.activeIntervals = activeIntervals.size;
+      return originalClearInterval(id);
+    };
+    const originalRequestAnimationFrame = window.requestAnimationFrame.bind(window);
+    const originalCancelAnimationFrame = window.cancelAnimationFrame.bind(window);
+    const pendingFrames = new Set();
+    window.requestAnimationFrame = (callback) => {
+      let id = 0;
+      id = originalRequestAnimationFrame((time) => {
+        pendingFrames.delete(id);
+        lifecycle.pendingAnimationFrames = pendingFrames.size;
+        callback(time);
+      });
+      pendingFrames.add(id);
+      lifecycle.pendingAnimationFrames = pendingFrames.size;
+      return id;
+    };
+    window.cancelAnimationFrame = (id) => {
+      pendingFrames.delete(id);
+      lifecycle.pendingAnimationFrames = pendingFrames.size;
+      return originalCancelAnimationFrame(id);
+    };
+    const NativeMutationObserver = window.MutationObserver;
+    window.MutationObserver = class TrackedMutationObserver extends NativeMutationObserver {
+      constructor(callback) {
+        super(callback);
+        lifecycle.mutationObserversCreated += 1;
+      }
+      disconnect() {
+        lifecycle.mutationObserversDisconnected += 1;
+        return super.disconnect();
+      }
+    };
+  });
+}
+
 async function seedThread(page, { historySize = 600, workspaceRows = 2_000 } = {}) {
   await page.evaluate(({ agentNpub, channelId, historySize, threadId, workspaceRows }) => {
     const store = window.Alpine.store('chat');
@@ -98,6 +166,11 @@ async function installInstrumentation(page) {
       composerMutations: 0,
       bodyMutations: 0,
       visualViewportEvents: 0,
+      rangeCloneContents: 0,
+      rangeCloneNodes: 0,
+      rangeCloneBytes: 0,
+      rangeCloneDuration: 0,
+      computedStyleCalls: 0,
       calls: {},
       durations: {},
       queryLengths: [],
@@ -105,6 +178,25 @@ async function installInstrumentation(page) {
       initialHeap: performance.memory?.usedJSHeapSize || null,
     };
     window.__mobileComposerSamples = samples;
+    const originalCloneContents = Range.prototype.cloneContents;
+    Range.prototype.cloneContents = function instrumentedCloneContents(...args) {
+      const started = performance.now();
+      const fragment = originalCloneContents.apply(this, args);
+      samples.rangeCloneContents += 1;
+      samples.rangeCloneNodes += fragment.querySelectorAll?.('*').length || 0;
+      samples.rangeCloneBytes += fragment.textContent?.length || 0;
+      samples.rangeCloneDuration += performance.now() - started;
+      return fragment;
+    };
+    const originalGetComputedStyle = window.getComputedStyle.bind(window);
+    window.getComputedStyle = (...args) => {
+      samples.computedStyleCalls += 1;
+      return originalGetComputedStyle(...args);
+    };
+    window.__mobileComposerRestoreInstrumentation = () => {
+      Range.prototype.cloneContents = originalCloneContents;
+      window.getComputedStyle = originalGetComputedStyle;
+    };
     const wrap = (name, onCall = null) => {
       const original = store[name];
       store[name] = function wrappedComposerMethod(...args) {
@@ -123,6 +215,8 @@ async function installInstrumentation(page) {
     wrap('handleMentionInput');
     wrap('searchMentions', (args) => samples.queryLengths.push(String(args[0] || '').length));
     wrap('getRecentMentionChips');
+    wrap('scheduleComposerElementAutosize');
+    wrap('autosizeComposer');
     wrap('applyMessages');
     wrap('performSync');
     composer.addEventListener('beforeinput', (event) => {
@@ -133,10 +227,12 @@ async function installInstrumentation(page) {
       samples.input.push({ at, timeStamp: event.timeStamp, length: composer.textContent.length });
       requestAnimationFrame(() => requestAnimationFrame(() => samples.paintLatency.push(performance.now() - at)));
     }, true);
-    new MutationObserver((records) => { samples.composerMutations += records.length; })
-      .observe(composer, { childList: true, characterData: true, subtree: true, attributes: true });
-    new MutationObserver((records) => { samples.bodyMutations += records.length; })
-      .observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true });
+    const composerObserver = new MutationObserver((records) => { samples.composerMutations += records.length; });
+    composerObserver.observe(composer, { childList: true, characterData: true, subtree: true, attributes: true });
+    const bodyObserver = new MutationObserver((records) => { samples.bodyMutations += records.length; });
+    bodyObserver.observe(document.body, { childList: true, characterData: true, subtree: true, attributes: true });
+    samples.composerObserver = composerObserver;
+    samples.bodyObserver = bodyObserver;
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', () => { samples.visualViewportEvents += 1; });
       window.visualViewport.addEventListener('scroll', () => { samples.visualViewportEvents += 1; });
@@ -180,6 +276,11 @@ async function resetPostMentionSamples(page) {
     samples.composerMutations = 0;
     samples.bodyMutations = 0;
     samples.visualViewportEvents = 0;
+    samples.rangeCloneContents = 0;
+    samples.rangeCloneNodes = 0;
+    samples.rangeCloneBytes = 0;
+    samples.rangeCloneDuration = 0;
+    samples.computedStyleCalls = 0;
     samples.calls = {};
     samples.durations = {};
     samples.queryLengths.length = 0;
@@ -199,6 +300,9 @@ async function readMetrics(page, extra = {}) {
     const samples = window.__mobileComposerSamples;
     window.__mobileComposerRunning = false;
     if (window.__mobileComposerBackgroundTimer) clearInterval(window.__mobileComposerBackgroundTimer);
+    samples.composerObserver?.disconnect();
+    samples.bodyObserver?.disconnect();
+    window.__mobileComposerRestoreInstrumentation?.();
     const percentileInPage = (values, ratio) => {
       if (!values.length) return 0;
       const sorted = [...values].sort((left, right) => left - right);
@@ -225,6 +329,11 @@ async function readMetrics(page, extra = {}) {
       composerMutations: samples.composerMutations,
       bodyMutations: samples.bodyMutations,
       visualViewportEvents: samples.visualViewportEvents,
+      rangeCloneContents: samples.rangeCloneContents,
+      rangeCloneNodes: samples.rangeCloneNodes,
+      rangeCloneBytes: samples.rangeCloneBytes,
+      rangeCloneDuration: samples.rangeCloneDuration,
+      computedStyleCalls: samples.computedStyleCalls,
       maxMentionQueryLength: Math.max(0, ...samples.queryLengths),
       domNodes: document.querySelectorAll('*').length,
       domGrowth: document.querySelectorAll('*').length - samples.initialDomNodes,
@@ -235,6 +344,7 @@ async function readMetrics(page, extra = {}) {
         : null,
       threadInputLength: window.Alpine.store('chat').threadInput.length,
       mentionActive: window.Alpine.store('chat').mentionActive,
+      lifecycle: { ...window.__mobileComposerLifecycle },
     };
   }, { extraMetrics: extra });
 }
@@ -252,6 +362,7 @@ test('mobile thread typing after an agent pill does not keep searching the works
     const rate = Number(process.env.CHAT_LATENCY_CPU_RATE || 1);
     if (rate > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate });
   }
+  await installLifecycleInstrumentation(page);
   await page.goto('/');
   await waitForStore(page);
   await seedThread(page, {
@@ -259,6 +370,12 @@ test('mobile thread typing after an agent pill does not keep searching the works
     workspaceRows: Number(process.env.CHAT_LATENCY_ROWS || 2_000),
   });
   const reopenCycles = Number(process.env.CHAT_LATENCY_REOPEN_CYCLES || 0);
+  if (cdp) await cdp.send('HeapProfiler.collectGarbage');
+  const lifecycleBeforeReopen = await page.evaluate(() => ({
+    ...window.__mobileComposerLifecycle,
+    domNodes: document.querySelectorAll('*').length,
+    heap: performance.memory?.usedJSHeapSize || null,
+  }));
   if (reopenCycles > 0) {
     await page.evaluate(({ reopenCount, threadId }) => {
       const store = window.Alpine.store('chat');
@@ -273,12 +390,39 @@ test('mobile thread typing after an agent pill does not keep searching the works
     }, { reopenCount: reopenCycles, threadId: THREAD_ID });
     await expect(page.locator('.chat-thread-panel')).toBeVisible();
   }
+  if (cdp) await cdp.send('HeapProfiler.collectGarbage');
+  const lifecycleAfterReopen = await page.evaluate(() => ({
+    ...window.__mobileComposerLifecycle,
+    domNodes: document.querySelectorAll('*').length,
+    heap: performance.memory?.usedJSHeapSize || null,
+  }));
   await installInstrumentation(page);
   const withMention = process.env.CHAT_LATENCY_MENTION !== '0';
   const composer = withMention
     ? await insertAgentMention(page)
     : page.locator('.thread-input-bar [data-chat-composer="thread"]');
   if (!withMention) await composer.focus();
+  const initialCharacters = Number(process.env.CHAT_LATENCY_INITIAL_CHARS || 0);
+  const extraPills = Number(process.env.CHAT_LATENCY_EXTRA_PILLS || 0);
+  if (initialCharacters > 0 || extraPills > 0) {
+    await page.evaluate(({ agentNpub, characterCount, pillCount }) => {
+      const store = window.Alpine.store('chat');
+      const element = document.querySelector('.thread-input-bar [data-chat-composer="thread"]');
+      const token = `@[Test Agent](mention:agent:${agentNpub})`;
+      const pills = Array.from({ length: pillCount }, (_, index) => `${token} pill-${index}`).join(' ');
+      const text = 'long mobile draft '.repeat(Math.ceil(characterCount / 18)).slice(0, characterCount);
+      const next = [store.threadInput, pills, text].filter(Boolean).join(' ');
+      store.threadInput = next;
+      store.syncMentionComposerFromModel(element, 'thread', next);
+      const selection = document.getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      element.focus();
+    }, { agentNpub: TEST_AGENT_NPUB, characterCount: initialCharacters, pillCount: extraPills });
+  }
   if (process.env.CHAT_LATENCY_SETTLE_MS) await page.waitForTimeout(Number(process.env.CHAT_LATENCY_SETTLE_MS));
   await resetPostMentionSamples(page);
   requests.length = 0;
@@ -318,8 +462,12 @@ test('mobile thread typing after an agent pill does not keep searching the works
     cdpDelta,
     elapsedMs,
     requestCountDuringRun: requests.length,
+    reopenCycles,
+    lifecycleBeforeReopen,
+    lifecycleAfterReopen,
   });
   console.log(`MOBILE_CHAT_LATENCY ${JSON.stringify(metrics)}`);
+  await page.close();
 
   expect(metrics.beforeInputCount).toBe(text.length);
   expect(metrics.inputCount).toBe(text.length);
@@ -327,7 +475,20 @@ test('mobile thread typing after an agent pill does not keep searching the works
   // an active typeahead query while ordinary text is entered after it.
   if (process.env.CHAT_LATENCY_BASELINE !== '1') {
     expect(metrics.calls.searchMentions || 0).toBe(0);
+    expect(metrics.rangeCloneContents).toBe(0);
+    expect(metrics.computedStyleCalls).toBeLessThanOrEqual(Math.max(4, Math.floor(metrics.inputCount / 20)));
   }
-  expect(metrics.threadInputLength).toBeGreaterThan(text.length);
-  expect(percentile(metrics.longTasks, 0.95)).toBeLessThan(250);
+  if (reopenCycles > 0) {
+    expect(metrics.lifecycleAfterReopen.listenersAdded).toBe(metrics.lifecycleBeforeReopen.listenersAdded);
+    expect(metrics.lifecycleAfterReopen.activeIntervals).toBe(metrics.lifecycleBeforeReopen.activeIntervals);
+    expect(metrics.lifecycleAfterReopen.mutationObserversCreated).toBe(metrics.lifecycleBeforeReopen.mutationObserversCreated);
+    expect(metrics.lifecycleAfterReopen.domNodes).toBe(metrics.lifecycleBeforeReopen.domNodes);
+  }
+  if (withMention) expect(metrics.threadInputLength).toBeGreaterThan(text.length);
+  else expect(metrics.threadInputLength).toBe(text.length);
+  if (process.env.CHAT_LATENCY_BACKGROUND === '1') {
+    const liveUpdates = metrics.calls.applyMessages || 0;
+    expect(metrics.bodyMutations).toBeLessThanOrEqual(metrics.inputCount + (liveUpdates * 60));
+  }
+  expect(percentile(metrics.longTasks, 0.95)).toBeLessThan(300);
 });

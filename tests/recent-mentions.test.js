@@ -106,4 +106,30 @@ describe('rankRecentActorMentions', () => {
     expect(withMention.map((person) => person.id)).toEqual(['bob', 'alice']);
     expect(buildMentionPeople).toHaveBeenCalledTimes(1);
   });
+
+  it('reuses the rendered chip list while ordinary text changes but selected mentions do not', () => {
+    const buildMentionPeople = vi.fn(() => people);
+    const resolveAvatar = vi.fn((person) => `avatar:${person.id}`);
+    const messages = [message('latest', ['alice', 'bob', 'testagent'], '2026-07-24T03:00:00Z')];
+    const sourceReferences = [messages, people];
+    const resolve = createRecentActorMentionResolver();
+    let previous = null;
+
+    for (let index = 0; index < 100; index += 1) {
+      const result = resolve({
+        sourceReferences,
+        messages,
+        buildMentionPeople,
+        resolveAvatar,
+        draft: `ordinary typing ${index}`,
+        draftMentions: [],
+        limit: 3,
+      });
+      if (previous) expect(result).toBe(previous);
+      previous = result;
+    }
+
+    expect(buildMentionPeople).toHaveBeenCalledTimes(1);
+    expect(resolveAvatar).toHaveBeenCalledTimes(3);
+  });
 });

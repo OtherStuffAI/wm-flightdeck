@@ -33,17 +33,35 @@ export function createMentionPill(doc, mention) {
   return pill;
 }
 
-export function serializeMentionComposer(root) {
+export function serializeMentionComposerState(root) {
+  const actorMentions = [];
   const serialize = (node) => {
-    if (node.nodeType === 3) return node.nodeValue || '';
+    if (node.nodeType === 3) {
+      const value = node.nodeValue || '';
+      actorMentions.push(...canonicalActorMentions(value));
+      return value;
+    }
     const token = tokenFor(node);
-    if (token) return token;
+    if (token) {
+      const type = String(node.dataset?.mentionType || '').trim();
+      const npub = String(node.dataset?.mentionNpub || '').trim();
+      const label = String(node.dataset?.mentionLabel || '').trim();
+      if (['agent', 'person'].includes(type) && npub) actorMentions.push({ label, type, npub });
+      return token;
+    }
     if (node.nodeType !== 1) return '';
     if (node.tagName === 'BR') return '\n';
     const value = [...node.childNodes].map(serialize).join('');
     return node !== root && node.tagName === 'DIV' ? `${value}\n` : value;
   };
-  return [...(root?.childNodes || [])].map(serialize).join('').replace(/\n$/, '');
+  return {
+    value: [...(root?.childNodes || [])].map(serialize).join('').replace(/\n$/, ''),
+    actorMentions,
+  };
+}
+
+export function serializeMentionComposer(root) {
+  return serializeMentionComposerState(root).value;
 }
 
 export function hydrateMentionComposer(root, value = '') {
@@ -86,34 +104,63 @@ export function composerMentionQueryAtSelection(root) {
   const range = selection.getRangeAt(0);
   if (!range.collapsed || !root.contains(range.endContainer)) return null;
 
-  const before = range.cloneRange();
-  before.selectNodeContents(root);
-  before.setEnd(range.endContainer, range.endOffset);
-  const fragment = before.cloneContents();
-  const prefixLength = fragment.textContent?.length || 0;
+  let prefixLength = 0;
   let trailingEditableText = '';
-  const appendTrailingText = (node) => {
+  const appendText = (value) => {
+    trailingEditableText += value;
+    const newlineIndex = Math.max(
+      trailingEditableText.lastIndexOf('\n'),
+      trailingEditableText.lastIndexOf('\r'),
+    );
+    if (newlineIndex >= 0) trailingEditableText = trailingEditableText.slice(newlineIndex + 1);
+  };
+  const visitBeforeCaret = (node) => {
+    if (node === range.endContainer) {
+      if (node.nodeType === 3) {
+        const value = (node.nodeValue || '').slice(0, range.endOffset);
+        prefixLength += value.length;
+        appendText(value);
+      } else {
+        for (let index = 0; index < Math.min(range.endOffset, node.childNodes?.length || 0); index += 1) {
+          visitWholeNode(node.childNodes[index]);
+        }
+      }
+      return true;
+    }
     if (node.nodeType === 3) {
-      trailingEditableText += node.nodeValue || '';
-      const newlineIndex = Math.max(
-        trailingEditableText.lastIndexOf('\n'),
-        trailingEditableText.lastIndexOf('\r'),
-      );
-      if (newlineIndex >= 0) trailingEditableText = trailingEditableText.slice(newlineIndex + 1);
+      visitWholeNode(node);
+      return false;
+    }
+    if (node.nodeType === 1 && (tokenFor(node) || node.tagName === 'BR')) {
+      visitWholeNode(node);
+      return false;
+    }
+    if (node.nodeType === 1 && node !== root && node.tagName === 'DIV') trailingEditableText = '';
+    for (const child of (node.childNodes || [])) {
+      if (visitBeforeCaret(child)) return true;
+    }
+    return false;
+  };
+  function visitWholeNode(node) {
+    if (node.nodeType === 3) {
+      const value = node.nodeValue || '';
+      prefixLength += value.length;
+      appendText(value);
       return;
     }
     if (node.nodeType !== 1) {
-      for (const child of (node.childNodes || [])) appendTrailingText(child);
+      for (const child of (node.childNodes || [])) visitWholeNode(child);
       return;
     }
     if (tokenFor(node) || node.tagName === 'BR') {
+      prefixLength += node.textContent?.length || 0;
       trailingEditableText = '';
       return;
     }
     if (node.tagName === 'DIV') trailingEditableText = '';
-    for (const child of node.childNodes) appendTrailingText(child);
-  };
-  for (const child of fragment.childNodes) appendTrailingText(child);
+    for (const child of node.childNodes) visitWholeNode(child);
+  }
+  if (!visitBeforeCaret(root)) return null;
 
   const atIndex = trailingEditableText.lastIndexOf('@');
   if (atIndex < 0 || (atIndex > 0 && !/\s/.test(trailingEditableText[atIndex - 1]))) return null;

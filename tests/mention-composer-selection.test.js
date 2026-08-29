@@ -43,7 +43,7 @@ describe('mention composer selection range', () => {
     const selection = document.getSelection();
     const getRangeAt = vi.spyOn(selection, 'getRangeAt');
 
-    store.handleMentionInput(root);
+    store.handleMentionInput(root, { inputType: 'insertText', data: 'g' });
 
     expect(getRangeAt).not.toHaveBeenCalled();
     expect(store.mentionActive).toBe(false);
@@ -58,18 +58,74 @@ describe('mention composer selection range', () => {
     hydrateMentionComposer(root, '@[Test Agent](mention:agent:npub1testagent) ');
     store.searchMentions = vi.fn(() => []);
     store.refreshMentionResultsFromLocalIndex = vi.fn();
+    const cloneContents = vi.spyOn(Range.prototype, 'cloneContents');
 
     const suffix = root.lastChild;
     const sustainedInput = 'this sentence keeps growing while the user types continuously '.repeat(3);
     for (const character of sustainedInput) {
       suffix.nodeValue += character;
       setCaret(suffix, suffix.nodeValue.length);
-      store.handleMentionInput(root);
+      store.handleMentionInput(root, { inputType: 'insertText', data: character });
     }
 
     expect(store.mentionActive).toBe(false);
     expect(store.searchMentions).not.toHaveBeenCalled();
     expect(store.refreshMentionResultsFromLocalIndex).not.toHaveBeenCalled();
+    expect(cloneContents).not.toHaveBeenCalled();
+    cloneContents.mockRestore();
+  });
+
+  it('keeps an active editable mention query during IME composition input', async () => {
+    const store = await createStore();
+    const root = document.createElement('div');
+    root.setAttribute('contenteditable', 'true');
+    root.dataset.chatComposer = 'thread';
+    root.textContent = '@テ';
+    document.body.append(root);
+    setCaret(root.firstChild, root.firstChild.nodeValue.length);
+    store.searchMentions = vi.fn(() => []);
+    store.refreshMentionResultsFromLocalIndex = vi.fn();
+
+    store.handleMentionInput(root, {
+      inputType: 'insertCompositionText',
+      data: 'テ',
+      isComposing: true,
+    });
+
+    expect(store.mentionActive).toBe(true);
+    expect(store.mentionQuery).toBe('テ');
+    expect(store.searchMentions).toHaveBeenCalledWith('テ', { visibleOnly: false });
+  });
+
+  it('serializes native input once when the Alpine model watcher observes the same value', async () => {
+    const store = await createStore();
+    const root = document.createElement('div');
+    root.setAttribute('contenteditable', 'true');
+    root.dataset.chatComposer = 'thread';
+    document.body.append(root);
+    store.threadInput = 'draft';
+    store.autosizeComposer = vi.fn();
+    store.scheduleComposerElementAutosize = vi.fn();
+    store.initMentionComposer(root, 'thread');
+    const text = root.firstChild;
+    let nodeValueReads = 0;
+    let value = 'draft plus input';
+    Object.defineProperty(text, 'nodeValue', {
+      configurable: true,
+      get() {
+        nodeValueReads += 1;
+        return value;
+      },
+      set(next) {
+        value = next;
+      },
+    });
+
+    store.syncMentionComposerModel(root);
+    store.syncMentionComposerFromModel(root, 'thread', store.threadInput);
+
+    expect(store.threadInput).toBe('draft plus input');
+    expect(nodeValueReads).toBe(1);
   });
 
   it('still opens typeahead for a new editable @ query after an existing pill', async () => {
