@@ -44,6 +44,7 @@ import {
   isTaskActivityAuthoredByViewer,
   latestTaskActivity,
 } from './task-attention-actor.js';
+import { matchesTaskBoardScope } from './task-board-scopes.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -135,6 +136,78 @@ export function collectUnreadViewResources(states = [], resourceTypes = []) {
       resource_id: String(state.resource_id).trim(),
       activity_version: Math.max(0, Number(state.activity_version || 0)),
     }));
+}
+
+function recordScopeId(row = {}) {
+  return String(
+    row?.scope_id
+    || row?.scope_l5_id
+    || row?.scope_l4_id
+    || row?.scope_l3_id
+    || row?.scope_l2_id
+    || row?.scope_l1_id
+    || '',
+  ).trim();
+}
+
+function recordChannelId(row = {}) {
+  return String(row?.channel_id || row?.pg_channel_id || '').trim();
+}
+
+function findInboxResourceRow(state, context = {}) {
+  const type = String(state?.resource_type || '').trim();
+  const id = String(state?.resource_id || '').trim();
+  if (!id) return null;
+  if (type === 'task') {
+    return (context.tasks || []).find((row) => String(row?.record_id || '').trim() === id) || null;
+  }
+  if (type === 'document') {
+    return (context.documents || []).find((row) => String(row?.record_id || '').trim() === id) || null;
+  }
+  if (type === 'thread') {
+    return (context.messages || []).find((row) => (
+      String(row?.pg_thread_id || '').trim() === id
+      || String(row?.parent_message_id || '').trim() === id
+      || String(row?.record_id || '').trim() === id
+    )) || null;
+  }
+  return null;
+}
+
+function inboxResourceMatchesScope(state, selectedScope, context = {}) {
+  if (!selectedScope?.record_id) return true;
+  const scopesMap = context.scopesMap instanceof Map ? context.scopesMap : new Map();
+  const resource = findInboxResourceRow(state, context);
+  const resourceScopeId = recordScopeId(resource);
+  if (resourceScopeId) {
+    return matchesTaskBoardScope(resource, selectedScope, scopesMap, { includeDescendants: true });
+  }
+
+  const stateScopeId = recordScopeId(state);
+  if (stateScopeId) {
+    return matchesTaskBoardScope(state, selectedScope, scopesMap, { includeDescendants: true });
+  }
+
+  const channelId = recordChannelId(resource) || recordChannelId(state);
+  if (!channelId) return false;
+  const channel = (context.channels || []).find((row) => String(row?.record_id || '').trim() === channelId);
+  return Boolean(channel && matchesTaskBoardScope(channel, selectedScope, scopesMap, { includeDescendants: true }));
+}
+
+export function collectScopeUnreadViewResources(states = [], resourceTypes = [], context = {}) {
+  const selectedScopeId = String(context.selectedScopeId || '').trim();
+  if (!selectedScopeId) return collectUnreadViewResources(states, resourceTypes);
+  const scopesMap = context.scopesMap instanceof Map ? context.scopesMap : new Map();
+  const selectedScope = scopesMap.get(selectedScopeId) || null;
+  if (!selectedScope) return [];
+  return collectUnreadViewResources(states, resourceTypes)
+    .filter((resource) => {
+      const state = (Array.isArray(states) ? states : []).find((row) => (
+        String(row?.resource_type || '').trim() === resource.resource_type
+        && String(row?.resource_id || '').trim() === resource.resource_id
+      ));
+      return inboxResourceMatchesScope(state, selectedScope, { ...context, scopesMap });
+    });
 }
 
 export function chunkResourceViewStateWrites(resources = [], limit = TOWER_RESOURCE_VIEW_STATE_BULK_LIMIT) {
@@ -726,7 +799,14 @@ export const unreadStoreMixin = {
     const markResources = this.markTowerPgResourcesViewed || markTowerPgResourcesViewed;
     const refreshStates = this.refreshTowerPgResourceViewStates?.bind(this);
     const states = await readStates();
-    const resources = collectUnreadViewResources(states, types);
+    const resources = collectScopeUnreadViewResources(states, types, {
+      selectedScopeId: this.pgContextScopeId,
+      scopesMap: this.scopesMap,
+      channels: this.channels,
+      messages: this.messages,
+      tasks: this.tasks,
+      documents: this.documents,
+    });
     if (resources.length === 0) {
       this.applyTowerPgResourceViewStates(states);
       return { ok: true, count: 0, empty: true };

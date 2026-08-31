@@ -1055,6 +1055,13 @@
       "notes": [
         "Keep chat typing responsive while a large workspace catches up by avoiding repeated sidebar projection when synced scopes and channels have not changed."
       ]
+    },
+    {
+      "buildNumber": 1863,
+      "label": "Scope-aware Inbox read shortcuts",
+      "notes": [
+        "Keep Inbox bulk-read shortcuts within the visible scope and its descendants, while preserving workspace-wide marking from All scopes."
+      ]
     }
   ]
 }
