@@ -1,3 +1,0 @@
-Deprecated compatibility file.
-
-Use `/llms.txt` instead. The supported Agent Connect package is Postgres-only.
