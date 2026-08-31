@@ -311,7 +311,9 @@ export function buildAttentionFeed(input = {}) {
     if (isTerminalTaskState(state)) continue;
     if (viewerNpub && assigneeNpubs.includes(viewerNpub)) {
       pushUnique(groups, seen, buildTaskItem(task, 'needs_you', {
-        reason: state === 'review' ? 'Ready for your review' : 'Assigned to you',
+        reason: state === 'blocked'
+          ? 'Blocked and needs attention'
+          : state === 'review' ? 'Ready for your review' : 'Assigned to you',
         severity: state === 'blocked' || state === 'review' ? 'high' : 'medium',
       }));
       continue;
@@ -325,7 +327,9 @@ export function buildAttentionFeed(input = {}) {
     }
     if (agentNpub && assigneeNpubs.includes(agentNpub) && ACTIVE_TASK_STATES.has(state)) {
       pushUnique(groups, seen, buildTaskItem(task, 'agent_updates', {
-        reason: state === 'review' ? 'Agent work in review' : 'Agent work active',
+        reason: state === 'blocked'
+          ? 'Agent work blocked'
+          : state === 'review' ? 'Agent work in review' : 'Agent work active',
         severity: state === 'blocked' ? 'high' : 'normal',
       }));
     }

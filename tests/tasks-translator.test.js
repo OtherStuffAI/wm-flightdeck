@@ -263,6 +263,14 @@ describe('task helpers', () => {
       ];
       expect(computeParentState(subtasks)).toBe('new');
     });
+
+    it('derives blocked when it is the earliest remaining subtask state', () => {
+      expect(computeParentState([
+        { state: 'blocked' },
+        { state: 'review' },
+        { state: 'done' },
+      ])).toBe('blocked');
+    });
   });
 
   describe('stateColor', () => {
@@ -272,6 +280,7 @@ describe('task helpers', () => {
       expect(stateColor('ready')).toBe('#f87171');
       expect(stateColor('in_progress')).toBe('#fb923c');
       expect(stateColor('in progress')).toBe('#fb923c');
+      expect(stateColor('blocked')).toBe('#c026d3');
       expect(stateColor('review')).toBe('#34d399');
       expect(stateColor('done')).toBe('#60a5fa');
       expect(stateColor('archive')).toBe('#60a5fa');
@@ -289,7 +298,12 @@ describe('task helpers', () => {
 
     it('capitalizes simple states', () => {
       expect(formatStateLabel('new')).toBe('New');
+      expect(formatStateLabel('blocked')).toBe('Blocked');
       expect(formatStateLabel('done')).toBe('Done');
+    });
+
+    it('renders unknown historical states as readable labels', () => {
+      expect(formatStateLabel('waiting_external')).toBe('Waiting External');
     });
   });
 

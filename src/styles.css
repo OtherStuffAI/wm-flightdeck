@@ -16296,6 +16296,22 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   border-color: var(--accent);
 }
 
+.task-state-filter {
+  height: 32px;
+  min-width: 8.25rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.8rem;
+}
+
+.task-state-filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .task-sort-control {
   display: inline-flex;
   align-items: center;

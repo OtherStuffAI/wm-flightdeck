@@ -11,6 +11,7 @@ import {
   stateColor,
   formatStateLabel,
   parseTags as parseTaskTags,
+  TASK_BOARD_STATES,
 } from './translators/tasks.js';
 import {
   resolveScopeChain,
@@ -513,6 +514,7 @@ function getTaskBoardDerived(store) {
     && previous.showBoardDescendantTasks === store?.showBoardDescendantTasks
     && previous.taskFilter === store?.taskFilter
     && previous.taskFilterTags === taskFilterTags
+    && previous.taskFilterState === store?.taskFilterState
     && previous.taskFilterAssignee === store?.taskFilterAssignee
     && previous.taskSortMode === normalizeTaskSortMode(store?.taskSortMode)) {
     return previous.value;
@@ -534,6 +536,7 @@ function getTaskBoardDerived(store) {
     store?.taskFilter,
     taskFilterTags,
     store?.taskFilterAssignee,
+    store?.taskFilterState,
   );
   const activeTasks = filteredTasks.filter((task) =>
     task.state !== 'done' && task.state !== 'archive' && !graph.parentIds.has(task.record_id)
@@ -590,6 +593,7 @@ function getTaskBoardDerived(store) {
     showBoardDescendantTasks: store?.showBoardDescendantTasks,
     taskFilter: store?.taskFilter,
     taskFilterTags,
+    taskFilterState: store?.taskFilterState,
     taskFilterAssignee: store?.taskFilterAssignee,
     taskSortMode: normalizeTaskSortMode(store?.taskSortMode),
     value,
@@ -864,7 +868,7 @@ export function computeBoardScopedTasks(tasks, selectedBoardId, selectedBoardSco
   }));
 }
 
-export function computeFilteredTasks(boardScopedTasks, query, filterTags, assigneeNpub) {
+export function computeFilteredTasks(boardScopedTasks, query, filterTags, assigneeNpub, stateFilter = '') {
   let tasks = boardScopedTasks;
 
   const q = String(query || '').trim().toLowerCase();
@@ -883,6 +887,10 @@ export function computeFilteredTasks(boardScopedTasks, query, filterTags, assign
   }
   if (assigneeNpub) {
     tasks = tasks.filter(t => normalizeTaskAssigneeNpubs(t).includes(assigneeNpub));
+  }
+  const normalizedStateFilter = String(stateFilter || '').trim();
+  if (normalizedStateFilter) {
+    tasks = tasks.filter((task) => String(task?.state || 'new').trim() === normalizedStateFilter);
   }
   return tasks;
 }
@@ -1063,18 +1071,22 @@ export function computeBoardColumns(activeTasks, doneTasks, summaryTasks, option
   if (normalizedSummaryTasks.length > 0) {
     cols.push({ state: 'summary', label: 'Summary', color: stateColor('summary'), tasks: normalizedSummaryTasks });
   }
-  const states = ['new', 'ready', 'in_progress', 'review', 'done'];
+  const states = TASK_BOARD_STATES;
   const labels = {
     new: 'New',
     ready: 'Ready',
     in_progress: 'In Progress',
+    blocked: 'Blocked',
     review: 'Review',
     done: 'Done',
   };
   for (const state of states) {
     const tasks = state === 'done'
       ? normalizedDoneTasks
-      : normalizedActiveTasks.filter(t => t.state === state);
+      : normalizedActiveTasks.filter((task) => (
+        task.state === state
+        || (state === 'new' && !TASK_BOARD_STATES.includes(task.state))
+      ));
     cols.push({ state, label: labels[state], color: stateColor(state), tasks });
   }
   return cols;

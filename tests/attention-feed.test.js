@@ -9,6 +9,40 @@ function groupById(groups, id) {
 }
 
 describe('buildAttentionFeed', () => {
+  it('explains blocked viewer and agent work explicitly', () => {
+    const viewerTask = {
+      record_id: 'task-viewer-blocked',
+      title: 'Need owner decision',
+      state: 'blocked',
+      assigned_to_npubs: [VIEWER],
+      updated_at: '2026-08-31T01:00:00Z',
+    };
+    const agentTask = {
+      record_id: 'task-agent-blocked',
+      title: 'Need API access',
+      state: 'blocked',
+      assigned_to_npubs: [AGENT],
+      updated_at: '2026-08-31T00:00:00Z',
+    };
+    const groups = buildAttentionFeed({
+      session: { npub: VIEWER },
+      defaultAgentNpub: AGENT,
+      tasks: [viewerTask, agentTask],
+      boardScopedTasks: [viewerTask, agentTask],
+    });
+
+    expect(groupById(groups, 'needs_you').items[0]).toMatchObject({
+      recordId: 'task-viewer-blocked',
+      reason: 'Blocked and needs attention',
+      severity: 'high',
+    });
+    expect(groupById(groups, 'agent_updates').items[0]).toMatchObject({
+      recordId: 'task-agent-blocked',
+      reason: 'Agent work blocked',
+      severity: 'high',
+    });
+  });
+
   it('puts approvals and viewer-owned action into the needs-you lane', () => {
     const groups = buildAttentionFeed({
       session: { npub: VIEWER },

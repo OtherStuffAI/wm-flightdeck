@@ -945,6 +945,7 @@ export function initApp() {
     truncatedTaskCommentIds: [],
     taskFilter: '',
     taskFilterTags: [],
+    taskFilterState: '',
     taskFilterAssignee: null,
     taskTagCloudOpen: false,
     selectedTaskIds: [],
@@ -6332,6 +6333,8 @@ export function initApp() {
 
     buildTaskDetailQuickActionPatch(action) {
       switch (action) {
+        case 'blocked':
+          return { state: 'blocked' };
         case 'done':
           return { state: 'done', assigned_to_npubs: [] };
         case 'archive':
@@ -6360,7 +6363,9 @@ export function initApp() {
     async quickSetTaskState(state) {
       if (!this.editingTask || !this.isTaskDetailEditing()) return;
       this.editingTask.state = state;
-      this.editingTask = this.withTaskAssigneeNpubs(this.editingTask, []);
+      if (state === 'done' || state === 'archive') {
+        this.editingTask = this.withTaskAssigneeNpubs(this.editingTask, []);
+      }
       this.handleEditingTaskDraftChanged();
     },
 
@@ -6368,7 +6373,7 @@ export function initApp() {
       if (!this.editingTask?.record_id || this.taskDetailSaving) return;
 
       if (this.isTaskDetailEditing()) {
-        if (action === 'done' || action === 'archive') this.quickSetTaskState(action);
+        if (action === 'blocked' || action === 'done' || action === 'archive') this.quickSetTaskState(action);
         else if (action === 'today') this.setTaskDueToday();
         else if (action === 'this_week') this.setTaskDueThisWeek();
         return;
@@ -7260,6 +7265,8 @@ export function initApp() {
             return { state: 'archive', assigned_to_npubs: [] };
           case 'done':
             return { state: 'done', assigned_to_npubs: [] };
+          case 'blocked':
+            return { state: 'blocked' };
           case 'ready':
             return { state: 'ready', assigned_to_npubs: this.defaultAgentNpub ? [this.defaultAgentNpub] : [] };
           case 'today':
@@ -7563,6 +7570,7 @@ export function initApp() {
     clearTaskFilters() {
       this.taskFilter = '';
       this.taskFilterTags = [];
+      this.taskFilterState = '';
       this.taskFilterAssignee = null;
       this.taskTagCloudOpen = false;
     },

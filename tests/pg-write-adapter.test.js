@@ -448,6 +448,38 @@ describe('PG write adapter', () => {
     expect(task).toMatchObject({ record_id: 'task-1', state: 'done', version: 2 });
   });
 
+  it('round-trips blocked through the Tower PG state endpoint', async () => {
+    const api = await import('../src/api.js');
+    api.updateTowerPgTaskState.mockResolvedValue({
+      task: {
+        id: 'task-1',
+        workspace_id: 'workspace-1',
+        scope_id: 'scope-1',
+        channel_id: 'channel-1',
+        title: 'Task',
+        state: 'blocked',
+        priority: 'sand',
+        row_version: 2,
+      },
+    });
+
+    const task = await updateTowerPgTaskFromLocal(store(), {
+      record_id: 'task-1',
+      pg_backend: true,
+      sync_status: 'synced',
+      title: 'Task',
+      state: 'blocked',
+      priority: 'sand',
+      version: 2,
+    }, { record_id: 'task-1', state: 'in_progress', version: 1, pg_backend: true, sync_status: 'synced' }, { state: 'blocked' });
+
+    expect(api.updateTowerPgTaskState).toHaveBeenCalledWith('workspace-1', 'task-1', {
+      row_version: 1,
+      state: 'blocked',
+    }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
+    expect(task).toMatchObject({ record_id: 'task-1', state: 'blocked', version: 2 });
+  });
+
   it('splits PG task state changes from classic metadata quick patches', async () => {
     const api = await import('../src/api.js');
     api.updateTowerPgTaskState.mockResolvedValue({

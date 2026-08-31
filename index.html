@@ -2527,6 +2527,19 @@
               x-model="$store.chat.taskFilter"
               placeholder="Search tasks..."
             />
+            <select
+              class="task-state-filter"
+              x-model="$store.chat.taskFilterState"
+              aria-label="Filter tasks by status"
+            >
+              <option value="">All statuses</option>
+              <option value="new">New</option>
+              <option value="ready">Ready</option>
+              <option value="in_progress">In Progress</option>
+              <option value="blocked">Blocked</option>
+              <option value="review">Review</option>
+              <option value="done">Done</option>
+            </select>
             <button
               type="button"
               class="filter-to-me-btn"
@@ -2573,7 +2586,7 @@
                       title="Show all tags"
                     >...</button>
                   </template>
-                  <template x-if="$store.chat.taskFilterTags.length > 0 || $store.chat.taskFilter || $store.chat.taskFilterAssignee">
+                  <template x-if="$store.chat.taskFilterTags.length > 0 || $store.chat.taskFilter || $store.chat.taskFilterState || $store.chat.taskFilterAssignee">
                     <button type="button" class="clear-filters-btn" @click="$store.chat.clearTaskFilters()">Clear</button>
                   </template>
                 </div>
@@ -2692,6 +2705,7 @@
               <button type="button" class="task-bulk-btn" @click="$store.chat.clearSelectedTasks()" :disabled="$store.chat.bulkTaskBusy">Clear</button>
               <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('archive')" :disabled="$store.chat.bulkTaskBusy" x-text="$store.chat.bulkTaskBusy ? 'Working...' : 'Archive'"></button>
               <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('done')" :disabled="$store.chat.bulkTaskBusy">Done</button>
+              <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('blocked')" :disabled="$store.chat.bulkTaskBusy">Blocked</button>
               <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('ready')" :disabled="!$store.chat.canBulkAssignToDefaultAgent" :title="$store.chat.defaultAgentNpub ? '' : 'Set a default agent in Setup first'">Ready</button>
               <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('today')" :disabled="$store.chat.bulkTaskBusy">Today</button>
             </div>
@@ -3031,6 +3045,8 @@
                       </template>
                     </div>
                     <div class="task-quick-date-links" x-show="!$store.chat.isTaskDetailEditing()">
+                      <button type="button" class="task-quick-date-link" :disabled="$store.chat.taskDetailSaving" @click="$store.chat.applyTaskDetailQuickAction('blocked')">Blocked</button>
+                      <span class="task-quick-date-sep">|</span>
                       <button type="button" class="task-quick-date-link" :disabled="$store.chat.taskDetailSaving" @click="$store.chat.applyTaskDetailQuickAction('done')">Done</button>
                       <span class="task-quick-date-sep">|</span>
                       <button type="button" class="task-quick-date-link" :disabled="$store.chat.taskDetailSaving" @click="$store.chat.applyTaskDetailQuickAction('archive')">Archive</button>
@@ -3060,11 +3076,14 @@
                         <option value="ready">Ready</option>
 
                         <option value="in_progress">In Progress</option>
+                        <option value="blocked">Blocked</option>
                         <option value="review">Review</option>
                         <option value="done">Done</option>
                         <option value="archive">Archive</option>
                       </select>
                       <span class="task-quick-date-links">
+                        <button type="button" class="task-quick-date-link" :disabled="!$store.chat.isTaskDetailEditing()" @click="$store.chat.quickSetTaskState('blocked')">Blocked</button>
+                        <span class="task-quick-date-sep">|</span>
                         <button type="button" class="task-quick-date-link" :disabled="!$store.chat.isTaskDetailEditing()" @click="$store.chat.quickSetTaskState('done')">Done</button>
                         <span class="task-quick-date-sep">|</span>
                         <button type="button" class="task-quick-date-link" :disabled="!$store.chat.isTaskDetailEditing()" @click="$store.chat.quickSetTaskState('archive')">Archive</button>

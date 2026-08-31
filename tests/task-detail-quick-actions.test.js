@@ -8,12 +8,16 @@ const indexContent = fs.readFileSync(indexPath, 'utf-8');
 const appContent = fs.readFileSync(appPath, 'utf-8');
 
 describe('task detail quick actions', () => {
-  it('renders Done, Archive, Today, and This Week controls in view mode', () => {
+  it('renders Blocked, Done, Archive, Today, and This Week controls in view mode', () => {
     expect(indexContent).toContain('x-show="!$store.chat.isTaskDetailEditing()"');
+    expect(indexContent).toContain("@click=\"$store.chat.applyTaskDetailQuickAction('blocked')\"");
     expect(indexContent).toContain("@click=\"$store.chat.applyTaskDetailQuickAction('done')\"");
     expect(indexContent).toContain("@click=\"$store.chat.applyTaskDetailQuickAction('archive')\"");
     expect(indexContent).toContain("@click=\"$store.chat.applyTaskDetailQuickAction('today')\"");
     expect(indexContent).toContain("@click=\"$store.chat.applyTaskDetailQuickAction('this_week')\"");
+    expect(indexContent).toContain('<option value="blocked">Blocked</option>');
+    expect(indexContent).toContain('aria-label="Filter tasks by status"');
+    expect(indexContent).toContain("@click=\"$store.chat.applyBulkTaskAction('blocked')\"");
   });
 
   it('routes view-mode quick actions through the local task patch and PG background path', () => {
@@ -23,6 +27,7 @@ describe('task detail quick actions', () => {
     expect(appContent).toContain('if (!isTowerPgBackendMode())');
     expect(appContent).toContain('await this.flushAndBackgroundSync();');
     expect(appContent).toContain("return { state: 'done', assigned_to_npubs: [] };");
+    expect(appContent).toContain("return { state: 'blocked' };");
     expect(appContent).toContain("return { state: 'archive', assigned_to_npubs: [] };");
     expect(appContent).toContain("return { scheduled_for: this.getTaskDueTodayDateKey() };");
   });

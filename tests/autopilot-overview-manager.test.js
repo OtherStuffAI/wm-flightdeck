@@ -23,6 +23,19 @@ import { recordFamilyHash } from '../src/translators/chat.js';
 import { channelsManagerMixin } from '../src/channels-manager.js';
 
 describe('autopilot overview manager', () => {
+  it('presents blocked task state with the canonical Inbox label', () => {
+    const [row] = buildAutopilotOverviewTasks({
+      tasks: [{
+        record_id: 'task-blocked',
+        title: 'Waiting on access',
+        state: 'blocked',
+        updated_at: '2026-08-31T01:00:00.000Z',
+      }],
+    });
+
+    expect(row).toMatchObject({ taskState: 'blocked', subtitle: 'Blocked' });
+  });
+
   const channels = [
     { record_id: 'chan-a', title: 'Implementation', scope_id: 'scope-a' },
     { record_id: 'chan-b', title: 'Design', scope_id: 'scope-b' },

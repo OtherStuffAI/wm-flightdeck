@@ -785,6 +785,24 @@ describe('PG read hydrator', () => {
     });
   });
 
+  it('preserves an already-blocked task returned by Tower PG', () => {
+    expect(mapPgTaskToLocal({
+      id: 'task-blocked',
+      workspace_id: 'workspace-1',
+      scope_id: 'scope-1',
+      channel_id: 'channel-1',
+      title: 'Waiting on access',
+      state: 'blocked',
+      row_version: 4,
+      updated_at: '2026-08-31T01:00:00.000Z',
+    }, { workspaceOwnerNpub: 'npub1owner' })).toMatchObject({
+      record_id: 'task-blocked',
+      state: 'blocked',
+      version: 4,
+      pg_backend: true,
+    });
+  });
+
   it('prefers the persisted PG task metadata assignee npub over relation rows', () => {
     expect(mapPgTaskToLocal({
       id: 'task-assigned',

@@ -1040,6 +1040,14 @@
       "notes": [
         "Keep mobile chat typing responsive as drafts and mention pills grow by avoiding duplicate composer scans, selection cloning, repeated mention-chip work, and unnecessary layout setup."
       ]
+    },
+    {
+      "buildNumber": 1860,
+      "label": "First-class Blocked tasks",
+      "notes": [
+        "Show Blocked as a normal task status across boards, filters, task details, quick actions, Inbox activity, and parent/subtask progress.",
+        "Move tasks into and out of a dedicated Blocked column while preserving board ordering and existing blocked task data."
+      ]
     }
   ]
 }

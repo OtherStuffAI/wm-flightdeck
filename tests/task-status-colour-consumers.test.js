@@ -11,7 +11,7 @@ describe('task status colour consumers', () => {
     expect(styles).toMatch(/\.kanban-column-collapsed \.kanban-column-header\s*\{[^}]*var\(--task-status-color/s);
     expect(styles).toMatch(/\.kanban-column:not\(\.kanban-column-collapsed\) \.kanban-column-header\s*\{[^}]*var\(--task-status-color/s);
     expect(styles).toMatch(/\.task-list-group-header\s*\{[^}]*var\(--task-status-color/s);
-    expect(styles).not.toMatch(/\.kanban-col-(?:summary|new|ready|in_progress|review|done).*border-(?:left|bottom)-color/);
+    expect(styles).not.toMatch(/\.kanban-col-(?:summary|new|ready|in_progress|blocked|review|done).*border-(?:left|bottom)-color/);
   });
 
   it('uses the canonical helper for representative Board and task-detail badges', () => {

@@ -142,17 +142,32 @@ export async function outboundTask({
 
 // --- helpers ---
 
-const STATE_ORDER = { new: 0, ready: 1, in_progress: 2, review: 3, done: 4 };
+/**
+ * Canonical user-facing task workflow. `archive` remains a terminal action,
+ * while unknown historical states deliberately fall back to New presentation.
+ */
+export const TASK_BOARD_STATES = Object.freeze([
+  'new',
+  'ready',
+  'in_progress',
+  'blocked',
+  'review',
+  'done',
+]);
+
+export const TASK_STATE_ORDER = Object.freeze(
+  Object.fromEntries(TASK_BOARD_STATES.map((state, index) => [state, index])),
+);
 
 export function computeParentState(subtasks) {
   if (!subtasks || subtasks.length === 0) return 'new';
-  let minOrder = 4;
+  let minOrder = TASK_STATE_ORDER.done;
   for (const st of subtasks) {
-    const state = st.state === 'archive' ? 'done' : st.state;
-    const order = STATE_ORDER[state] ?? 0;
+    const state = st.state === 'archive' || st.state === 'archived' ? 'done' : st.state;
+    const order = TASK_STATE_ORDER[state] ?? TASK_STATE_ORDER.new;
     if (order < minOrder) minOrder = order;
   }
-  const match = Object.entries(STATE_ORDER).find(([, v]) => v === minOrder);
+  const match = Object.entries(TASK_STATE_ORDER).find(([, v]) => v === minOrder);
   return match ? match[0] : 'new';
 }
 
@@ -161,6 +176,7 @@ export const TASK_STATUS_COLORS = Object.freeze({
   new: '#9ca3af',
   ready: '#f87171',
   in_progress: '#fb923c',
+  blocked: '#c026d3',
   review: '#34d399',
   done: '#60a5fa',
 });
@@ -175,10 +191,13 @@ export function stateColor(state) {
 
 export function formatStateLabel(state) {
   if (!state) return '';
-  if (state === 'in_progress') return 'In Progress';
-  if (state === 'review') return 'Review';
-  if (state === 'archive') return 'Archived';
-  return state.charAt(0).toUpperCase() + state.slice(1);
+  const normalizedState = String(state).trim().toLowerCase();
+  if (normalizedState === 'archive' || normalizedState === 'archived') return 'Archived';
+  return normalizedState
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 export function parseTags(tagsString) {

@@ -1384,6 +1384,15 @@ describe('computeFilteredTasks', () => {
     expect(result[0].record_id).toBe('t1');
   });
 
+  it('filters first-class blocked tasks by status', () => {
+    const result = computeFilteredTasks([
+      { ...tasks[0], state: 'blocked' },
+      { ...tasks[1], state: 'review' },
+    ], '', [], null, 'blocked');
+
+    expect(result.map((task) => task.record_id)).toEqual(['t1']);
+  });
+
   it('returns empty when query matches nothing', () => {
     expect(computeFilteredTasks(tasks, 'nonexistent', [])).toHaveLength(0);
   });
@@ -1571,12 +1580,13 @@ describe('computeBoardColumns', () => {
   it('produces standard columns', () => {
     const cols = computeBoardColumns([], [], []);
     const stateNames = cols.map((c) => c.state);
-    expect(stateNames).toEqual(['new', 'ready', 'in_progress', 'review', 'done']);
+    expect(stateNames).toEqual(['new', 'ready', 'in_progress', 'blocked', 'review', 'done']);
     expect(stateNames).not.toContain('definition');
     expect(cols.map(({ state, color }) => [state, color])).toEqual([
       ['new', '#9ca3af'],
       ['ready', '#f87171'],
       ['in_progress', '#fb923c'],
+      ['blocked', '#c026d3'],
       ['review', '#34d399'],
       ['done', '#60a5fa'],
     ]);
@@ -1609,11 +1619,20 @@ describe('computeBoardColumns', () => {
     const active = [
       { record_id: 'a1', state: 'new' },
       { record_id: 'a2', state: 'in_progress' },
+      { record_id: 'a3', state: 'blocked' },
     ];
     const cols = computeBoardColumns(active, [], []);
     expect(cols.find((c) => c.state === 'new').tasks).toHaveLength(1);
     expect(cols.find((c) => c.state === 'in_progress').tasks).toHaveLength(1);
+    expect(cols.find((c) => c.state === 'blocked').tasks).toHaveLength(1);
     expect(cols.find((c) => c.state === 'ready').tasks).toHaveLength(0);
+  });
+
+  it('keeps unknown historical states visible in the New fallback column', () => {
+    const historical = { record_id: 'legacy', state: 'waiting_external' };
+    const cols = computeBoardColumns([historical], [], []);
+
+    expect(cols.find((column) => column.state === 'new').tasks).toEqual([historical]);
   });
 
   it('places done tasks in done column', () => {
@@ -1777,6 +1796,26 @@ describe('calculateTaskBoardOrderForInsertion', () => {
 });
 
 describe('buildTaskBoardReorderPatches', () => {
+  it('moves a card into and out of the Blocked column', () => {
+    expect(buildTaskBoardReorderPatches([], {
+      taskId: 'dragged',
+      draggedTask: { record_id: 'dragged', state: 'in_progress', board_order: 1000 },
+      position: 'end',
+      targetState: 'blocked',
+    })).toEqual([
+      { record_id: 'dragged', patch: { state: 'blocked' } },
+    ]);
+
+    expect(buildTaskBoardReorderPatches([], {
+      taskId: 'dragged',
+      draggedTask: { record_id: 'dragged', state: 'blocked', board_order: 1000 },
+      position: 'end',
+      targetState: 'review',
+    })).toEqual([
+      { record_id: 'dragged', patch: { state: 'review' } },
+    ]);
+  });
+
   it('normalizes an unranked target column so the dropped card stays at the requested position', () => {
     expect(buildTaskBoardReorderPatches([
       { record_id: 'a', state: 'ready' },

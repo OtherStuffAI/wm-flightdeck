@@ -5,6 +5,7 @@ import {
 import { resolveChannelLabel } from './channel-labels.js';
 import { isTerminalTaskState } from './attention-feed.js';
 import { recordFamilyHash } from './translators/chat.js';
+import { formatStateLabel } from './translators/tasks.js';
 import {
   isTaskActivityAuthoredByViewer,
   latestTaskActivity,
@@ -392,7 +393,7 @@ export function buildAutopilotOverviewTasks({
       kind: 'task',
       recordId: task.record_id,
       title: readableTitle(task, 'Untitled task'),
-      subtitle: task.status || task.state || 'Task',
+      subtitle: task.status || formatStateLabel(task.state) || 'Task',
       taskState: task.state || 'new',
       reason: commentDrove
         ? `${attentionComments.length} recent ${attentionComments.length === 1 ? 'comment' : 'comments'}`
