@@ -1013,6 +1013,7 @@ export const connectSettingsManagerMixin = {
     const existingWorkspace = findExistingPgWorkspace(this.knownWorkspaces, workspace);
     workspace = preservePgSelfIndexState(workspace, existingWorkspace);
     workspace = preserveSparsePgWorkspaceProfile(workspace, existingWorkspace);
+    if (options.clearLocalForget === true) this.clearPgWorkspaceForgotten?.(workspace);
     const workspaceBackendUrl = normalizeBackendUrl(workspace.directHttpsUrl || this.backendUrl);
     if (options.select !== false || !this.backendUrl) {
       this.backendUrl = workspaceBackendUrl;
@@ -1053,7 +1054,7 @@ export const connectSettingsManagerMixin = {
 
   async connectWithPgDescriptor(descriptorInput, { closeModal = true, selectWorkspaceOptions = {} } = {}) {
     const { descriptor, me } = await this.verifyPgDescriptor(descriptorInput);
-    const workspace = await this.rememberVerifiedPgWorkspace(descriptor, me);
+    const workspace = await this.rememberVerifiedPgWorkspace(descriptor, me, { clearLocalForget: true });
     if (closeModal) this.showConnectModal = false;
     await this.selectWorkspace(workspace.workspaceKey || workspace.workspaceOwnerNpub, {
       pgVerified: true,
@@ -1079,7 +1080,7 @@ export const connectSettingsManagerMixin = {
         ...descriptor,
         tower_base_url: descriptor.tower_base_url || baseUrl,
       }, { baseUrl });
-      const workspace = await this.rememberVerifiedPgWorkspace(verified, me);
+      const workspace = await this.rememberVerifiedPgWorkspace(verified, me, { clearLocalForget: true });
       this.showConnectModal = false;
       await this.selectWorkspace(workspace.workspaceKey || workspace.workspaceOwnerNpub, { pgVerified: true });
     } catch (error) {

@@ -167,6 +167,20 @@ export async function onboardingGrantId({
   return `fd-onboard:${await sha256Hex(input)}`;
 }
 
+export function onboardingAnnouncementDTag({
+  recipientNpub,
+  towerServiceNpub,
+  workspaceServiceNpub,
+  appNpub,
+} = {}) {
+  const parts = [towerServiceNpub, workspaceServiceNpub, appNpub, recipientNpub]
+    .map((value) => trimText(value));
+  if (parts.some((value) => !value)) {
+    throw new Error('Onboarding announcement lifecycle identity is incomplete.');
+  }
+  return `wingman-access-grant:v1:${parts.join(':')}`;
+}
+
 async function opaqueGrantId(value) {
   const text = trimText(value);
   if (!text) return '';
@@ -201,6 +215,9 @@ export async function buildOnboardingPayload({
   expiresAt = null,
   grantId = '',
   grantReason = 'added_to_workspace_or_group',
+  action = ONBOARDING_ACTION_GRANT,
+  revokedAt = null,
+  revocationSource = 'tower',
 } = {}) {
   if (!recipientNpub) throw new Error('Onboarding recipient npub is required.');
   if (!issuedByNpub) throw new Error('Onboarding issuer npub is required.');
@@ -220,19 +237,22 @@ export async function buildOnboardingPayload({
       workspaceId,
       reason: grantReason,
     });
-  const connectPackage = agentConnect || buildAgentConnectPackage({
-    backendUrl: directHttpsUrl,
-    session: { npub: issuedByNpub },
-    workspace,
-  });
+  const normalizedAction = onboardingActionFromPayload({ action });
+  const connectPackage = normalizedAction === ONBOARDING_ACTION_GRANT
+    ? (agentConnect || buildAgentConnectPackage({
+      backendUrl: directHttpsUrl,
+      session: { npub: issuedByNpub },
+      workspace,
+    }))
+    : null;
 
   return {
     type: ONBOARDING_PAYLOAD_TYPE,
     version: 1,
     protocol: ONBOARDING_PROTOCOL,
-    action: ONBOARDING_ACTION_GRANT,
+    action: normalizedAction,
     issued_at: issuedAt,
-    expires_at: expiry.toISOString(),
+    ...(normalizedAction === ONBOARDING_ACTION_GRANT ? { expires_at: expiry.toISOString() } : {}),
     issued_by_npub: issuedByNpub,
     recipient_npub: recipientNpub,
     app: {
@@ -256,7 +276,14 @@ export async function buildOnboardingPayload({
       descriptor_url: trimText(descriptor.links?.descriptor) || null,
       me_url: trimText(descriptor.links?.me) || null,
     },
-    agent_connect: connectPackage,
+    ...(connectPackage ? { agent_connect: connectPackage } : {}),
+    ...(isRevokedOnboardingAction(normalizedAction) ? {
+      revocation: {
+        reason: grantReason,
+        revoked_at: revokedAt ? new Date(revokedAt).toISOString() : issuedAt,
+        source: revocationSource,
+      },
+    } : {}),
     grant: {
       grant_id: payloadGrantId,
       reason: grantReason,
@@ -324,9 +351,13 @@ function tagValue(event, name) {
 function assertOnlyRoutingTags(event) {
   const tags = Array.isArray(event?.tags) ? event.tags : [];
   const names = tags.map((tag) => tag?.[0]);
-  const allowed = new Set(['p', 'app_pub', 'protocol']);
-  if (tags.length !== 3 || names.some((name) => !allowed.has(name))) {
-    throw new Error('Onboarding announcement tags must only contain p, app_pub, and protocol.');
+  const allowed = new Set(['d', 'p', 'app_pub', 'protocol']);
+  const required = ['p', 'app_pub', 'protocol'];
+  if ((tags.length !== 3 && tags.length !== 4)
+    || names.some((name) => !allowed.has(name))
+    || required.some((name) => names.filter((candidate) => candidate === name).length !== 1)
+    || names.filter((name) => name === 'd').length > 1) {
+    throw new Error('Onboarding announcement tags must contain d (when addressable), p, app_pub, and protocol only.');
   }
   const text = JSON.stringify(tags);
   if (/https?:\/\//i.test(text)) throw new Error('Onboarding announcement tags must not contain URLs.');
@@ -337,6 +368,7 @@ export function buildUnsignedOnboardingAnnouncementEvent({
   recipientNpub,
   recipientPubkeyHex,
   appPubkeyHex = flightDeckOnboardingAppPubkeyHex(),
+  dTag = '',
   content,
   createdAt = Math.floor(Date.now() / 1000),
 } = {}) {
@@ -347,6 +379,7 @@ export function buildUnsignedOnboardingAnnouncementEvent({
     pubkey: issuerHex,
     created_at: createdAt,
     tags: [
+      ...(trimText(dTag) ? [['d', trimText(dTag)]] : []),
       ['p', recipientHex],
       ['app_pub', appPubkeyHex],
       ['protocol', ONBOARDING_PROTOCOL],
@@ -375,6 +408,9 @@ export async function publishOnboardingAnnouncement({
   grantId = '',
   grantReason = 'added_to_workspace_or_group',
   reason = '',
+  action = ONBOARDING_ACTION_GRANT,
+  revokedAt = null,
+  revocationSource = 'tower',
 } = {}) {
   const recipientHex = normalizeNostrPubkeyHex(recipientPubkeyHex || recipientNpub);
   const recipient = recipientNpub || await pubkeyToNpub(recipientHex);
@@ -392,12 +428,23 @@ export async function publishOnboardingAnnouncement({
     now,
     grantId,
     grantReason: effectiveReason,
+    action,
+    revokedAt,
+    revocationSource,
+  });
+  const locator = onboardingLocatorFromPayload(payload);
+  const dTag = onboardingAnnouncementDTag({
+    recipientNpub: recipient,
+    towerServiceNpub: locator.identity.tower_service_npub,
+    workspaceServiceNpub: locator.identity.workspace_service_npub,
+    appNpub: payload.app.app_npub,
   });
   const encrypted = await encryptForNpub(recipient, JSON.stringify(payload));
   const unsigned = buildUnsignedOnboardingAnnouncementEvent({
     issuerPubkeyHex: issuerHex,
     recipientPubkeyHex: recipientHex,
     appPubkeyHex,
+    dTag,
     content: encrypted,
     createdAt: Math.floor(new Date(now).getTime() / 1000),
   });
@@ -503,6 +550,16 @@ export async function decryptOnboardingAnnouncementEvent({
     now,
   });
   const locator = onboardingLocatorFromPayload(payload);
+  const eventDTag = tagValue(event, 'd');
+  if (eventDTag) {
+    const expectedDTag = onboardingAnnouncementDTag({
+      recipientNpub: payload.recipient_npub,
+      towerServiceNpub: locator.identity.tower_service_npub,
+      workspaceServiceNpub: locator.identity.workspace_service_npub,
+      appNpub: payload.app.app_npub,
+    });
+    if (eventDTag !== expectedDTag) throw new Error('Onboarding announcement lifecycle tag mismatch.');
+  }
   const action = onboardingActionFromPayload(payload);
   return {
     event,
@@ -557,7 +614,10 @@ export async function queryOnboardingAnnouncementCandidates({
   }
   const deduped = [];
   const seen = new Set();
-  for (const candidate of candidates.sort((a, b) => Number(b.event?.created_at || 0) - Number(a.event?.created_at || 0))) {
+  for (const candidate of candidates.sort((a, b) => {
+    const timeOrder = Number(b.event?.created_at || 0) - Number(a.event?.created_at || 0);
+    return timeOrder || String(a.event?.id || '').localeCompare(String(b.event?.id || ''));
+  })) {
     if (!candidate.identityKey || seen.has(candidate.identityKey)) continue;
     seen.add(candidate.identityKey);
     deduped.push(candidate);

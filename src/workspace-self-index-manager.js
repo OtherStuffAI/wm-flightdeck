@@ -201,7 +201,7 @@ export const workspaceSelfIndexManagerMixin = {
     }
   },
 
-  async discoverPgWorkspaceSelfIndex({ candidates = null } = {}) {
+  async discoverPgWorkspaceSelfIndex({ candidates = null, tombstones = null } = {}) {
     if (!isTowerPgBackendMode() || !this.session?.npub) {
       return { discovered: 0, eventsSeen: 0, verified: 0, stale: 0, failed: 0 };
     }
@@ -211,13 +211,14 @@ export const workspaceSelfIndexManagerMixin = {
       discovered: 0,
       eventsSeen: 0,
       verified: 0,
+      forgotten: 0,
       stale: 0,
       failed: 0,
       rejected: [],
     };
     try {
       const discovered = candidates
-        ? { candidates, rejected: [], events: [] }
+        ? { candidates, tombstones: tombstones || [], rejected: [], events: [] }
         : await queryWorkspaceSelfIndexCandidates({
           userNpub: this.session.npub,
           userPubkeyHex: this.session.pubkey,
@@ -231,9 +232,21 @@ export const workspaceSelfIndexManagerMixin = {
         this.pgWorkspaceSelfIndexError = `Found ${summary.eventsSeen} workspace index event${summary.eventsSeen === 1 ? '' : 's'} but none could be decrypted or accepted. Check this browser's Nostr signer and relay access.`;
       }
 
+      for (const tombstone of discovered.tombstones || []) {
+        this.rememberPgWorkspaceForgottenThisLoad?.(tombstone.locator, {
+          forgottenAt: tombstone.payload?.state?.deleted_at
+            || tombstone.payload?.updated_at
+            || (Number(tombstone.event?.created_at || 0) > 0
+              ? new Date(Number(tombstone.event.created_at) * 1000).toISOString()
+              : new Date().toISOString()),
+          reason: tombstone.payload?.state?.reason || 'workspace_self_index_tombstone',
+        });
+        summary.forgotten += 1;
+      }
+
       for (const candidate of discovered.candidates) {
         const locator = candidate.locator;
-        if (this.isPgWorkspaceForgottenThisLoad?.(locator)) {
+        if (this.isPgWorkspaceForgottenThisLoad?.(locator, { event: candidate.event })) {
           summary.stale += 1;
           continue;
         }

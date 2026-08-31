@@ -83,7 +83,7 @@ describe('Nostr kind 33357 onboarding announcements', () => {
     expect(relays).not.toContain('ws://127.0.0.1:4869');
   });
 
-  it('builds a valid event with only p/app_pub/protocol cleartext tags', async () => {
+  it('builds a valid addressable event with only d/p/app_pub/protocol cleartext tags', async () => {
     let signedTemplate = null;
     let relaysSeen = [];
     const result = await publishOnboardingAnnouncement({
@@ -119,6 +119,7 @@ describe('Nostr kind 33357 onboarding announcements', () => {
     expect(relaysSeen).toEqual(operatorRelays);
     expect(relaysSeen).not.toContain('wss://relay.test');
     expect(signedTemplate.tags).toEqual([
+      ['d', `wingman-access-grant:v1:${workspace.towerServiceNpub}:${workspace.workspaceServiceNpub}:${app.npub}:${recipient.npub}`],
       ['p', recipient.pubkey],
       ['app_pub', appPubkeyHex],
       ['protocol', ONBOARDING_PROTOCOL],
@@ -216,15 +217,20 @@ describe('Nostr kind 33357 onboarding announcements', () => {
   });
 
   it('accepts revoked and deleted payloads without Agent Connect credentials', async () => {
-    const payload = await validPayload();
-    delete payload.agent_connect;
-    delete payload.expires_at;
-    payload.action = 'revoked';
-    payload.revocation = {
+    const payload = await validPayload({
+      action: 'revoked',
+      grantReason: 'workspace_deleted',
+      revokedAt: '2026-06-08T00:00:00.000Z',
+      revocationSource: 'tower',
+    });
+
+    expect(payload.agent_connect).toBeUndefined();
+    expect(payload.expires_at).toBeUndefined();
+    expect(payload.revocation).toEqual({
       reason: 'workspace_deleted',
       revoked_at: '2026-06-08T00:00:00.000Z',
       source: 'tower',
-    };
+    });
 
     expect(validateOnboardingAnnouncementPayload(payload, {
       recipientNpub: recipient.npub,

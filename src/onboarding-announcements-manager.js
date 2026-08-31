@@ -2,6 +2,7 @@ import { APP_NPUB } from './app-identity.js';
 import { buildAgentConnectPackage } from './agent-connect.js';
 import { isTowerPgBackendMode } from './backend-mode.js';
 import {
+  ONBOARDING_ACTION_DELETED,
   flightDeckOnboardingAppPubkeyHex,
   isRevokedOnboardingAction,
   onboardingAnnouncementRelayUrls,
@@ -201,6 +202,43 @@ export const onboardingAnnouncementsManagerMixin = {
     }
   },
 
+  async publishPgOnboardingAnnouncementRevocation({
+    recipientNpub,
+    workspace = this.currentWorkspace,
+    grantId = '',
+    reason = 'access_revoked',
+    action = ONBOARDING_ACTION_DELETED,
+  } = {}) {
+    if (!isTowerPgBackendMode() || !workspace?.pgBackendMode) return null;
+    const cleanRecipient = trimText(recipientNpub);
+    if (!this.session?.npub || !this.session?.pubkey || !cleanRecipient?.startsWith('npub1')) return null;
+    try {
+      return await publishOnboardingAnnouncement({
+        recipientNpub: cleanRecipient,
+        issuerNpub: this.session.npub,
+        issuerPubkeyHex: this.session.pubkey,
+        workspace,
+        relayUrls: this.onboardingAnnouncementRelayUrls(workspace),
+        appNpub: APP_NPUB,
+        appPubkeyHex: flightDeckOnboardingAppPubkeyHex(APP_NPUB),
+        grantId,
+        reason,
+        action,
+        revocationSource: 'tower',
+      });
+    } catch (error) {
+      this.rememberOnboardingAnnouncementStatus({
+        recipientNpub: cleanRecipient,
+        workspace,
+        grantId,
+        reason,
+        status: 'revocation_publish_failed',
+        error: errorMessage(error),
+      });
+      return null;
+    }
+  },
+
   async retryPgOnboardingAnnouncement(statusOrKey) {
     const key = typeof statusOrKey === 'string' ? statusOrKey : statusOrKey?.key;
     const entry = (this.pgOnboardingAnnouncementStatuses || []).find((item) => item.key === key) || statusOrKey;
@@ -253,7 +291,7 @@ export const onboardingAnnouncementsManagerMixin = {
 
       for (const candidate of discovered.candidates) {
         const locator = candidate.locator;
-        if (this.isPgWorkspaceForgottenThisLoad?.(locator)) {
+        if (this.isPgWorkspaceForgottenThisLoad?.(locator, { event: candidate.event })) {
           summary.stale += 1;
           continue;
         }

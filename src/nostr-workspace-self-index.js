@@ -511,15 +511,22 @@ export async function queryWorkspaceSelfIndexCandidates({
     }
   }
   const deduped = [];
+  const tombstones = [];
   const seen = new Set();
-  for (const candidate of decrypted.sort((a, b) => Number(b.event?.created_at || 0) - Number(a.event?.created_at || 0))) {
+  for (const candidate of decrypted.sort((a, b) => {
+    const timeOrder = Number(b.event?.created_at || 0) - Number(a.event?.created_at || 0);
+    return timeOrder || String(a.event?.id || '').localeCompare(String(b.event?.id || ''));
+  })) {
     if (!candidate.identityKey || seen.has(candidate.identityKey)) continue;
     seen.add(candidate.identityKey);
     // A tombstone is the latest addressable event for this workspace identity.
     // Keep it in the dedupe set so stale active copies returned by another
     // relay cannot resurrect a deleted workspace.
-    if (candidate.deleted) continue;
+    if (candidate.deleted) {
+      tombstones.push(candidate);
+      continue;
+    }
     deduped.push(candidate);
   }
-  return { candidates: deduped, rejected, events };
+  return { candidates: deduped, tombstones, rejected, events };
 }

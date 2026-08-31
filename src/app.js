@@ -1268,6 +1268,7 @@ export function initApp() {
     superbasedTokenInput: '',
     superbasedError: null,
     knownWorkspaces: [],
+    forgottenPgWorkspaces: [],
     workspaceProfileRowsByKey: {},
     selectedWorkspaceKey: '',
     localWorkspaceCoreLoadedForKey: '',
@@ -2211,6 +2212,9 @@ export function initApp() {
         this.selectedWorkspaceKey = settings.currentWorkspaceKey ?? '';
         this.currentWorkspaceOwnerNpub = settings.currentWorkspaceOwnerNpub ?? '';
         this.knownWorkspaces = mergeWorkspaceEntries([], settings.knownWorkspaces ?? []);
+        this.forgottenPgWorkspaces = Array.isArray(settings.forgottenPgWorkspaces)
+          ? settings.forgottenPgWorkspaces
+          : [];
         this.knownHosts = Array.isArray(settings.knownHosts) ? settings.knownHosts : [];
         this.taskBoardSortPreferences = settings.taskBoardSortPreferences && typeof settings.taskBoardSortPreferences === 'object'
           ? settings.taskBoardSortPreferences

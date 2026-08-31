@@ -309,7 +309,10 @@ describe('PG workspace manager mode', () => {
 
   it('deletes an administered PG workspace from Tower before clearing its local cache', async () => {
     const api = await import('../src/api.js');
-    api.deleteTowerPgWorkspace.mockResolvedValue({ deleted: true });
+    api.deleteTowerPgWorkspace.mockResolvedValue({
+      deleted: true,
+      revoked_member_npubs: ['npub1agent', 'npub1member', 'npub1servermember'],
+    });
     vi.stubGlobal('confirm', vi.fn(() => true));
     vi.stubGlobal('alert', vi.fn());
     const workspace = {
@@ -326,11 +329,17 @@ describe('PG workspace manager mode', () => {
       name: 'Disposable',
     };
     const publishPgWorkspaceSelfIndexTombstone = vi.fn().mockResolvedValue({});
+    const publishPgOnboardingAnnouncementRevocation = vi.fn().mockResolvedValue({});
     const store = await buildStore({
       knownWorkspaces: [workspace],
       selectedWorkspaceKey: workspace.workspaceKey,
       currentWorkspaceOwnerNpub: workspace.workspaceOwnerNpub,
       publishPgWorkspaceSelfIndexTombstone,
+      publishPgOnboardingAnnouncementRevocation,
+      pgWorkspaceMembers: [
+        { npub: 'npub1agent' },
+        { npub: 'npub1member' },
+      ],
       stopBackgroundSync: vi.fn(),
       ensureBackgroundSync: vi.fn(),
       navigateTo: vi.fn(),
@@ -348,6 +357,53 @@ describe('PG workspace manager mode', () => {
     expect(publishPgWorkspaceSelfIndexTombstone).toHaveBeenCalledWith(workspace, {
       towerResult: 'workspace_deleted',
       reason: 'workspace_deleted',
+    });
+    expect(publishPgOnboardingAnnouncementRevocation).toHaveBeenCalledTimes(3);
+    expect(publishPgOnboardingAnnouncementRevocation).toHaveBeenCalledWith({
+      recipientNpub: 'npub1agent',
+      workspace,
+      grantId: 'workspace-1:workspace:npub1agent',
+      reason: 'workspace_deleted',
+      action: 'deleted',
+    });
+    expect(store.knownWorkspaces).toEqual([]);
+  });
+
+  it('persists a local forget marker without deleting the Tower workspace', async () => {
+    const api = await import('../src/api.js');
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const workspace = {
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceServiceNpub: 'npub1workspace',
+      workspaceId: 'workspace-1',
+      towerServiceNpub: 'npub1tower',
+      appNpub: 'flightdeck_pg',
+      directHttpsUrl: 'https://tower.example',
+      pgSessionNpub: 'npub1user',
+      pgBackendMode: true,
+      pgMe: { permissions: ['workspace.read'] },
+      name: 'Local only',
+    };
+    const store = await buildStore({
+      knownWorkspaces: [workspace],
+      selectedWorkspaceKey: workspace.workspaceKey,
+      currentWorkspaceOwnerNpub: workspace.workspaceOwnerNpub,
+      forgottenPgWorkspaces: [],
+      stopBackgroundSync: vi.fn(),
+      ensureBackgroundSync: vi.fn(),
+      navigateTo: vi.fn(),
+      removingWorkspace: false,
+    });
+
+    await store.removeWorkspace(workspace.workspaceKey);
+
+    expect(api.deleteTowerPgWorkspace).not.toHaveBeenCalled();
+    expect(store.forgottenPgWorkspaces).toHaveLength(1);
+    expect(store.forgottenPgWorkspaces[0]).toMatchObject({
+      sessionNpub: 'npub1user',
+      workspaceId: 'workspace-1',
+      reason: 'local_forget',
     });
     expect(store.knownWorkspaces).toEqual([]);
   });

@@ -114,6 +114,57 @@ function pgWorkspaceIdentityKeys(workspace = {}) {
   ].filter(Boolean);
 }
 
+function forgottenPgWorkspaceMarker(workspace = {}, {
+  sessionNpub = '',
+  forgottenAt = new Date().toISOString(),
+  reason = 'local_forget',
+} = {}) {
+  const identity = workspace?.identity && typeof workspace.identity === 'object' ? workspace.identity : workspace;
+  return {
+    sessionNpub: String(sessionNpub || '').trim(),
+    workspaceKey: String(workspace.workspaceKey || '').trim(),
+    workspaceId: String(identity.workspaceId || identity.workspace_id || '').trim(),
+    workspaceServiceNpub: String(identity.workspaceServiceNpub || identity.workspace_service_npub || '').trim(),
+    workspaceOwnerNpub: String(identity.workspaceOwnerNpub || identity.workspace_owner_npub || '').trim(),
+    towerServiceNpub: String(identity.towerServiceNpub || identity.tower_service_npub || '').trim(),
+    appNpub: String(identity.appNpub || identity.app_npub || '').trim(),
+    forgottenAt: String(forgottenAt || new Date().toISOString()),
+    reason: String(reason || 'local_forget'),
+  };
+}
+
+function sameForgottenPgWorkspace(left = {}, right = {}) {
+  const normalize = (workspace) => {
+    const identity = workspace?.identity && typeof workspace.identity === 'object' ? workspace.identity : workspace;
+    return {
+      workspaceKey: String(workspace?.workspaceKey || '').trim(),
+      workspaceId: String(identity?.workspaceId || identity?.workspace_id || '').trim(),
+      workspaceServiceNpub: String(identity?.workspaceServiceNpub || identity?.workspace_service_npub || '').trim(),
+      workspaceOwnerNpub: String(identity?.workspaceOwnerNpub || identity?.workspace_owner_npub || '').trim(),
+      towerServiceNpub: String(identity?.towerServiceNpub || identity?.tower_service_npub || '').trim(),
+      appNpub: String(identity?.appNpub || identity?.app_npub || '').trim(),
+    };
+  };
+  const a = normalize(left);
+  const b = normalize(right);
+  if (a.workspaceKey && b.workspaceKey) return a.workspaceKey === b.workspaceKey;
+  if (a.workspaceServiceNpub && b.workspaceServiceNpub) {
+    return a.workspaceServiceNpub === b.workspaceServiceNpub
+      && (!a.towerServiceNpub || !b.towerServiceNpub || a.towerServiceNpub === b.towerServiceNpub);
+  }
+  if (a.workspaceId && b.workspaceId) {
+    return a.workspaceId === b.workspaceId
+      && Boolean(a.towerServiceNpub && a.towerServiceNpub === b.towerServiceNpub);
+  }
+  return Boolean(
+    a.workspaceOwnerNpub
+    && a.workspaceOwnerNpub === b.workspaceOwnerNpub
+    && a.towerServiceNpub
+    && a.towerServiceNpub === b.towerServiceNpub
+    && (!a.appNpub || !b.appNpub || a.appNpub === b.appNpub)
+  );
+}
+
 function samePgWorkspaceIdentity(left = {}, right = {}) {
   const leftKey = String(left.workspaceKey || '').trim();
   const rightKey = String(right.workspaceKey || '').trim();
@@ -806,6 +857,7 @@ export const workspaceManagerMixin = {
       connectionToken: this.superbasedTokenInput,
       useCvmSync: this.useCvmSync,
       knownWorkspaces: this.knownWorkspaces,
+      forgottenPgWorkspaces: this.forgottenPgWorkspaces,
       knownHosts: this.knownHosts,
       currentWorkspaceKey: this.currentWorkspaceKey || '',
       currentWorkspaceOwnerNpub: this.currentWorkspaceOwnerNpub || '',
@@ -1464,17 +1516,49 @@ export const workspaceManagerMixin = {
     return this.rememberVerifiedPgWorkspace(descriptor, me);
   },
 
-  isPgWorkspaceForgottenThisLoad(workspace = {}) {
-    if (!(this._forgottenPgWorkspaceKeysThisLoad instanceof Set)) return false;
-    return pgWorkspaceIdentityKeys(workspace).some((key) => this._forgottenPgWorkspaceKeysThisLoad.has(key));
+  isPgWorkspaceForgottenThisLoad(workspace = {}, { event = null } = {}) {
+    const sessionNpub = String(this.session?.npub || '').trim();
+    const marker = (this.forgottenPgWorkspaces || []).find((entry) =>
+      (!entry.sessionNpub || entry.sessionNpub === sessionNpub)
+      && sameForgottenPgWorkspace(entry, workspace)
+    );
+    if (!marker) return false;
+
+    const eventMs = Number(event?.created_at || 0) * 1000;
+    const forgottenMs = Date.parse(marker?.forgottenAt || '');
+    if (eventMs > 0 && Number.isFinite(forgottenMs) && eventMs > forgottenMs) {
+      this.clearPgWorkspaceForgotten(workspace);
+      return false;
+    }
+    return true;
   },
 
-  rememberPgWorkspaceForgottenThisLoad(workspace = {}) {
+  rememberPgWorkspaceForgottenThisLoad(workspace = {}, options = {}) {
     if (!(this._forgottenPgWorkspaceKeysThisLoad instanceof Set)) {
       this._forgottenPgWorkspaceKeysThisLoad = new Set();
     }
     for (const key of pgWorkspaceIdentityKeys(workspace)) {
       this._forgottenPgWorkspaceKeysThisLoad.add(key);
+    }
+    const marker = forgottenPgWorkspaceMarker(workspace, {
+      sessionNpub: this.session?.npub,
+      ...options,
+    });
+    const retained = (this.forgottenPgWorkspaces || []).filter((entry) =>
+      entry.sessionNpub !== marker.sessionNpub || !sameForgottenPgWorkspace(entry, marker)
+    );
+    this.forgottenPgWorkspaces = [marker, ...retained].slice(0, 200);
+    return marker;
+  },
+
+  clearPgWorkspaceForgotten(workspace = {}) {
+    const sessionNpub = String(this.session?.npub || '').trim();
+    this.forgottenPgWorkspaces = (this.forgottenPgWorkspaces || []).filter((entry) =>
+      (entry.sessionNpub && entry.sessionNpub !== sessionNpub)
+      || !sameForgottenPgWorkspace(entry, workspace)
+    );
+    if (this._forgottenPgWorkspaceKeysThisLoad instanceof Set) {
+      for (const key of pgWorkspaceIdentityKeys(workspace)) this._forgottenPgWorkspaceKeysThisLoad.delete(key);
     }
   },
 
@@ -1514,7 +1598,9 @@ export const workspaceManagerMixin = {
       return { removed: false, reason: 'already_removed_this_load' };
     }
 
-    this.rememberPgWorkspaceForgottenThisLoad(workspace);
+    this.rememberPgWorkspaceForgottenThisLoad(workspace, {
+      reason: options.reason || 'workspace_unavailable',
+    });
     const removedCurrent = samePgWorkspaceIdentity(workspace, this.currentWorkspace || {})
       || String(this.selectedWorkspaceKey || '').trim() === String(workspace.workspaceKey || '').trim();
 
@@ -1658,13 +1744,20 @@ export const workspaceManagerMixin = {
     if (isCurrentWorkspace) this.stopWorkspaceLiveQueries();
 
     if (deletesFromTower) {
+      let revocationRecipients = [...new Set((this.pgWorkspaceMembers || [])
+        .map((member) => String(member?.npub || '').trim())
+        .filter((npub) => npub.startsWith('npub1')))];
       try {
-        await deleteTowerPgWorkspace(this, workspace.workspaceId, {
+        const deletion = await deleteTowerPgWorkspace(this, workspace.workspaceId, {
           confirmation: workspace.workspaceId,
         }, {
           baseUrl: workspace.directHttpsUrl || this.backendUrl,
           appNpub: workspace.appNpub || FLIGHT_DECK_PG_APP_NPUB,
         });
+        revocationRecipients = [...new Set([
+          ...revocationRecipients,
+          ...(Array.isArray(deletion?.revoked_member_npubs) ? deletion.revoked_member_npubs : []),
+        ].map((npub) => String(npub || '').trim()).filter((npub) => npub.startsWith('npub1')))];
       } catch (error) {
         this.removingWorkspace = false;
         this.ensureBackgroundSync();
@@ -1678,6 +1771,19 @@ export const workspaceManagerMixin = {
           reason: 'workspace_deleted',
         }).catch(() => null);
       }
+      if (typeof this.publishPgOnboardingAnnouncementRevocation === 'function') {
+        await Promise.all(revocationRecipients.map((recipientNpub) => (
+          this.publishPgOnboardingAnnouncementRevocation({
+            recipientNpub,
+            workspace,
+            grantId: `${workspace.workspaceId}:workspace:${recipientNpub}`,
+            reason: 'workspace_deleted',
+            action: 'deleted',
+          })
+        )));
+      }
+    } else if (workspace.pgBackendMode) {
+      this.rememberPgWorkspaceForgottenThisLoad(workspace, { reason: 'local_forget' });
     }
 
     // Remove from known workspaces list
@@ -2003,7 +2109,8 @@ export const workspaceManagerMixin = {
             if (workspace && !avatarUrl) delete workspace.avatarUrl;
             return workspace;
           })
-          .filter(Boolean);
+          .filter(Boolean)
+          .filter((workspace) => !this.isPgWorkspaceForgottenThisLoad(workspace));
         const remoteKeys = new Set(workspaces
           .map((workspace) => workspace.workspaceKey || workspace.workspaceOwnerNpub)
           .filter(Boolean));
