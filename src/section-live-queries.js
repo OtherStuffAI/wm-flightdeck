@@ -273,11 +273,13 @@ function buildWorkspaceSpecs(store) {
     },
     {
       key: 'ws:scopes',
+      equals: sameLogicalValue,
       query: () => getScopesByOwner(ownerNpub),
       onNext: (scopes) => store.applyScopes(scopes),
     },
     {
       key: 'ws:channels',
+      equals: sameLogicalValue,
       query: () => getChannelsByOwner(ownerNpub),
       onNext: (channels) => store.applyChannels(channels),
     },

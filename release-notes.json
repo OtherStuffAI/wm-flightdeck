@@ -1048,6 +1048,13 @@
         "Show Blocked as a normal task status across boards, filters, task details, quick actions, Inbox activity, and parent/subtask progress.",
         "Move tasks into and out of a dedicated Blocked column while preserving board ordering and existing blocked task data."
       ]
+    },
+    {
+      "buildNumber": 1862,
+      "label": "Responsive typing during workspace catch-up",
+      "notes": [
+        "Keep chat typing responsive while a large workspace catches up by avoiding repeated sidebar projection when synced scopes and channels have not changed."
+      ]
     }
   ]
 }

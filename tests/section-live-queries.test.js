@@ -72,6 +72,65 @@ describe('section live query plan', () => {
     ]);
   });
 
+  it('suppresses unchanged navigation projections across a realistic paged snapshot cadence', async () => {
+    const workspaceDbKey = 'section-live-query-paged-navigation';
+    const subscriptions = [];
+    const store = {
+      currentWorkspaceKey: workspaceDbKey,
+      workspaceOwnerNpub: 'npub1owner',
+      navSection: 'chat',
+      selectedChannelId: 'channel-1',
+      startSharedLiveQueries: vi.fn(),
+      createLiveSubscription: vi.fn((query, onNext, options = {}) => {
+        let delivered = false;
+        let previous;
+        const subscription = {
+          query,
+          deliver(value) {
+            if (delivered && options.equals?.(previous, value)) return;
+            delivered = true;
+            previous = value;
+            onNext(value);
+          },
+          unsubscribe() {},
+        };
+        subscriptions.push(subscription);
+        return subscription;
+      }),
+      stopLiveSubscription: vi.fn(),
+      initUnreadTracking: vi.fn(),
+      applyScopes: vi.fn(),
+      applyChannels: vi.fn(),
+      applyAudioNotes: vi.fn(),
+      applyMessages: vi.fn(),
+      applyReactions: vi.fn(),
+      applyChannelResponseActivities: vi.fn(),
+      applyAgentActivities: vi.fn(),
+    };
+
+    openWorkspaceDb(workspaceDbKey);
+    try {
+      sectionLiveQueryMixin.startWorkspaceLiveQueries.call(store);
+      const scopeSubscription = subscriptions.find(({ query }) => query.toString().includes('getScopesByOwner'));
+      const channelSubscription = subscriptions.find(({ query }) => query.toString().includes('getChannelsByOwner'));
+      expect(scopeSubscription).toBeTruthy();
+      expect(channelSubscription).toBeTruthy();
+
+      for (let page = 0; page < 33; page += 1) {
+        scopeSubscription.deliver([{ record_id: 'scope-1', owner_npub: 'npub1owner', title: 'Flight Deck' }]);
+        channelSubscription.deliver([{ record_id: 'channel-1', owner_npub: 'npub1owner', title: 'Performance' }]);
+      }
+
+      expect(store.applyScopes).toHaveBeenCalledTimes(1);
+      expect(store.applyChannels).toHaveBeenCalledTimes(1);
+
+      channelSubscription.deliver([{ record_id: 'channel-1', owner_npub: 'npub1owner', title: 'Performance updated' }]);
+      expect(store.applyChannels).toHaveBeenCalledTimes(2);
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
+  });
+
   it('keeps every materialised root when replies exceed the main feed page size', async () => {
     const workspaceDbKey = 'section-live-query-complete-chat-history';
     const channelId = 'testagent-dm';
@@ -123,7 +182,9 @@ describe('section live query plan', () => {
       };
 
       sectionLiveQueryMixin.startWorkspaceLiveQueries.call(store);
-      const messageSubscription = subscriptions.find((entry) => entry.options?.equals);
+      const messageSubscription = subscriptions.find((entry) => (
+        entry.query.toString().includes('getMessagePresentationWindowByChannel')
+      ));
       const materialisedMessages = await messageSubscription.query();
 
       expect(materialisedMessages).toHaveLength(82);
