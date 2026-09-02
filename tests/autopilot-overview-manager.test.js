@@ -86,6 +86,32 @@ describe('autopilot overview manager', () => {
     });
   });
 
+  it('reuses workspace-sized thread projections across unrelated composer updates', () => {
+    const store = {
+      channels,
+      messages,
+      fileMessages: [],
+      autopilotOverviewContext: { scopeId: 'all', channelId: 'all' },
+      scopesMap: new Map(),
+      groups: [],
+      chatProfiles: {},
+      session: {},
+      _unreadChannels: {},
+      _unreadThreadItems: {},
+      isTowerPgMode: true,
+    };
+    const getThreads = Object.getOwnPropertyDescriptor(autopilotOverviewManagerMixin, 'autopilotOverviewThreads').get;
+
+    const first = getThreads.call(store);
+    store.threadInput = 'ordinary typing';
+    expect(getThreads.call(store)).toBe(first);
+
+    store.fileMessages = [...messages, {
+      record_id: 'thread-c', channel_id: 'chan-a', body: 'New', updated_at: '2026-06-15T10:30:00.000Z',
+    }];
+    expect(getThreads.call(store)).not.toBe(first);
+  });
+
   it('deduplicates recent channels by their latest active thread and caps them newest first', () => {
     const rows = buildRecentChannels([
       { id: 'a-old', channelId: 'chan-a', latestMessageUpdatedAt: '2026-07-30T09:00:00.000Z' },

@@ -39,6 +39,24 @@ describe('files manager', () => {
     vi.clearAllMocks();
   });
 
+  it('reuses the file projection across unrelated reactive changes', () => {
+    const fileStore = Object.assign(Object.create(filesManagerMixin), {
+      documents: [{ record_id: 'doc-1', title: 'Doc', content: '[](storage://object-1)' }],
+      tasks: [],
+      channels: [],
+      fileMessages: [],
+      fileComments: [],
+      audioNotes: [],
+    });
+
+    const first = fileStore.fileBrowserRows;
+    fileStore.unrelatedComposerDraft = 'typing';
+    expect(fileStore.fileBrowserRows).toBe(first);
+
+    fileStore.fileMessages = [{ record_id: 'message-1', channel_id: 'channel-1' }];
+    expect(fileStore.fileBrowserRows).not.toBe(first);
+  });
+
   it('feeds Deck thread reconciliation when the status message snapshot changes', () => {
     const reconcileDeckThreadMessages = vi.fn();
     const fileStore = Object.assign(Object.create(filesManagerMixin), {

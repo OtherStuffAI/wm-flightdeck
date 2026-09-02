@@ -1062,6 +1062,13 @@
       "notes": [
         "Keep Inbox bulk-read shortcuts within the visible scope and its descendants, while preserving workspace-wide marking from All scopes."
       ]
+    },
+    {
+      "buildNumber": 1868,
+      "label": "Faster large-workspace navigation and typing",
+      "notes": [
+        "Keep workspace entry and chat typing responsive by bounding recent-activity work, reusing unchanged Deck projections, and committing composer drafts to reactive state only when needed."
+      ]
     }
   ]
 }

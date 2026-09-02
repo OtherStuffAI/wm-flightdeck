@@ -20,6 +20,28 @@ import { mapPgDocToLocal, mapPgFileToLocalDocument, resolveTowerPgWorkspaceConte
 const UNSCOPED_TASK_BOARD_ID = '__unscoped__';
 const STORAGE_REF_RE = /storage:\/\/([A-Za-z0-9-]+)/g;
 const MARKDOWN_STORAGE_REF_RE = /(!?)\[([^\]]*)\]\(storage:\/\/([A-Za-z0-9-]+)(?:\s+["'][^"']*["'])?\)/g;
+const fileBrowserRowsCache = new WeakMap();
+
+function sameReferences(previous = [], next = []) {
+  return previous.length === next.length
+    && next.every((value, index) => Object.is(value, previous[index]));
+}
+
+function cachedFileBrowserRows(store) {
+  const references = [
+    store.documents,
+    store.tasks,
+    store.channels,
+    store.fileMessages,
+    store.fileComments,
+    store.audioNotes,
+  ];
+  const cached = fileBrowserRowsCache.get(store);
+  if (cached && sameReferences(cached.references, references)) return cached.rows;
+  const rows = buildFileBrowserRows(store);
+  fileBrowserRowsCache.set(store, { references, rows });
+  return rows;
+}
 
 function normalizeString(value) {
   return String(value || '').trim();
@@ -1104,7 +1126,7 @@ export const filesManagerMixin = {
   },
 
   get fileBrowserRows() {
-    return buildFileBrowserRows(this);
+    return cachedFileBrowserRows(this);
   },
 
   get filteredFileBrowserRows() {

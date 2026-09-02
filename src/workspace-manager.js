@@ -802,11 +802,22 @@ export const workspaceManagerMixin = {
           appNpub: workspace.appNpub || FLIGHT_DECK_PG_APP_NPUB,
         })
       : Promise.resolve(null);
-    const [row, personalResponse] = await Promise.all([
-      getWorkspaceSettings(workspaceOwnerNpub),
-      personalRequest,
-    ]);
+    const row = await getWorkspaceSettings(workspaceOwnerNpub);
     this.applyWorkspaceSettingsRow(row, options);
+    if (options.deferPersonalResponse === true) {
+      personalRequest.then((personalResponse) => {
+        if (personalResponse && this.workspaceOwnerNpub === workspaceOwnerNpub) {
+          this.applyPersonalAgentSettings(personalResponse.settings, options);
+        }
+      }).catch((error) => {
+        flightDeckLog('debug', 'workspace', 'deferred personal settings refresh failed', {
+          workspaceOwnerNpub,
+          error: error?.message || String(error),
+        });
+      });
+      return row;
+    }
+    const personalResponse = await personalRequest;
     if (personalResponse) this.applyPersonalAgentSettings(personalResponse.settings, options);
     return row;
   },
@@ -1470,7 +1481,7 @@ export const workspaceManagerMixin = {
           console.debug('workspace app schema publish skipped:', error?.message || error);
         });
       }
-      await this.refreshWorkspaceSettings();
+      await this.refreshWorkspaceSettings({ deferPersonalResponse: true });
       this.syncWorkspaceProfileDraft({ force: true });
       if (shouldOpenWorkspaceHome) this.syncRoute?.(true);
     } finally {

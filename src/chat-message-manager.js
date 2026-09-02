@@ -1746,6 +1746,7 @@ export const chatMessageManagerMixin = {
   async sendMessage(options = {}) {
     const composer = options?.composerContext === 'thread-create' ? 'thread' : 'message';
     if (this.composerSendPending?.[composer]) return false;
+    this.commitMentionComposerDraft?.(composer);
     setComposerSendPending(this, composer, true);
     try {
       return await this.sendMessageAttempt(options);
@@ -1975,6 +1976,7 @@ export const chatMessageManagerMixin = {
 
   async sendThreadReply(options = {}) {
     if (this.composerSendPending?.thread) return false;
+    this.commitMentionComposerDraft?.('thread');
     setComposerSendPending(this, 'thread', true);
     try {
       return await this.sendThreadReplyAttempt(options);

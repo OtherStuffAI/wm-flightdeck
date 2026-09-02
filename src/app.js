@@ -368,6 +368,7 @@ const NUMBER_FORMATTER = new Intl.NumberFormat();
 const RECENT_ACTOR_MENTION_RESOLVERS = new WeakMap();
 const MENTION_PEOPLE_CACHE = new WeakMap();
 const MENTION_COMPOSER_MODELS = new WeakMap();
+const MENTION_COMPOSER_ELEMENTS = new WeakMap();
 const MENTION_DOCUMENT_INDEX_MAX_AGE_MS = 30_000;
 const PG_TASK_WRITE_QUEUE_SYNC_STATE_KEY = 'pg_task_write_queue:v1';
 const PG_TASK_WRITE_BATCH_SIZE = 6;
@@ -1396,6 +1397,7 @@ export function initApp() {
 
     // ui
     messageInput: '',
+    composerDraftHasText: { message: false, thread: false },
     chatComposerDrafts: {},
     messageAudioDrafts: [],
     messageFileDrafts: [],
@@ -4344,7 +4346,9 @@ export function initApp() {
       );
       this.patchMentionDocumentIndex(reconciledDocument);
       if (index >= 0) {
-        this.documents.splice(index, 1, reconciledDocument);
+        this.documents = this.documents.map((document, itemIndex) => (
+          itemIndex === index ? reconciledDocument : document
+        ));
       } else {
         this.documents = [...this.documents, reconciledDocument];
       }
@@ -4611,15 +4615,15 @@ export function initApp() {
       if (this.statusRecentChanges.length > 0 && !options.force && !options.hasNewData) return;
       const sinceIso = new Date(Date.now() - this.getStatusRangeMs()).toISOString();
       const [messages, documents, directories, reports, tasks, schedules, comments, scopes, flows] = await Promise.all([
-        getRecentChatMessagesSince(sinceIso),
-        getRecentDocumentChangesSince(sinceIso),
-        getRecentDirectoryChangesSince(sinceIso),
-        getRecentReportChangesSince(sinceIso),
-        getRecentTaskChangesSince(sinceIso),
-        getRecentScheduleChangesSince(sinceIso),
-        getRecentCommentsSince(sinceIso),
-        getRecentScopeChangesSince(sinceIso),
-        getRecentFlowChangesSince(sinceIso),
+        getRecentChatMessagesSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
+        getRecentDocumentChangesSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
+        getRecentDirectoryChangesSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
+        getRecentReportChangesSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
+        getRecentTaskChangesSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
+        getRecentScheduleChangesSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
+        getRecentCommentsSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
+        getRecentScopeChangesSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
+        getRecentFlowChangesSince(sinceIso, { limit: MAX_STATUS_RECENT_CHANGES }),
       ]);
       const items = [];
 
@@ -8613,17 +8617,38 @@ export function initApp() {
                 : this.newDocCommentReplyBody;
       hydrateMentionComposer(el, value);
       MENTION_COMPOSER_MODELS.set(el, String(value || ''));
+      if (['message', 'thread'].includes(composer)) {
+        const hasText = Boolean(String(value || '').trim());
+        if (this.composerDraftHasText[composer] !== hasText) this.composerDraftHasText[composer] = hasText;
+      }
+      let elements = MENTION_COMPOSER_ELEMENTS.get(this);
+      if (!elements) {
+        elements = new Map();
+        MENTION_COMPOSER_ELEMENTS.set(this, elements);
+      }
+      elements.set(composer, el);
       this.autosizeComposer(el);
     },
 
-    syncMentionComposerModel(el) {
+    syncMentionComposerModel(el, options = {}) {
       const composer = String(el?.dataset?.chatComposer || '').trim();
       if (!['message', 'thread', 'task-description', 'task-comment', 'doc-comment', 'doc-reply'].includes(composer)) return '';
       const previousValue = MENTION_COMPOSER_MODELS.get(el);
       const { value, actorMentions: mentions } = serializeMentionComposerState(el);
       MENTION_COMPOSER_MODELS.set(el, value);
-      if (composer === 'thread') this.threadInput = value;
-      else if (composer === 'message') this.messageInput = value;
+      if (['message', 'thread'].includes(composer)) {
+        const hasText = Boolean(value.trim());
+        if (this.composerDraftHasText[composer] !== hasText) this.composerDraftHasText[composer] = hasText;
+        let elements = MENTION_COMPOSER_ELEMENTS.get(this);
+        if (!elements) {
+          elements = new Map();
+          MENTION_COMPOSER_ELEMENTS.set(this, elements);
+        }
+        elements.set(composer, el);
+      }
+      const deferReactive = options.deferReactive === true && ['message', 'thread'].includes(composer);
+      if (composer === 'thread' && !deferReactive) this.threadInput = value;
+      else if (composer === 'message' && !deferReactive) this.messageInput = value;
       else if (composer === 'task-description' && this.editingTask) {
         this.editingTask.description = value;
         this.handleEditingTaskDraftChanged();
@@ -8649,9 +8674,30 @@ export function initApp() {
       return value;
     },
 
+    syncMentionComposerDraft(el) {
+      return this.syncMentionComposerModel(el, { deferReactive: true });
+    },
+
+    hasMentionComposerDraftText(composer) {
+      if (!['message', 'thread'].includes(composer)) return false;
+      return Boolean(this.composerDraftHasText?.[composer]);
+    },
+
+    commitMentionComposerDraft(composer, el = null) {
+      if (!['message', 'thread'].includes(composer)) return '';
+      const registered = MENTION_COMPOSER_ELEMENTS.get(this)?.get(composer);
+      const target = el || (registered?.isConnected ? registered : null);
+      if (!target) return String(composer === 'thread' ? this.threadInput : this.messageInput || '');
+      return this.syncMentionComposerModel(target);
+    },
+
     syncMentionComposerFromModel(el, composer, value) {
       if (!el || !['message', 'thread', 'task-description', 'task-comment', 'doc-comment', 'doc-reply'].includes(composer)) return;
       const normalizedValue = String(value || '');
+      if (['message', 'thread'].includes(composer)) {
+        const hasText = Boolean(normalizedValue.trim());
+        if (this.composerDraftHasText[composer] !== hasText) this.composerDraftHasText[composer] = hasText;
+      }
       const cachedValue = MENTION_COMPOSER_MODELS.get(el);
       if (cachedValue === normalizedValue) return;
       if (cachedValue == null && serializeMentionComposer(el) === normalizedValue) {

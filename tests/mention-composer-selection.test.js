@@ -34,6 +34,56 @@ beforeEach(() => {
 });
 
 describe('mention composer selection range', () => {
+  it.each(['message', 'thread'])('keeps ordinary %s typing outside the reactive root model until send commits it', async (composer) => {
+    const store = await createStore();
+    const root = document.createElement('div');
+    root.setAttribute('contenteditable', 'true');
+    document.body.append(root);
+    store.autosizeComposer = vi.fn();
+    store.scheduleComposerElementAutosize = vi.fn();
+    store.initMentionComposer(root, composer);
+
+    const modelKey = composer === 'thread' ? 'threadInput' : 'messageInput';
+    let modelValue = '';
+    let reactiveWrites = 0;
+    Object.defineProperty(store, modelKey, {
+      configurable: true,
+      get: () => modelValue,
+      set: (value) => {
+        reactiveWrites += 1;
+        modelValue = value;
+      },
+    });
+
+    for (let index = 0; index < 100; index += 1) {
+      root.textContent = `workspace-sized draft ${index}`;
+      store.syncMentionComposerDraft(root);
+    }
+
+    expect(reactiveWrites).toBe(0);
+    expect(store.hasMentionComposerDraftText(composer)).toBe(true);
+    expect(store.commitMentionComposerDraft(composer)).toBe('workspace-sized draft 99');
+    expect(reactiveWrites).toBe(1);
+    expect(modelValue).toBe('workspace-sized draft 99');
+  });
+
+  it('commits the most recently edited thread composer when multiple surfaces are mounted', async () => {
+    const store = await createStore();
+    store.autosizeComposer = vi.fn();
+    store.scheduleComposerElementAutosize = vi.fn();
+    const deckComposer = document.createElement('div');
+    const workroomComposer = document.createElement('div');
+    document.body.append(deckComposer, workroomComposer);
+    store.initMentionComposer(deckComposer, 'thread');
+    store.initMentionComposer(workroomComposer, 'thread');
+
+    deckComposer.textContent = 'active deck reply';
+    store.syncMentionComposerDraft(deckComposer);
+
+    expect(store.commitMentionComposerDraft('thread')).toBe('active deck reply');
+    expect(store.threadInput).toBe('active deck reply');
+  });
+
   it('does not inspect the selection range for ordinary text without an @ trigger', async () => {
     const store = await createStore();
     const root = document.createElement('div');
