@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   hydrateTowerPgChannels,
   hydrateTowerPgChannelMessages,
+  hydrateTowerPgThreadMessages,
   selectPgFallbackThreads,
   hydrateTowerPgChannelResponseActivities,
   hydrateTowerPgChannelAgentActivities,
@@ -573,6 +574,36 @@ describe('PG read hydrator', () => {
       pg_backend: true,
       pg_record_type: 'message',
       pg_thread_id: 'thread-1',
+    });
+  });
+
+  it('pages and materializes an effective branch transcript through the sync read path', async () => {
+    const persisted = [];
+    const calls = [];
+    const rows = await hydrateTowerPgThreadMessages(store(), 'channel-1', 'child-thread', {
+      getTowerPgChannelThreads: async () => ({ threads: [{
+        id: 'child-thread', workspace_id: 'workspace-1', scope_id: 'scope-1', channel_id: 'channel-1',
+        source_message_id: null, parent_thread_id: 'parent-thread', branch_point_message_id: 'm2',
+        metadata: { inherited_agent_recipient_npub: 'npub1agent' }, row_version: 1,
+      }, { id: 'parent-thread', source_message_id: 'm1', channel_id: 'channel-1' }] }),
+      getTowerPgChannelMessages: async (_workspaceId, _channelId, options) => {
+        calls.push(options);
+        return options.cursor
+          ? { messages: [{ id: 'm3', channel_id: 'channel-1', thread_id: 'child-thread', owning_thread_id: 'child-thread', effective_thread_id: 'child-thread', body: 'new', row_version: 1 }], next_cursor: null }
+          : { messages: [{ id: 'm1', channel_id: 'channel-1', thread_id: 'parent-thread', owning_thread_id: 'parent-thread', effective_thread_id: 'child-thread', inherited: true, read_only: true, body: 'history', row_version: 1 }], next_cursor: 'page-2' };
+      },
+      upsertMessage: async (row) => persisted.push(row),
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(calls.every((options) => options.effectiveTranscript === true)).toBe(true);
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ record_id: 'm1', pg_inherited: true, read_only: true }),
+      expect.objectContaining({ record_id: 'm3', parent_message_id: 'child-thread' }),
+    ]));
+    expect(persisted.at(-1)).toMatchObject({
+      record_id: 'child-thread', pg_parent_thread_id: 'parent-thread', pg_branch_point_message_id: 'm2',
+      pg_effective_message_ids: ['m1', 'm3'],
     });
   });
 

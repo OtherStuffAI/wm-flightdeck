@@ -54,6 +54,7 @@ import { isTowerPgBackendMode } from './backend-mode.js';
 import { DM_SCOPE_ID, buildDmChannelDescription, findExistingDmChannel } from './dm-scope.js';
 import {
   createTowerPgMessageFromLocal,
+  branchTowerPgThreadFromMessage,
   updateTowerPgMessageFromLocal,
   archiveTowerPgThreadFromLocal,
   deleteTowerPgMessageFromLocal,
@@ -368,7 +369,16 @@ function getChatDerivedState(store) {
     threadRepliesByParentId.set(parentMessageId, sortMessagesByUpdatedAt(replies));
   }
 
-  const threadMessages = activeThreadId ? (threadRepliesByParentId.get(activeThreadId) || []) : [];
+  const activeThreadRecord = activeThreadId
+    ? messages.find((message) => message?.record_id === activeThreadId) || null
+    : null;
+  const effectiveMessageIds = Array.isArray(activeThreadRecord?.pg_effective_message_ids)
+    ? activeThreadRecord.pg_effective_message_ids.map(String)
+    : [];
+  const messageById = new Map(messages.map((message) => [String(message?.record_id || ''), message]));
+  const threadMessages = effectiveMessageIds.length > 0
+    ? effectiveMessageIds.map((messageId) => messageById.get(messageId)).filter(Boolean)
+    : activeThreadId ? (threadRepliesByParentId.get(activeThreadId) || []) : [];
   const resolvedThreadVisibleReplyCount = resolveVisibleThreadReplyCount(
     threadMessages,
     threadVisibleReplyCount,
@@ -427,6 +437,9 @@ export const chatMessageManagerMixin = {
 
   composerSendPending: { message: false, thread: false },
   messageResendPendingIds: [],
+  branchSubmittingMessageId: null,
+  branchRequestIdsByMessage: {},
+  branchThreadError: '',
 
   // --- computed getters ---
 
@@ -1256,6 +1269,126 @@ export const chatMessageManagerMixin = {
   },
 
   // --- thread lifecycle ---
+
+  canBranchFromMessage(message) {
+    if (!this.isTowerPgMode || !message?.pg_backend || message?.record_state === 'deleted') return false;
+    if (message?.pg_record_type === 'thread') return false;
+    return Boolean(message?.pg_thread_id || message?.pg_effective_thread_id);
+  },
+
+  isBranchFromMessageSubmitting(recordId) {
+    return this.branchSubmittingMessageId === String(recordId || '').trim();
+  },
+
+  getBranchHistoryThrough(message) {
+    const messageId = String(message?.record_id || '').trim();
+    if (!messageId) return [];
+    const activeThread = this.getActiveThreadRecord?.();
+    const activeEffectiveIds = Array.isArray(activeThread?.pg_effective_message_ids)
+      ? activeThread.pg_effective_message_ids.map(String)
+      : [];
+    let history;
+    if (activeEffectiveIds.includes(messageId)) {
+      const byId = new Map((this.messages || []).map((row) => [String(row?.record_id || ''), row]));
+      history = activeEffectiveIds.map((id) => byId.get(id)).filter(Boolean);
+    } else {
+      const rootId = String(message?.parent_message_id || messageId).trim();
+      const root = (this.messages || []).find((row) => row?.record_id === rootId) || message;
+      history = [root, ...(this.getThreadReplies?.(rootId) || [])];
+    }
+    const branchIndex = history.findIndex((row) => row?.record_id === messageId);
+    return branchIndex >= 0 ? history.slice(0, branchIndex + 1) : [message];
+  },
+
+  resolveBranchAgentRecipient(message) {
+    const history = this.getBranchHistoryThrough(message);
+    const knownAgentNpubs = new Set((this.visiblePersonalAgents || [])
+      .map((agent) => String(agent?.npub || '').trim())
+      .filter(Boolean));
+    for (const row of [...history].reverse()) {
+      const metadata = row?.pg_metadata && typeof row.pg_metadata === 'object' ? row.pg_metadata : {};
+      const mention = (Array.isArray(metadata.mentions) ? metadata.mentions : [])
+        .find((entry) => {
+          const npub = String(entry?.npub || '').trim();
+          return npub && (entry?.type === 'agent' || knownAgentNpubs.has(npub));
+        });
+      if (mention) return { type: 'agent', npub: String(mention.npub).trim(), label: String(mention.label || this.getSenderName?.(mention.npub) || mention.npub).trim() };
+    }
+    const inheritedNpub = String(this.getActiveThreadRecord?.()?.pg_metadata?.inherited_agent_recipient_npub || '').trim();
+    if (inheritedNpub) return { type: 'agent', npub: inheritedNpub, label: this.getSenderName?.(inheritedNpub) || inheritedNpub };
+    const channel = (this.channels || []).find((item) => item?.record_id === message?.channel_id) || this.selectedChannel;
+    if ([channel?.kind, channel?.channel_type, channel?.pg_kind].includes('dm')) {
+      const ownNpub = String(this.session?.npub || '').trim();
+      const agentNpub = (channel.participant_npubs || [])
+        .map((npub) => String(npub || '').trim())
+        .find((npub) => npub && npub !== ownNpub && knownAgentNpubs.has(npub));
+      if (agentNpub) return { type: 'agent', npub: agentNpub, label: this.getSenderName?.(agentNpub) || agentNpub };
+    }
+    return null;
+  },
+
+  getActiveBranchRecipientNpub() {
+    return String(this.getActiveThreadRecord?.()?.pg_metadata?.inherited_agent_recipient_npub || '').trim();
+  },
+
+  async branchFromMessage(recordId) {
+    const messageId = String(recordId || '').trim();
+    const message = (this.messages || []).find((row) => row?.record_id === messageId) || null;
+    if (!this.canBranchFromMessage(message) || this.branchSubmittingMessageId) return false;
+    const activeThread = this.getActiveThreadRecord?.();
+    const effectiveIds = Array.isArray(activeThread?.pg_effective_message_ids) ? activeThread.pg_effective_message_ids.map(String) : [];
+    const parentThreadId = effectiveIds.includes(messageId)
+      ? String(activeThread?.pg_thread_id || activeThread?.record_id || '').trim()
+      : String(message?.pg_thread_id || '').trim();
+    const recipient = this.resolveBranchAgentRecipient(message);
+    const requestIds = { ...(this.branchRequestIdsByMessage || {}) };
+    const clientRequestId = requestIds[messageId] || `branch:${crypto.randomUUID()}`;
+    requestIds[messageId] = clientRequestId;
+    this.branchRequestIdsByMessage = requestIds;
+    this.branchSubmittingMessageId = messageId;
+    this.branchThreadError = '';
+    this.closeMessageActionsMenu?.();
+    try {
+      const thread = await branchTowerPgThreadFromMessage(this, message, {
+        clientRequestId,
+        recipientNpub: recipient?.npub || '',
+        parentThreadId,
+      });
+      const history = this.getBranchHistoryThrough(message);
+      const materialized = {
+        ...thread,
+        pg_effective_message_ids: history.map((row) => row.record_id).filter(Boolean),
+      };
+      await upsertMessage(materialized);
+      this.patchMessageLocal(materialized);
+      const nextRequestIds = { ...(this.branchRequestIdsByMessage || {}) };
+      delete nextRequestIds[messageId];
+      this.branchRequestIdsByMessage = nextRequestIds;
+      this.openThread(materialized.record_id, { scrollToLatest: false });
+      if (recipient) {
+        const mentionToken = `@[${recipient.label}](mention:agent:${recipient.npub})`;
+        this.threadInput = `${mentionToken} `;
+        this.selectedAgentMentionsByComposer = {
+          ...(this.selectedAgentMentionsByComposer || {}),
+          thread: [recipient],
+        };
+      } else {
+        this.threadInput = '';
+      }
+      void this.requestTowerSyncFamily?.('thread-history', `${materialized.channel_id}:${materialized.pg_thread_id}`, {
+        channelId: materialized.channel_id,
+        threadId: materialized.pg_thread_id,
+        force: true,
+      });
+      return materialized;
+    } catch (error) {
+      this.branchThreadError = error instanceof Error ? error.message : String(error);
+      this.error = `Branch could not be created: ${this.branchThreadError}`;
+      return false;
+    } finally {
+      this.branchSubmittingMessageId = null;
+    }
+  },
 
   openThread(recordId, options = {}) {
     this.saveChatComposerDraft?.('thread');
@@ -2268,6 +2401,7 @@ export const chatMessageManagerMixin = {
     return Boolean(
       isTowerPgBackendMode()
       && message?.pg_backend === true
+      && message?.read_only !== true
       && message?.record_state !== 'deleted'
       && message?.sync_status === 'synced'
       && senderNpub
@@ -2283,6 +2417,7 @@ export const chatMessageManagerMixin = {
     return Boolean(
       isTowerPgBackendMode()
       && message?.pg_backend === true
+      && message?.read_only !== true
       && message?.record_state !== 'deleted'
       && message?.sync_status === 'failed'
       && recordId

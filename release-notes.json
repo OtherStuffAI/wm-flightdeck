@@ -1069,6 +1069,13 @@
       "notes": [
         "Keep workspace entry and chat typing responsive by bounding recent-activity work, reusing unchanged Deck projections, and committing composer drafts to reactive state only when needed."
       ]
+    },
+    {
+      "buildNumber": 1869,
+      "label": "Branch chat from any message",
+      "notes": [
+        "Start an independent chat thread from any message while keeping the conversation up to that point as read-only context for the new question."
+      ]
     }
   ]
 }

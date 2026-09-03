@@ -45,6 +45,7 @@ export const TOWER_WORKSPACE_COMMAND_CONTRACT = Object.freeze({
     'document.create', 'document.update', 'document.delete', 'document.move',
     'document-comment.create', 'document-comment.update', 'document-comment.delete',
     'message.create', 'message.update', 'message.delete',
+    'thread.branch',
     'file.create', 'file.update', 'file-folder.create', 'audio-note.create',
     'scope.create', 'scope.update', 'scope.delete',
     'channel.create', 'channel.update', 'channel.delete',
@@ -128,6 +129,20 @@ async function reconcileTypedCommand(name, result, { owner = '', args = [] } = {
 }
 
 export function prepareTowerWorkspaceCommand(store, name, input = {}) {
+  if (name === 'thread.branch') {
+    return {
+      entityKey: `thread.branch:${input.clientRequestId || input.message?.record_id || ''}`,
+      execute: () => pgWrites.branchTowerPgThreadFromMessage(store, input.message, {
+        clientRequestId: input.clientRequestId,
+        recipientNpub: input.recipientNpub,
+        parentThreadId: input.parentThreadId,
+      }),
+      reconcile: async (thread) => {
+        if (thread?.record_id) await upsertMessage(thread);
+        return thread;
+      },
+    };
+  }
   const typedApiCommandName = {
     'workroom.create': 'createTowerPgWorkroom',
     'workroom.start': 'startTowerPgWorkroom',

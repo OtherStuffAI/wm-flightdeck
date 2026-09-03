@@ -786,6 +786,12 @@ export async function getMessagePresentationWindowByChannel(channelId, options =
       .map((recordId) => db.chat_messages.get(recordId))),
   ]);
   const focusedRows = focused.filter(Boolean);
+  const effectiveMessageIds = [...new Set(focusedRows.flatMap((row) => (
+    Array.isArray(row?.pg_effective_message_ids) ? row.pg_effective_message_ids.map(String) : []
+  )).filter(Boolean))];
+  const effectiveRows = effectiveMessageIds.length
+    ? (await db.chat_messages.bulkGet(effectiveMessageIds)).filter(Boolean)
+    : [];
   const focusedRootIds = [...focusedRows, ...unsynced]
     .map((row) => String(row.parent_message_id || '').trim())
     .filter((recordId) => recordId && !rootIds.includes(recordId));
@@ -793,7 +799,7 @@ export async function getMessagePresentationWindowByChannel(channelId, options =
     ? (await db.chat_messages.bulkGet(focusedRootIds)).filter(Boolean)
     : [];
   const rowsById = new Map();
-  for (const row of [...recentRows, ...replies, ...unsynced, ...focusedRows, ...focusedRoots]) {
+  for (const row of [...recentRows, ...replies, ...unsynced, ...focusedRows, ...focusedRoots, ...effectiveRows]) {
     if (row?.record_id && row.channel_id === normalizedChannelId) rowsById.set(row.record_id, row);
   }
   return buildThreadAwarePresentationWindow([...rowsById.values()], options);

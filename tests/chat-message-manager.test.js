@@ -23,6 +23,7 @@ vi.mock('../src/pg-write-adapter.js', () => ({
   deleteTowerPgMessageFromLocal: vi.fn(),
   deleteTowerPgThreadFromLocal: vi.fn(),
   updateTowerPgThreadTitleFromLocal: vi.fn(),
+  branchTowerPgThreadFromMessage: vi.fn(),
 }));
 
 vi.mock('../src/api.js', async (importOriginal) => ({
@@ -37,7 +38,7 @@ import { completeStorageObject, downloadStorageObjectBlob, uploadStorageObject }
 import { chatMessageManagerMixin } from '../src/chat-message-manager.js';
 import { createChatThreadFlowDispatchState } from '../src/chat-thread-flow-dispatch.js';
 import { createChatGetItDoneState } from '../src/chat-get-it-done.js';
-import { createTowerPgMessageFromLocal, updateTowerPgMessageFromLocal, updateTowerPgThreadTitleFromLocal } from '../src/pg-write-adapter.js';
+import { branchTowerPgThreadFromMessage, createTowerPgMessageFromLocal, updateTowerPgMessageFromLocal, updateTowerPgThreadTitleFromLocal } from '../src/pg-write-adapter.js';
 import {
   archiveTowerPgThreadFromLocal,
   deleteTowerPgMessageFromLocal,
@@ -61,6 +62,7 @@ beforeEach(() => {
   deleteTowerPgMessageFromLocal.mockReset();
   deleteTowerPgThreadFromLocal.mockReset();
   updateTowerPgThreadTitleFromLocal.mockReset();
+  branchTowerPgThreadFromMessage.mockReset();
   completeStorageObject.mockReset();
   downloadStorageObjectBlob.mockReset();
   uploadStorageObject.mockReset();
@@ -529,6 +531,55 @@ describe('chat message computed getters', () => {
 // Thread lifecycle
 // ---------------------------------------------------------------------------
 describe('thread lifecycle', () => {
+  it('creates and opens an inert child branch with inherited history and recipient ready', async () => {
+    const workspaceDbKey = 'chat-message-manager-branch';
+    await openWorkspaceDb(workspaceDbKey);
+    isTowerPgBackendMode.mockReturnValue(true);
+    branchTowerPgThreadFromMessage.mockResolvedValue({
+      record_id: 'child-thread', channel_id: 'channel-1', pg_thread_id: 'child-thread', pg_backend: true,
+      pg_record_type: 'thread', pg_metadata: { inherited_agent_recipient_npub: 'npub1agent' },
+    });
+    const requestTowerSyncFamily = vi.fn().mockResolvedValue([]);
+    const store = createStore({
+      isTowerPgMode: true,
+      selectedChannelId: 'channel-1',
+      channels: [{ record_id: 'channel-1' }],
+      session: { npub: 'npub1human' },
+      activeThreadId: 'root',
+      requestTowerSyncFamily,
+      getSenderName: (npub) => npub === 'npub1agent' ? 'Example Agent' : npub,
+      messages: [
+        { record_id: 'root', channel_id: 'channel-1', pg_backend: true, pg_thread_id: 'parent-thread', parent_message_id: null, pg_metadata: { mentions: [{ type: 'agent', npub: 'npub1agent', label: 'Example Agent' }] } },
+        { record_id: 'reply', channel_id: 'channel-1', pg_backend: true, pg_thread_id: 'parent-thread', parent_message_id: 'root' },
+      ],
+    });
+
+    const child = await store.branchFromMessage('reply');
+
+    expect(branchTowerPgThreadFromMessage).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ record_id: 'reply' }), expect.objectContaining({
+      parentThreadId: 'parent-thread', recipientNpub: 'npub1agent', clientRequestId: expect.stringMatching(/^branch:/),
+    }));
+    expect(child).toMatchObject({ record_id: 'child-thread', pg_effective_message_ids: ['root', 'reply'] });
+    expect(store.activeThreadId).toBe('child-thread');
+    expect(store.threadInput).toBe('@[Example Agent](mention:agent:npub1agent) ');
+    expect(requestTowerSyncFamily).toHaveBeenCalledWith('thread-history', 'channel-1:child-thread', expect.objectContaining({ force: true }));
+    await deleteWorkspaceDb(workspaceDbKey);
+  });
+
+  it('retains the same branch idempotency key after a failed attempt', async () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    branchTowerPgThreadFromMessage.mockRejectedValue(new Error('network lost'));
+    const store = createStore({
+      isTowerPgMode: true,
+      messages: [{ record_id: 'root', channel_id: 'channel-1', pg_backend: true, pg_thread_id: 'parent-thread' }],
+    });
+    await store.branchFromMessage('root');
+    const firstId = branchTowerPgThreadFromMessage.mock.calls[0][2].clientRequestId;
+    await store.branchFromMessage('root');
+    expect(branchTowerPgThreadFromMessage.mock.calls[1][2].clientRequestId).toBe(firstId);
+    expect(store.branchThreadError).toBe('network lost');
+  });
+
   it('openThread sets active thread and resets state', () => {
     const { fn, store } = bindMethod('openThread', {
       activeThreadId: null,

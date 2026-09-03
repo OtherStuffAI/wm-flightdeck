@@ -923,19 +923,31 @@ export async function updateTowerPgThread(workspaceId, threadId, body, { baseUrl
   return json(resp, { requestUrl, method: 'PATCH', prefix: 'Tower PG API' });
 }
 
-export async function getTowerPgChannelMessages(workspaceId, channelId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, threadId = null, limit = 200, cursor = null } = {}) {
+export async function getTowerPgChannelMessages(workspaceId, channelId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, threadId = null, effectiveTranscript = false, limit = 200, cursor = null } = {}) {
   const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
   const encodedChannelId = encodeURIComponent(String(channelId || '').trim());
   if (!encodedWorkspaceId) throw new Error('Tower PG workspace id is required');
   if (!encodedChannelId) throw new Error('Tower PG channel id is required');
   const params = new URLSearchParams();
   if (threadId) params.set('thread_id', String(threadId));
+  if (effectiveTranscript) params.set('effective_transcript', 'true');
   if (limit) params.set('limit', String(limit));
   if (cursor) params.set('cursor', String(cursor));
   const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/channels/${encodedChannelId}/messages${params.size > 0 ? `?${params.toString()}` : ''}`;
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
   const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
   return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+}
+
+export async function createTowerPgThreadBranch(workspaceId, channelId, parentThreadId, body, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
+  const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
+  const encodedChannelId = encodeURIComponent(String(channelId || '').trim());
+  const encodedParentThreadId = encodeURIComponent(String(parentThreadId || '').trim());
+  if (!encodedWorkspaceId || !encodedChannelId || !encodedParentThreadId) throw new Error('Tower PG branch identity is required');
+  const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/channels/${encodedChannelId}/threads/${encodedParentThreadId}/branches`;
+  const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
+  const resp = await signedTowerPgFetch(requestPath, { method: 'POST', body, baseUrl, appNpub });
+  return json(resp, { requestUrl, method: 'POST', prefix: 'Tower PG API' });
 }
 
 export async function getTowerPgChannelTasks(workspaceId, channelId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, limit = 200 } = {}) {

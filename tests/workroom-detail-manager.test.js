@@ -388,7 +388,8 @@ describe('workroom announcement thread helpers', () => {
 
     await store.openSelectedWorkroomThread({ syncRoute: false, refreshMessages: false });
 
-    expect(persisted.map((row) => row.record_id)).toEqual(['message-1', 'reply-1']);
+    expect(persisted.map((row) => row.record_id)).toEqual(['message-1', 'reply-1', 'thread-1']);
+    expect(persisted.at(-1)).toMatchObject({ record_id: 'thread-1', pg_effective_message_ids: ['message-1', 'reply-1'] });
     expect(patched).toEqual([]);
     expect(store.selectedWorkroomAnnouncementMessageId).toBe('message-1');
     expect(store.selectedWorkroomThreadReplies).toEqual([]);

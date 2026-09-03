@@ -102,6 +102,10 @@ export const createTowerPgDocCommentFromLocal = (store, comment) => issue(store,
 export const updateTowerPgDocCommentFromLocal = (store, comment) => issue(store, 'document-comment.update', { comment }, mutationKey(comment));
 export const deleteTowerPgDocCommentFromLocal = (store, comment) => issue(store, 'document-comment.delete', { comment }, mutationKey(comment, 'delete'));
 export const createTowerPgMessageFromLocal = (store, message, options) => issue(store, 'message.create', { message, options }, message?.record_id);
+export const branchTowerPgThreadFromMessage = (store, message, { clientRequestId, recipientNpub = '', parentThreadId = '' } = {}) => issue(store, 'thread.branch',
+  { message, clientRequestId, recipientNpub, parentThreadId },
+  clientRequestId || message?.record_id,
+);
 export const updateTowerPgMessageFromLocal = (store, message, patch = {}) => issue(store, 'message.update', { message, patch }, mutationKey(message, patch?.body));
 export const deleteTowerPgMessageFromLocal = (store, message) => issue(store, 'message.delete', { message }, mutationKey(message, 'delete'));
 export const deleteTowerPgThreadFromLocal = (store, parentMessage) => issue(store, 'thread.delete', { parentMessage }, mutationKey(parentMessage, 'thread-delete'));

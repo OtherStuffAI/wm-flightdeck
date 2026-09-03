@@ -4,6 +4,7 @@ import {
   createTowerPgChannelFile,
   createTowerPgChannelFileFolder,
   createTowerPgChannelMessage,
+  createTowerPgThreadBranch,
   createTowerPgChannelTask,
   archiveTowerPgThread,
   createTowerPgDocComment,
@@ -35,6 +36,7 @@ import {
   mapPgDocCommentToLocal,
   mapPgTaskToLocal,
   mapPgTaskCommentToLocal,
+  mapPgThreadToLocal,
   resolveTowerPgWorkspaceContext,
 } from './pg-read-hydrator.js';
 import { recordFamilyHash } from './translators/chat.js';
@@ -620,6 +622,28 @@ export async function createTowerPgMessageFromLocal(store, message, options = {}
     workspaceOwnerNpub: context.workspaceOwnerNpub,
     senderNpub: store?.session?.npub,
     threadById,
+  });
+}
+
+export async function branchTowerPgThreadFromMessage(store, message, { clientRequestId, recipientNpub = '', parentThreadId: parentThreadIdOverride = '' } = {}) {
+  const context = resolveTowerPgWorkspaceContext(store);
+  const channelId = trimText(message?.channel_id);
+  const parentThreadId = trimText(parentThreadIdOverride || message?.pg_effective_thread_id || message?.pg_thread_id);
+  const branchPointMessageId = trimText(message?.record_id);
+  if (!context.workspaceId || !channelId || !parentThreadId || !branchPointMessageId) {
+    throw new Error('Tower PG branch source is not ready');
+  }
+  const result = await createTowerPgThreadBranch(context.workspaceId, channelId, parentThreadId, {
+    branch_point_message_id: branchPointMessageId,
+    client_request_id: trimText(clientRequestId),
+    metadata: {
+      source: 'flightdeck_branch',
+      ...(trimText(recipientNpub) ? { inherited_agent_recipient_npub: trimText(recipientNpub) } : {}),
+    },
+  }, pgRequestOptions(context));
+  return mapPgThreadToLocal(result.thread, {
+    workspaceOwnerNpub: context.workspaceOwnerNpub,
+    senderNpub: store?.session?.npub,
   });
 }
 

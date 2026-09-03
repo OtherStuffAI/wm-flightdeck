@@ -27,6 +27,7 @@ import {
   getTowerPgTask,
   getTowerPgTaskComments,
   getTowerPgChannelThreads,
+  getTowerPgThread,
   getTowerPgScopeChannels,
   getTowerPgScopeTasks,
   getTowerPgWorkspaceMembers,
@@ -569,6 +570,10 @@ export function mapPgThreadToLocal(thread, {
     pg_workspace_id: trimText(thread?.workspace_id),
     pg_scope_id: trimText(thread?.scope_id),
     pg_source_message_id: trimText(thread?.source_message_id) || null,
+    pg_parent_thread_id: trimText(thread?.parent_thread_id) || null,
+    pg_branch_point_message_id: trimText(thread?.branch_point_message_id) || null,
+    pg_client_request_id: trimText(thread?.client_request_id) || null,
+    pg_metadata: thread?.metadata && typeof thread.metadata === 'object' && !Array.isArray(thread.metadata) ? thread.metadata : {},
     pg_thread_id: recordId || null,
     activity_version: activityVersion(thread?.activity_version),
     pg_archived_at: trimText(thread?.archived_at) || null,
@@ -598,7 +603,9 @@ export function mapPgMessageToLocal(message, {
   return {
     record_id: recordId,
     channel_id: trimText(message?.channel_id),
-    parent_message_id: threadId && sourceMessageId && sourceMessageId !== recordId ? sourceMessageId : null,
+    parent_message_id: threadId
+      ? (sourceMessageId && sourceMessageId !== recordId ? sourceMessageId : (!sourceMessageId ? threadId : null))
+      : null,
     title: isThreadSourceMessage ? (trimText(thread?.title) || trimText(message?.body) || 'Untitled thread') : '',
     body: trimText(message?.body),
     attachments: Array.isArray(message?.attachments) && message.attachments.length > 0
@@ -626,6 +633,10 @@ export function mapPgMessageToLocal(message, {
     pg_created_by_actor_npub: trimText(message?.created_by_actor_npub),
     pg_created_by_actor_label: trimText(message?.created_by_actor_label),
     pg_client_record_id: trimText(metadata.client_record_id),
+    pg_owning_thread_id: trimText(message?.owning_thread_id || message?.thread_id) || null,
+    pg_effective_thread_id: trimText(message?.effective_thread_id) || null,
+    pg_inherited: message?.inherited === true,
+    read_only: message?.read_only === true || message?.inherited === true,
     pg_metadata: metadata,
   };
 }
@@ -1896,26 +1907,44 @@ export async function hydrateTowerPgThreadMessages(store, channelId, threadId, d
   const targetThreadId = trimText(threadId);
   if (!context.workspaceId || !context.workspaceOwnerNpub || !context.baseUrl || !targetChannelId || !targetThreadId) return [];
   const readThreads = deps.getTowerPgChannelThreads || getTowerPgChannelThreads;
+  const readThread = deps.getTowerPgThread || (!deps.getTowerPgChannelThreads ? getTowerPgThread : null);
   const readMessages = deps.getTowerPgChannelMessages || getTowerPgChannelMessages;
   const persistMessage = deps.upsertMessage || upsertMessage;
   const messageId = trimText(deps.messageId);
-  const threadResult = messageId ? null : await readThreads(context.workspaceId, targetChannelId, {
-    baseUrl: context.baseUrl,
-    appNpub: context.appNpub,
-    includeArchived: true,
-    limit: Number(deps.threadLimit || 100),
-  });
+  const threadResult = messageId
+    ? null
+    : readThread
+      ? await readThread(context.workspaceId, targetThreadId, {
+          baseUrl: context.baseUrl,
+          appNpub: context.appNpub,
+        })
+      : await readThreads(context.workspaceId, targetChannelId, {
+          baseUrl: context.baseUrl,
+          appNpub: context.appNpub,
+          includeArchived: true,
+          limit: Number(deps.threadLimit || 100),
+        });
   const rawThreads = messageId
     ? [{ id: targetThreadId, source_message_id: messageId, channel_id: targetChannelId }]
-    : (Array.isArray(threadResult?.threads) ? threadResult.threads : []);
+    : readThread
+      ? [threadResult?.thread || threadResult].filter((thread) => thread?.id)
+      : (Array.isArray(threadResult?.threads) ? threadResult.threads : []);
   const threadById = new Map(rawThreads.map((thread) => [trimText(thread?.id), thread]).filter(([id]) => id));
-  const result = await readMessages(context.workspaceId, targetChannelId, {
-    baseUrl: context.baseUrl,
-    appNpub: context.appNpub,
-    threadId: targetThreadId,
-    limit: Number(deps.limit || 200),
-  });
-  const rows = (Array.isArray(result?.messages) ? result.messages : [])
+  const rawMessages = [];
+  let cursor = null;
+  do {
+    const result = await readMessages(context.workspaceId, targetChannelId, {
+      baseUrl: context.baseUrl,
+      appNpub: context.appNpub,
+      threadId: targetThreadId,
+      effectiveTranscript: true,
+      cursor,
+      limit: Number(deps.limit || 200),
+    });
+    rawMessages.push(...(Array.isArray(result?.messages) ? result.messages : []));
+    cursor = trimText(result?.next_cursor) || null;
+  } while (cursor);
+  const rows = rawMessages
     .map((message) => mapPgMessageToLocal(message, {
       workspaceOwnerNpub: context.workspaceOwnerNpub,
       senderNpub: '',
@@ -1923,6 +1952,16 @@ export async function hydrateTowerPgThreadMessages(store, channelId, threadId, d
     }))
     .filter((message) => message.record_id && message.channel_id);
   await Promise.all(rows.map((row) => persistMessage(row)));
+  const rawThread = rawThreads.find((thread) => trimText(thread?.id) === targetThreadId);
+  if (rawThread) {
+    await persistMessage({
+      ...mapPgThreadToLocal(rawThread, {
+        workspaceOwnerNpub: context.workspaceOwnerNpub,
+        senderNpub: '',
+      }),
+      pg_effective_message_ids: rows.map((row) => row.record_id),
+    });
+  }
   return rows;
 }
 

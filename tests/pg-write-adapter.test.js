@@ -10,6 +10,7 @@ import {
   createTowerPgTaskCommentFromLocal,
   createTowerPgTaskFromLocal,
   archiveTowerPgThreadFromLocal,
+  branchTowerPgThreadFromMessage,
   deleteTowerPgDocCommentFromLocal,
   deleteTowerPgMessageFromLocal,
   deleteTowerPgTaskFromLocal,
@@ -34,6 +35,7 @@ vi.mock('../src/api.js', () => ({
   createTowerPgChannelFile: vi.fn(),
   createTowerPgChannelFileFolder: vi.fn(),
   createTowerPgChannelMessage: vi.fn(),
+  createTowerPgThreadBranch: vi.fn(),
   createTowerPgChannelTask: vi.fn(),
   createTowerPgDocComment: vi.fn(),
   createTowerPgTaskComment: vi.fn(),
@@ -843,6 +845,25 @@ describe('PG write adapter', () => {
       thread_title: 'Explicit first ten words',
     }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
     expect(message).toMatchObject({ record_id: 'message-1', parent_message_id: null, pg_thread_id: 'thread-1' });
+  });
+
+  it('creates an empty child thread without posting a message', async () => {
+    const api = await import('../src/api.js');
+    api.createTowerPgThreadBranch.mockResolvedValue({ thread: {
+      id: 'child-thread', workspace_id: 'workspace-1', scope_id: 'scope-1', channel_id: 'channel-1',
+      source_message_id: null, parent_thread_id: 'parent-thread', branch_point_message_id: 'message-2',
+      client_request_id: 'branch:attempt-1', metadata: { inherited_agent_recipient_npub: 'npub1agent' }, row_version: 1,
+    } });
+    const child = await branchTowerPgThreadFromMessage(store(), {
+      record_id: 'message-2', channel_id: 'channel-1', pg_thread_id: 'parent-thread',
+    }, { clientRequestId: 'branch:attempt-1', recipientNpub: 'npub1agent' });
+
+    expect(api.createTowerPgThreadBranch).toHaveBeenCalledWith('workspace-1', 'channel-1', 'parent-thread', {
+      branch_point_message_id: 'message-2', client_request_id: 'branch:attempt-1',
+      metadata: { source: 'flightdeck_branch', inherited_agent_recipient_npub: 'npub1agent' },
+    }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
+    expect(api.createTowerPgChannelMessage).not.toHaveBeenCalled();
+    expect(child).toMatchObject({ record_id: 'child-thread', pg_parent_thread_id: 'parent-thread', pg_branch_point_message_id: 'message-2' });
   });
 
   it('passes a stable client request id when creating a reply in an existing thread', async () => {
