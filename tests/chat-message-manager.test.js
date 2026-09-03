@@ -531,7 +531,7 @@ describe('chat message computed getters', () => {
 // Thread lifecycle
 // ---------------------------------------------------------------------------
 describe('thread lifecycle', () => {
-  it('creates and opens an inert child branch with inherited history and recipient ready', async () => {
+  it('creates and opens an inert child branch with inherited history and a blank composer', async () => {
     const workspaceDbKey = 'chat-message-manager-branch';
     await openWorkspaceDb(workspaceDbKey);
     isTowerPgBackendMode.mockReturnValue(true);
@@ -561,8 +561,39 @@ describe('thread lifecycle', () => {
     }));
     expect(child).toMatchObject({ record_id: 'child-thread', pg_effective_message_ids: ['root', 'reply'] });
     expect(store.activeThreadId).toBe('child-thread');
-    expect(store.threadInput).toBe('@[Example Agent](mention:agent:npub1agent) ');
+    expect(store.threadInput).toBe('');
+    expect(store.selectedAgentMentionsByComposer.thread).toEqual([]);
     expect(requestTowerSyncFamily).toHaveBeenCalledWith('thread-history', 'channel-1:child-thread', expect.objectContaining({ force: true }));
+    await deleteWorkspaceDb(workspaceDbKey);
+  });
+
+  it('restores a legitimate existing child draft without adding the inherited recipient', async () => {
+    const workspaceDbKey = 'chat-message-manager-branch-draft';
+    await openWorkspaceDb(workspaceDbKey);
+    isTowerPgBackendMode.mockReturnValue(true);
+    branchTowerPgThreadFromMessage.mockResolvedValue({
+      record_id: 'child-thread', channel_id: 'channel-1', pg_thread_id: 'child-thread', pg_backend: true,
+      pg_record_type: 'thread', pg_metadata: { inherited_agent_recipient_npub: 'npub1agent' },
+    });
+    const store = createStore({
+      isTowerPgMode: true,
+      currentWorkspace: { workspaceId: 'workspace-1' },
+      selectedChannelId: 'channel-1',
+      channels: [{ record_id: 'channel-1' }],
+      activeThreadId: 'root',
+      chatComposerDrafts: {
+        'workspace-1::channel-1:child-thread': { value: 'Existing child draft', mentions: [] },
+      },
+      messages: [{
+        record_id: 'root', channel_id: 'channel-1', pg_backend: true, pg_thread_id: 'parent-thread',
+        pg_metadata: { mentions: [{ type: 'agent', npub: 'npub1agent', label: 'Example Agent' }] },
+      }],
+    });
+
+    await store.branchFromMessage('root');
+
+    expect(store.threadInput).toBe('Existing child draft');
+    expect(store.selectedAgentMentionsByComposer.thread).toEqual([]);
     await deleteWorkspaceDb(workspaceDbKey);
   });
 
@@ -2530,6 +2561,52 @@ describe('sendMessage', () => {
 // sendThreadReply validation
 // ---------------------------------------------------------------------------
 describe('sendThreadReply', () => {
+  it('routes an unmentioned branch reply through internal metadata without adding a visible mention', async () => {
+    const workspaceDbKey = 'chat-message-manager-branch-internal-recipient';
+    openWorkspaceDb(workspaceDbKey);
+    await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    createTowerPgMessageFromLocal.mockImplementation(async (_store, localRow) => ({
+      ...localRow,
+      record_id: 'pg-child-reply',
+      sync_status: 'synced',
+      pg_backend: true,
+    }));
+    const childThread = {
+      record_id: 'child-thread', channel_id: 'channel-1', parent_message_id: null,
+      body: 'Branch', pg_backend: true, pg_record_type: 'thread', pg_thread_id: 'child-thread',
+      pg_metadata: { inherited_agent_recipient_npub: 'npub1agent' },
+    };
+
+    try {
+      const { fn, store } = bindMethod('sendThreadReply', {
+        session: { npub: 'npub1human' },
+        currentWorkspace: { workspaceId: 'workspace-1' },
+        selectedChannelId: 'channel-1',
+        activeThreadId: 'child-thread',
+        threadInput: 'A different approach, please',
+        selectedAgentMentionsByComposer: { message: [], thread: [] },
+        channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }],
+        messages: [childThread],
+      });
+
+      expect(await fn()).toBe(true);
+      expect(createTowerPgMessageFromLocal).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          body: 'A different approach, please',
+          pg_metadata: { agent_direct_recipient_npub: 'npub1agent' },
+        }),
+        expect.objectContaining({ parentMessage: childThread }),
+      );
+      expect(createTowerPgMessageFromLocal.mock.calls[0][1].pg_metadata).not.toHaveProperty('mentions');
+      expect(store.threadInput).toBe('');
+      expect(store.selectedAgentMentionsByComposer.thread).toEqual([]);
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
+  });
+
   it('turns rapid repeated Reply clicks into one request and one message', async () => {
     const workspaceDbKey = 'chat-message-manager-thread-reply-click-guard';
     openWorkspaceDb(workspaceDbKey);

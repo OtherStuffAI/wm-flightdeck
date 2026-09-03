@@ -12,9 +12,9 @@ describe('thread branch UI', () => {
     expect(html).toContain('$store.chat.branchFromMessage(reply.record_id)');
   });
 
-  it('labels inherited rows read-only and exposes the fresh-session recipient', () => {
+  it('labels inherited rows read-only without exposing an automatic recipient', () => {
     expect(html).toContain('Inherited · read-only');
-    expect(html).toContain('First message starts a fresh Agent Direct session with');
-    expect(html).toContain('$store.chat.getActiveBranchRecipientNpub()');
+    expect(html).not.toContain('First message starts a fresh Agent Direct session with');
+    expect(html).not.toContain('thread-branch-recipient');
   });
 });

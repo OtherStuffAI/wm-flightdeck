@@ -1076,6 +1076,13 @@
       "notes": [
         "Start an independent chat thread from any message while keeping the conversation up to that point as read-only context for the new question."
       ]
+    },
+    {
+      "buildNumber": 1870,
+      "label": "Cleaner branched chat composer",
+      "notes": [
+        "Open new chat branches with a clean composer while still routing the first ordinary message to the inherited Agent Direct recipient."
+      ]
     }
   ]
 }

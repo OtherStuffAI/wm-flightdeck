@@ -1365,16 +1365,6 @@ export const chatMessageManagerMixin = {
       delete nextRequestIds[messageId];
       this.branchRequestIdsByMessage = nextRequestIds;
       this.openThread(materialized.record_id, { scrollToLatest: false });
-      if (recipient) {
-        const mentionToken = `@[${recipient.label}](mention:agent:${recipient.npub})`;
-        this.threadInput = `${mentionToken} `;
-        this.selectedAgentMentionsByComposer = {
-          ...(this.selectedAgentMentionsByComposer || {}),
-          thread: [recipient],
-        };
-      } else {
-        this.threadInput = '';
-      }
       void this.requestTowerSyncFamily?.('thread-history', `${materialized.channel_id}:${materialized.pg_thread_id}`, {
         channelId: materialized.channel_id,
         threadId: materialized.pg_thread_id,
@@ -2167,6 +2157,9 @@ export const chatMessageManagerMixin = {
       this.error = 'A selected mention is no longer a current workspace member. Remove it and select the current identity.';
       return false;
     }
+    const branchAgentDirectRecipientNpub = canonicalMentions.length === 0
+      ? String(this.getActiveThreadRecord?.()?.pg_metadata?.inherited_agent_recipient_npub || '').trim()
+      : '';
     let pgParentMessage = null;
     let pgParentThreadId = null;
     if (pgMode) {
@@ -2215,7 +2208,11 @@ export const chatMessageManagerMixin = {
         pg_scope_id: channel.scope_id || channel.scope_l1_id || this.pgContextScopeId || this.pgContextScope?.record_id || null,
         pg_client_request_id: msgId,
       } : {}),
-      ...(pgMode && canonicalMentions.length > 0 ? { pg_metadata: { mentions: canonicalMentions } } : {}),
+      ...(pgMode && (canonicalMentions.length > 0 || branchAgentDirectRecipientNpub) ? {
+        pg_metadata: canonicalMentions.length > 0
+          ? { mentions: canonicalMentions }
+          : { agent_direct_recipient_npub: branchAgentDirectRecipientNpub },
+      } : {}),
       ...(pgParentThreadId ? { pg_thread_id: pgParentThreadId } : {}),
     };
     const replacedRecordId = String(options?.replaceRecordId || '').trim();

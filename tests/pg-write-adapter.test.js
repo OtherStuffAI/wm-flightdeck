@@ -895,6 +895,35 @@ describe('PG write adapter', () => {
     }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
   });
 
+  it('preserves an internal Agent Direct recipient without creating mention metadata', async () => {
+    const api = await import('../src/api.js');
+    api.createTowerPgChannelMessage.mockResolvedValue({
+      message: {
+        id: 'reply-1', workspace_id: 'workspace-1', scope_id: 'scope-1', channel_id: 'channel-1',
+        thread_id: 'child-thread', body: 'Try a different approach', row_version: 1,
+      },
+    });
+
+    await createTowerPgMessageFromLocal(store(), {
+      record_id: 'local-reply-1',
+      channel_id: 'channel-1',
+      parent_message_id: 'child-thread',
+      pg_thread_id: 'child-thread',
+      pg_client_request_id: 'reply-attempt-1',
+      body: 'Try a different approach',
+      pg_metadata: { agent_direct_recipient_npub: 'npub1agent' },
+    }, {
+      parentMessage: { record_id: 'child-thread', pg_thread_id: 'child-thread' },
+    });
+
+    const payload = api.createTowerPgChannelMessage.mock.calls[0][2];
+    expect(payload.metadata).toEqual({
+      agent_direct_recipient_npub: 'npub1agent',
+      client_record_id: 'local-reply-1',
+    });
+    expect(payload.metadata).not.toHaveProperty('mentions');
+  });
+
   it('renames Tower PG threads with the thread row version and preserves the local source message', async () => {
     const api = await import('../src/api.js');
     api.updateTowerPgThread.mockResolvedValue({ thread: { id: 'thread-1', title: 'Renamed thread', row_version: 4, updated_at: '2026-07-26T10:00:00.000Z' } });

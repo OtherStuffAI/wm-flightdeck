@@ -4392,9 +4392,6 @@
                   <div><strong>Editing reply</strong><span x-show="$store.chat.messageEdit.error" x-text="$store.chat.messageEdit.error"></span></div>
                   <button type="button" @click="$store.chat.cancelMessageEdit()" :disabled="$store.chat.messageEdit.submitting">Cancel</button>
                 </div>
-                <p class="thread-branch-recipient" x-show="$store.chat.getActiveBranchRecipientNpub()" x-cloak aria-live="polite">
-                  First message starts a fresh Agent Direct session with <strong x-text="$store.chat.getSenderName($store.chat.getActiveBranchRecipientNpub())"></strong>.
-                </p>
                 <div class="recent-mention-chips" x-show="$store.chat.getRecentMentionChips('thread').length" x-cloak aria-label="Recently mentioned participants">
                   <template x-for="person in $store.chat.getRecentMentionChips('thread')" :key="person.id">
                     <div class="recent-mention-chip-group">
