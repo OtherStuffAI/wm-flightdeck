@@ -41,6 +41,12 @@ export function buildThreadAwarePresentationWindow(messages = [], {
   };
   includeTarget(activeThreadId);
   includeTarget(focusMessageId);
+  const activeThread = byId.get(String(activeThreadId || ''));
+  for (const messageId of Array.isArray(activeThread?.pg_effective_message_ids)
+    ? activeThread.pg_effective_message_ids
+    : []) {
+    if (byId.has(String(messageId || ''))) requiredIds.add(String(messageId));
+  }
 
   for (const message of rows) {
     const id = String(message.record_id || '');

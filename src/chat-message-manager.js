@@ -376,9 +376,20 @@ function getChatDerivedState(store) {
     ? activeThreadRecord.pg_effective_message_ids.map(String)
     : [];
   const messageById = new Map(messages.map((message) => [String(message?.record_id || ''), message]));
-  const threadMessages = effectiveMessageIds.length > 0
-    ? effectiveMessageIds.map((messageId) => messageById.get(messageId)).filter(Boolean)
-    : activeThreadId ? (threadRepliesByParentId.get(activeThreadId) || []) : [];
+  let threadMessages;
+  if (effectiveMessageIds.length > 0) {
+    const effectiveIdSet = new Set(effectiveMessageIds);
+    const effectiveMessages = effectiveMessageIds
+      .map((messageId) => messageById.get(messageId))
+      .filter(Boolean);
+    const newlyOwnedMessages = (threadRepliesByParentId.get(activeThreadId) || [])
+      .filter((message) => !effectiveIdSet.has(String(message?.record_id || '')));
+    threadMessages = newlyOwnedMessages.length > 0
+      ? sortMessagesByUpdatedAt([...effectiveMessages, ...newlyOwnedMessages])
+      : effectiveMessages;
+  } else {
+    threadMessages = activeThreadId ? (threadRepliesByParentId.get(activeThreadId) || []) : [];
+  }
   const resolvedThreadVisibleReplyCount = resolveVisibleThreadReplyCount(
     threadMessages,
     threadVisibleReplyCount,

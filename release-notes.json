@@ -1083,6 +1083,13 @@
       "notes": [
         "Open new chat branches with a clean composer while still routing the first ordinary message to the inherited Agent Direct recipient."
       ]
+    },
+    {
+      "buildNumber": 1871,
+      "label": "Reliable branched chat messages",
+      "notes": [
+        "Keep newly sent messages visible in branched chats during delivery, agent work, background reconciliation, and later reopen or reload."
+      ]
     }
   ]
 }

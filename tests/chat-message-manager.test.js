@@ -48,11 +48,13 @@ import {
   clearRuntimeData,
   deleteWorkspaceDb,
   getMessageById,
+  getMessagePresentationWindowByChannel,
   getMessagesByChannel,
   openWorkspaceDb,
   replacePgMessagesForChannel,
   upsertMessage,
 } from '../src/db.js';
+import { hydrateTowerPgThreadMessages } from '../src/pg-read-hydrator.js';
 
 beforeEach(() => {
   isTowerPgBackendMode.mockReturnValue(false);
@@ -2561,6 +2563,134 @@ describe('sendMessage', () => {
 // sendThreadReply validation
 // ---------------------------------------------------------------------------
 describe('sendThreadReply', () => {
+  it('keeps two accepted child-branch messages visible through activity and rematerialisation', async () => {
+    const workspaceDbKey = 'chat-message-manager-child-branch-reconciliation';
+    openWorkspaceDb(workspaceDbKey);
+    await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const inherited = {
+      record_id: 'inherited-1', channel_id: 'channel-1', parent_message_id: 'parent-root',
+      body: 'Inherited history', sync_status: 'synced', record_state: 'active',
+      updated_at: '2026-09-04T00:39:00.000Z', pg_backend: true,
+      pg_thread_id: 'parent-thread', pg_owning_thread_id: 'parent-thread',
+      pg_effective_thread_id: 'child-thread', pg_inherited: true, read_only: true,
+    };
+    const childThread = {
+      record_id: 'child-thread', channel_id: 'channel-1', parent_message_id: null,
+      body: 'Branch', sync_status: 'synced', record_state: 'active',
+      updated_at: '2026-09-04T00:39:30.000Z', pg_backend: true,
+      pg_record_type: 'thread', pg_thread_id: 'child-thread',
+      pg_effective_message_ids: ['inherited-1'],
+      pg_metadata: { inherited_agent_recipient_npub: 'npub1agent' },
+    };
+    await Promise.all([upsertMessage(inherited), upsertMessage(childThread)]);
+    const acceptedIds = ['child-message-1', 'child-message-2'];
+    const resolvers = [];
+    createTowerPgMessageFromLocal.mockImplementation((_store, localRow) => new Promise((resolve) => {
+      const acceptedId = acceptedIds[resolvers.length];
+      resolvers.push(() => resolve({
+        ...localRow,
+        record_id: acceptedId,
+        sync_status: 'synced',
+        pg_record_type: 'message',
+        pg_thread_id: 'child-thread',
+      }));
+    }));
+
+    try {
+      const store = createStore({
+        session: { npub: 'npub1human' },
+        workspaceOwnerNpub: 'npub1owner',
+        currentWorkspace: {
+          workspaceId: 'workspace-1', workspaceOwnerNpub: 'npub1owner',
+          directHttpsUrl: 'https://tower.example', appNpub: 'flightdeck_pg', pgBackendMode: true,
+        },
+        selectedChannelId: 'channel-1',
+        activeThreadId: 'child-thread',
+        channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }],
+        messages: [inherited, childThread],
+        agentActivities: [],
+        sseStatus: 'connected',
+      });
+
+      store.threadInput = 'First child question';
+      const firstSend = store.sendThreadReply();
+      await vi.waitFor(() => expect(createTowerPgMessageFromLocal).toHaveBeenCalledTimes(1));
+      expect(store.visibleThreadMessages.map((message) => message.body)).toEqual([
+        'Inherited history', 'First child question',
+      ]);
+      resolvers[0]();
+      await expect(firstSend).resolves.toBe(true);
+      expect(store.visibleThreadMessages.map((message) => message.body)).toEqual([
+        'Inherited history', 'First child question',
+      ]);
+
+      store.agentActivities = [{
+        record_id: 'activity-1', activity_id: 'activity-1', thread_id: 'child-thread',
+        trigger_message_id: 'child-message-1', visibility: 'user_visible', state: 'working',
+        sequence: 1, expires_at: '2999-01-01T00:00:00.000Z',
+      }];
+      expect(store.activeThreadAgentActivities).toHaveLength(1);
+      expect(store.visibleThreadMessages.map((message) => message.body)).toContain('First child question');
+
+      store.threadInput = 'Second child question';
+      const secondSend = store.sendThreadReply();
+      await vi.waitFor(() => expect(createTowerPgMessageFromLocal).toHaveBeenCalledTimes(2));
+      expect(store.visibleThreadMessages.map((message) => message.body)).toEqual([
+        'Inherited history', 'First child question', 'Second child question',
+      ]);
+      resolvers[1]();
+      await expect(secondSend).resolves.toBe(true);
+      expect(store.visibleThreadMessages.map((message) => message.body)).toEqual([
+        'Inherited history', 'First child question', 'Second child question',
+      ]);
+
+      await upsertMessage({
+        record_id: 'sibling-message', channel_id: 'channel-1', parent_message_id: 'sibling-thread',
+        body: 'Sibling only', sync_status: 'synced', record_state: 'active',
+        updated_at: '2026-09-04T00:42:00.000Z', pg_backend: true, pg_thread_id: 'sibling-thread',
+      });
+      await upsertMessage({
+        record_id: 'parent-only', channel_id: 'channel-1', parent_message_id: 'parent-root',
+        body: 'Parent only', sync_status: 'synced', record_state: 'active',
+        updated_at: '2026-09-04T00:42:30.000Z', pg_backend: true, pg_thread_id: 'parent-thread',
+      });
+      await hydrateTowerPgThreadMessages(store, 'channel-1', 'child-thread', {
+        getTowerPgThread: async () => ({ thread: {
+          id: 'child-thread', workspace_id: 'workspace-1', scope_id: 'scope-1', channel_id: 'channel-1',
+          parent_thread_id: 'parent-thread', branch_point_message_id: 'branch-point',
+          metadata: { inherited_agent_recipient_npub: 'npub1agent' }, row_version: 2,
+        } }),
+        getTowerPgChannelMessages: async () => ({ messages: [
+          {
+            id: 'inherited-1', workspace_id: 'workspace-1', scope_id: 'scope-1', channel_id: 'channel-1',
+            thread_id: 'parent-thread', owning_thread_id: 'parent-thread', effective_thread_id: 'child-thread',
+            inherited: true, read_only: true, body: 'Inherited history',
+            created_at: '2026-09-04T00:39:00.000Z', updated_at: '2026-09-04T00:39:00.000Z', row_version: 1,
+          },
+          ...acceptedIds.map((id, index) => ({
+            id, workspace_id: 'workspace-1', scope_id: 'scope-1', channel_id: 'channel-1',
+            thread_id: 'child-thread', owning_thread_id: 'child-thread', effective_thread_id: 'child-thread',
+            body: `${index === 0 ? 'First' : 'Second'} child question`,
+            created_at: `2026-09-04T00:4${index}:00.000Z`, updated_at: `2026-09-04T00:4${index}:00.000Z`, row_version: 1,
+          })),
+        ], next_cursor: null }),
+      });
+
+      const reopened = createStore({
+        activeThreadId: 'child-thread',
+        messages: await getMessagePresentationWindowByChannel('channel-1', { activeThreadId: 'child-thread' }),
+      });
+      expect(reopened.visibleThreadMessages.map((message) => message.body)).toEqual([
+        'Inherited history', 'First child question', 'Second child question',
+      ]);
+      expect(reopened.visibleThreadMessages.map((message) => message.body)).not.toContain('Sibling only');
+      expect(reopened.visibleThreadMessages.map((message) => message.body)).not.toContain('Parent only');
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
+  });
+
   it('routes an unmentioned branch reply through internal metadata without adding a visible mention', async () => {
     const workspaceDbKey = 'chat-message-manager-branch-internal-recipient';
     openWorkspaceDb(workspaceDbKey);
