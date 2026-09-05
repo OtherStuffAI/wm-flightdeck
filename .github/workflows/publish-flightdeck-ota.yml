@@ -54,14 +54,21 @@ jobs:
 
       - name: Build Flight Deck deterministically
         env:
+          FLIGHT_DECK_PG_APP_NPUB: ${{ vars.FLIGHT_DECK_PG_APP_NPUB }}
           FLIGHTDECK_BUILD_NUMBER: ${{ steps.release.outputs.source_epoch }}
           FLIGHTDECK_BUILD_ID: ${{ steps.release.outputs.build_id }}
           SOURCE_DATE_EPOCH: ${{ steps.release.outputs.source_epoch }}
         run: |
+          if [ -z "$FLIGHT_DECK_PG_APP_NPUB" ]; then
+            echo "::error::Set the public repository Actions variable FLIGHT_DECK_PG_APP_NPUB before publishing (see docs/ota-publishing.md)."
+            exit 1
+          fi
           bun run build
           bun run verify:dist
 
       - name: Run publisher contract tests
+        env:
+          FLIGHT_DECK_PG_APP_NPUB: ${{ vars.FLIGHT_DECK_PG_APP_NPUB }}
         run: bunx vitest run tests/deterministic-build-version.test.js tests/package-ota-release.test.js
 
       - name: Package immutable OTA release
