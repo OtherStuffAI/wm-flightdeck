@@ -1,3 +1,4 @@
+import { threadHistoryLineage, mergeThreadHistoryIds } from './thread-history-coverage.js';
 import Dexie from 'dexie';
 import { taskIndexFields, compareIndexedTasks } from './task-index-keys.js';
 import {
@@ -894,14 +895,24 @@ export async function getThreadMessagePresentationWindow(channelId, rootId, opti
     .between([key, 1, Dexie.minKey, Dexie.minKey], [key, 1, '\uffff', Dexie.maxKey])
     .reverse().limit(limit).toArray()));
   const coverage = await db.sync_state.get(`thread-history-page:${threadId}`);
-  const effectiveIds = (coverage?.value?.messageIds || thread?.pg_effective_message_ids || root?.pg_effective_message_ids || []).slice(-limit);
+  const lineage = threadHistoryLineage(thread);
+  const effectiveIds = mergeThreadHistoryIds(thread?.pg_effective_message_ids || [],
+    coverage?.value?.lineage === lineage ? coverage.value.messageIds : []).slice(-limit);
   const effective = effectiveIds.length ? await db.chat_messages.bulkGet(effectiveIds) : [];
   const sourceId = thread?.pg_source_message_id;
   const source = sourceId && sourceId !== rootId ? await db.chat_messages.get(sourceId) : null;
   const parent = root || thread;
+  if (thread?.record_state === 'deleted') return [];
   if (!parent || parent.channel_id !== channelId || parent.record_state === 'deleted') return [];
+  const candidates = [...pages.flat(), ...effective, source].filter(Boolean);
+  const authority = await db.pg_record_rows.bulkGet([`thread:${threadId}`, `channel:${channelId}`, ...candidates.map(row => `message:${row.record_id}`)]);
+  const revoked = record => record && (record.operation === 'delete' || record.row?.deleted_at);
+  if (revoked(authority[0]) || revoked(authority[1])) return [];
   const rows = new Map();
-  for (const row of [...pages.flat(), ...effective, source]) {
+  for (const [index, row] of candidates.entries()) {
+    if (revoked(authority[index + 2])) continue;
+    // Indexed own-thread replies remain live; inherited rows require membership.
+    if (row.pg_thread_id && row.pg_thread_id !== threadId && !effectiveIds.includes(row.record_id)) continue;
     if (!row || row.channel_id !== channelId || row.record_state === 'deleted' || row.record_id === rootId) continue;
     rows.set(row.record_id, { ...row, parent_message_id: rootId });
   }

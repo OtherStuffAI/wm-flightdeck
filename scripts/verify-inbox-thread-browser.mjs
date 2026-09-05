@@ -7,13 +7,13 @@ import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-const root = path.resolve('dist');
-const html = await readFile('index.html', 'utf8');
+const root = path.resolve(process.env.FLIGHTDECK_VERIFY_DIST || 'dist');
+const built = await readFile(path.join(root, 'index.html'), 'utf8');
+const html = process.env.FLIGHTDECK_VERIFY_BUILT_WORKER === '1' ? built : await readFile('index.html', 'utf8');
 const document = new JSDOM(html).window.document;
 const find = (node, selector) => node.querySelector(selector) || [...node.querySelectorAll('template')].map(t => find(t.content, selector)).find(Boolean);
 const inbox = find(document, '[data-deck-column="inbox"]').outerHTML;
 const modal = find(document, '.chat-thread-modal-backdrop').outerHTML;
-const built = await readFile(path.join(root, 'index.html'), 'utf8');
 const stylesheet = [...new JSDOM(built).window.document.querySelectorAll('link[rel="stylesheet"]')].map(l => l.outerHTML).join('');
 const temporary = await mkdtemp(path.join(tmpdir(), 'fd-thread-browser-'));
 const build = (source, output) => execFileSync('bun', ['build', source, '--target=browser', `--outfile=${temporary}/${output}`, '--define', '__FLIGHT_DECK_PG_APP_NPUB__="npub1fixture"', '--define', 'import.meta.env={"DEV":false}'], { stdio: 'pipe' });
@@ -124,7 +124,33 @@ try {
   await page.locator('[data-thread-message-id="cold-thread-99"]').waitFor({ state: 'visible' });
   await page.getByRole('button', { name: 'Load more conversation history', exact: true }).click();
   await page.waitForFunction(() => !window.probeStore.threadHistoryLoading && !window.probeStore.threadHistoryCursor && window.probeStore.visibleThreadMessages.at(-1)?.body === 'cold-thread reply 150');
+  // A fully cached inherited transcript must survive the first partial refresh
+  // and a real close/reopen, using the selected production worker and templates.
+  await page.evaluate(async ({ bundle }) => {
+    const originalThread = bundle.changes.find(change => change.family === 'thread');
+    const originalMessage = bundle.changes.find(change => change.family === 'message');
+    const channelId = window.probeStore.channels[0].record_id;
+    const thread = { ...originalThread.row, id: 'inherited-branch', source_message_id: 'inherited-source', channel_id: channelId,
+      parent_thread_id: 'inherited-origin', branch_point_message_id: 'inherited-origin-240', row_version: 1 };
+    const messages = Array.from({ length: 241 }, (_, n) => ({ ...originalMessage.row, id: `inherited-origin-${n}`, thread_id: 'inherited-origin',
+      channel_id: channelId, body: `Inherited reply ${n}`, created_at: new Date(Date.UTC(2031, 0, 1, 0, n)).toISOString(),
+      updated_at: new Date(Date.UTC(2031, 0, 1, 0, n)).toISOString(), row_version: 1, inherited: true, read_only: true, effective_thread_id: thread.id }));
+    const changes = [{ ...originalThread, id: thread.id, row: thread }, ...messages.map(row => ({ ...originalMessage, id: row.id, row }))];
+    for (let i = 0; i < changes.length; i += 100) await window.materializeThreadProbe({ ...bundle, mode: 'delta', changes: changes.slice(i, i + 100), next_cursor: `inherited-${i}` });
+    await window.probeDb.chat_messages.update(thread.id, { pg_effective_message_ids: messages.map(row => row.id) });
+    window.threadRemote[thread.id] = { thread, messages };
+    await window.probeStore.openAutopilotOverviewThread({ id: thread.id, rootRecordId: thread.id, channelId });
+  }, { bundle });
+  await page.waitForFunction(() => !window.probeStore.threadHistoryLoading && window.probeStore.threadHistoryCursor === '100');
+  await page.locator('[data-thread-message-id="inherited-origin-240"]').waitFor({ state: 'visible' });
+  await page.evaluate(async () => {
+    window.probeStore.closeDeckThread({ fromRoute: true, syncRoute: false });
+    await window.probeStore.openAutopilotOverviewThread({ id: 'inherited-branch', rootRecordId: 'inherited-source', channelId: window.probeStore.channels[0].record_id });
+  });
+  await page.waitForFunction(() => !window.probeStore.threadHistoryLoading && window.probeStore.threadHistoryCursor === '100');
+  await page.locator('[data-thread-message-id="inherited-origin-240"]').waitFor({ state: 'visible' });
   const evidence = await page.evaluate(async () => ({
+    inheritedReopenLatest: window.probeStore.visibleThreadMessages.at(-1)?.body,
     coldReads: window.threadReads.filter(row => row.threadId === 'cold-thread').map(({ cursor, limit }) => ({ cursor, limit })),
     channels: window.probeStore.channels.length,
     draftPreserved: !!(await window.probeDb.document_drafts.get('upgrade-proof')),
@@ -133,7 +159,7 @@ try {
   assert.deepEqual(evidence.coldReads, [{ cursor: null, limit: 100 }, { cursor: '100', limit: 100 }]);
   assert(await page.evaluate(async () => !!(await window.probeDb.document_drafts.get('upgrade-proof'))));
   assert.equal(errors.length, 0, errors.join('\n'));
-  await writeFile('/tmp/flightdeck-open-thread-webkit.json', JSON.stringify({ ...evidence, errors, coldCacheLimit: 'Tower oldest-first contract: newest cold reply appears only after explicit forward pages', worker }, null, 2));
+  await writeFile('/tmp/flightdeck-open-thread-webkit.json', JSON.stringify({ ...evidence, errors, assetRoot: root, templates: process.env.FLIGHTDECK_VERIFY_BUILT_WORKER === '1' ? 'built' : 'source', store: 'real source with fixture transport', coldCacheLimit: 'Tower oldest-first contract: newest cold reply appears only after explicit forward pages', worker }, null, 2));
   console.log(JSON.stringify(evidence));
 } catch (error) {
   console.error('Thread probe failure state', await page?.evaluate(() => ({

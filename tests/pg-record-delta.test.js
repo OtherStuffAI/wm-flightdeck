@@ -236,3 +236,15 @@ it('retains earlier actor identities when an independent assignment rematerializ
   await applyPgRecordChanges(store,{...page([next],'second-assignee'),actors:[b]});
   expect((await db.tasks.get(task.id)).assigned_to_npubs.sort()).toEqual([a.npub,b.npub].sort());
 });
+
+it('retains full effective membership for metadata deltas and invalidates changed lineage', async () => {
+  const original = fixture.canonical_upserts.changes.find(change => change.family === 'thread');
+  await applyPgRecordChanges(store, page([original], 'one'), { expectedCursor: null });
+  await db.chat_messages.update(original.id, { pg_effective_message_ids: ['inherited-before', 'inherited-later'] });
+  const updated = { ...original, version: String(BigInt(original.version) + 1n), row: { ...original.row, title: 'Updated title', row_version: original.row.row_version + 1 } };
+  await applyPgRecordChanges(store, page([updated], 'two'), { expectedCursor: 'one' });
+  expect((await db.chat_messages.get(original.id)).pg_effective_message_ids).toEqual(['inherited-before', 'inherited-later']);
+  const branched = { ...updated, version: String(BigInt(updated.version) + 1n), row: { ...updated.row, parent_thread_id: 'different-parent', branch_point_message_id: 'different-point', row_version: updated.row.row_version + 1 } };
+  await applyPgRecordChanges(store, page([branched], 'three'), { expectedCursor: 'two' });
+  expect((await db.chat_messages.get(original.id)).pg_effective_message_ids).toBeUndefined();
+});

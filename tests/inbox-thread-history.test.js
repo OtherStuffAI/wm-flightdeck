@@ -1,3 +1,4 @@
+import { threadHistoryLineage } from '../src/thread-history-coverage.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { liveQuery } from 'dexie';
 import { openWorkspaceDb, deleteWorkspaceDb, getWorkspaceDb, getThreadMessagePresentationWindow } from '../src/db.js';
@@ -79,11 +80,90 @@ describe('real Inbox thread history path', () => {
   it('retains inherited transcript coverage after a canonical thread metadata update', async () => {
     openWorkspaceDb(key); await seed('ancestor', 3); await seed('branch', 2);
     const db = getWorkspaceDb();
-    await db.sync_state.put({ key: 'thread-history-page:branch', value: { messageIds: ['ancestor-1', 'branch-1'], nextCursor: null } });
+    await db.sync_state.put({ key: 'thread-history-page:branch', value: { lineage: threadHistoryLineage(rawThread('branch')), messageIds: ['ancestor-1', 'branch-1'], nextCursor: null } });
     await db.chat_messages.update('ancestor-1', { read_only: true, pg_inherited: true });
     await db.chat_messages.put({ ...mapPgThreadToLocal(rawThread('branch')), title: 'Updated branch', version: 2 });
     const rows = await getThreadMessagePresentationWindow('channel-a', 'branch');
     expect(rows.find(row => row.record_id === 'ancestor-1')).toMatchObject({ parent_message_id: 'branch', read_only: true, pg_inherited: true });
+  });
+
+  it('preserves a complete inherited transcript across first partial page and reopen', async () => {
+    openWorkspaceDb(key); await seed('ancestor', 241); await seed('branch', 1);
+    const db = getWorkspaceDb();
+    const ids = Array.from({ length: 240 }, (_, n) => `ancestor-${n + 1}`);
+    await db.chat_messages.update('branch', { pg_effective_message_ids: ids });
+    const s = store();
+    const page = { channelId: 'channel-a', thread: rawThread('branch'), cursor: null,
+      nextCursor: '100', messages: Array.from({ length: 100 }, (_, n) => ({ ...rawMessage('ancestor', n + 1), inherited: true, effective_thread_id: 'branch' })) };
+    expect((await getThreadMessagePresentationWindow('channel-a', 'branch')).at(-1).record_id).toBe('ancestor-240');
+    await hydrateTowerPgSyncBundle(s, { thread_history_page: page });
+    for (const root of ['branch', 'branch-source']) {
+      const metrics = instrumentIndexedDb();
+      try {
+        expect((await getThreadMessagePresentationWindow('channel-a', root, { threadId: 'branch' })).at(-1).record_id).toBe('ancestor-240');
+        expect(metrics.snapshot().valueRowsRead).toBeLessThanOrEqual(20);
+      } finally { metrics.restore(); }
+    }
+    await hydrateTowerPgSyncBundle(s, { thread_history_page: page });
+    expect((await db.chat_messages.get('branch')).pg_effective_message_ids).toEqual(ids);
+  });
+
+  it('does not regress continuation on replay or reordered pages and rejects stale authority', async () => {
+    openWorkspaceDb(key); const db = getWorkspaceDb(); const s = store();
+    const page = (cursor, nextCursor, numbers, version = 1) => ({ thread_history_page: {
+      channelId: 'channel-a', thread: { ...rawThread('ordered'), row_version: version }, cursor, nextCursor,
+      messages: numbers.map(n => rawMessage('ordered', n)),
+    } });
+    await hydrateTowerPgSyncBundle(s, page(null, 'two', [0, 1]));
+    await hydrateTowerPgSyncBundle(s, page('two', 'three', [2, 3]));
+    await hydrateTowerPgSyncBundle(s, page(null, 'two', [0, 1]));
+    expect((await db.sync_state.get('thread-history-page:ordered')).value.nextCursor).toBe('three');
+    await hydrateTowerPgSyncBundle(s, page('three', null, [4, 5], 2));
+    await expect(hydrateTowerPgSyncBundle(s, page(null, 'two', [0, 1]))).rejects.toThrow('older than current authority');
+    await hydrateTowerPgSyncBundle(s, page('two', 'three', [2, 3], 2));
+    expect((await db.sync_state.get('thread-history-page:ordered')).value).toMatchObject({ nextCursor: null,
+      messageIds: ['ordered-source', 'ordered-1', 'ordered-2', 'ordered-3', 'ordered-4', 'ordered-5'] });
+    await db.pg_record_rows.put({ key: 'thread:ordered', family: 'thread', id: 'ordered', operation: 'upsert', row: { ...rawThread('ordered'), row_version: 3 } });
+    await expect(hydrateTowerPgSyncBundle(s, page(null, 'two', [0], 2))).rejects.toThrow('older than current authority');
+    expect((await db.sync_state.get('thread-history-page:ordered')).value.nextCursor).toBeNull();
+  });
+
+  it('drops old inherited membership for changed lineage while retaining live own-thread replies', async () => {
+    openWorkspaceDb(key); await seed('ancestor', 10); await seed('branch', 3);
+    const db = getWorkspaceDb(); const s = store();
+    await db.chat_messages.update('branch', { pg_effective_message_ids: ['ancestor-9'] });
+    await hydrateTowerPgSyncBundle(s, { thread_history_page: { channelId: 'channel-a', thread: rawThread('branch'), messages: [], nextCursor: 'two' } });
+    const changed = { ...rawThread('branch'), parent_thread_id: 'different', branch_point_message_id: 'different-1', row_version: 2 };
+    // Canonical thread updates may precede any new targeted history page.
+    await db.chat_messages.put(mapPgThreadToLocal(changed));
+    expect((await getThreadMessagePresentationWindow('channel-a', 'branch')).some(row => row.record_id === 'ancestor-9')).toBe(false);
+    await expect(hydrateTowerPgSyncBundle(s, { thread_history_page: { channelId: 'channel-a', thread: rawThread('branch'), messages: [rawMessage('ancestor', 9)] } })).rejects.toThrow('older than current authority');
+    await hydrateTowerPgSyncBundle(s, { thread_history_page: { channelId: 'channel-a', thread: changed, messages: [rawMessage('branch', 1)], nextCursor: null } });
+    await db.chat_messages.put(mapPgMessageToLocal(rawMessage('branch', 20)));
+    const rows = await getThreadMessagePresentationWindow('channel-a', 'branch-source', { threadId: 'branch' });
+    expect(rows.some(row => row.record_id === 'ancestor-9')).toBe(false);
+    expect(rows.at(-1).record_id).toBe('branch-20');
+  });
+
+  it('honors tombstones, pending deletes and authority reset racing a history read', async () => {
+    openWorkspaceDb(key); await seed('ancestor', 5); await seed('branch', 1);
+    const db = getWorkspaceDb(); const s = { workspaceOwnerNpub: 'owner', backendUrl: 'http://localhost:1', currentWorkspace: { workspaceId: 'workspace-a', directHttpsUrl: 'http://localhost:1' } };
+    await db.chat_messages.update('branch', { pg_effective_message_ids: ['ancestor-1', 'ancestor-2'] });
+    await db.pg_record_rows.put({ key: 'message:ancestor-1', family: 'message', id: 'ancestor-1', operation: 'delete' });
+    await db.chat_messages.update('ancestor-2', { record_state: 'deleted', sync_status: 'pending' });
+    await db.pending_writes.add({ record_id: 'ancestor-2', envelope: {} });
+    const bundle = await readTowerPgThreadHistoryPage(s, 'channel-a', 'branch', {
+      getTowerPgThread: async () => rawThread('branch'),
+      getTowerPgChannelMessages: async () => ({ messages: [rawMessage('ancestor', 1), rawMessage('ancestor', 2)], next_cursor: null }),
+    });
+    await hydrateTowerPgSyncBundle(s, bundle);
+    expect((await getThreadMessagePresentationWindow('channel-a', 'branch')).some(row => row.record_id.startsWith('ancestor'))).toBe(false);
+    expect((await db.chat_messages.get('ancestor-2')).sync_status).toBe('pending');
+    const { resetPgRecordAuthority } = await import('../src/pg-record-delta.js');
+    await resetPgRecordAuthority(s);
+    expect(await db.sync_state.get('thread-history-page:branch')).toBeUndefined();
+    await expect(hydrateTowerPgSyncBundle(s, bundle)).rejects.toThrow('authority changed');
+    expect(await db.chat_messages.get('branch')).toBeUndefined();
   });
 
   it('retains actual persisted identity when a source message is not cached yet', async () => {

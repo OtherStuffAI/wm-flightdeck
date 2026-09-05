@@ -1,3 +1,4 @@
+import { threadHistoryLineage } from './thread-history-coverage.js';
 import Dexie from 'dexie';
 import { preserveHydratedDocumentContent } from './document-selection.js';
 import { latestTaskActivity, isTaskActivityAuthoredByViewer } from './task-attention-actor.js';
@@ -228,6 +229,10 @@ export async function applyPgRecordChanges(store, page, options = {}) {
       const identities = [...(await db.workspace_members.bulkGet(actorIds)).filter(Boolean), ...(await db.pg_actors.bulkGet(actorIds)).filter(Boolean)];
       const rowActors = new Map([...actorNpubByActorId, ...identities.map(actor => [actor.actor_id, actor.npub])]);
       let mapped = mapRow(canonical, { ...extra, actorNpubByActorId: rowActors });
+      if (raw.family === 'thread' && prior?.pg_effective_message_ids
+        && threadHistoryLineage(prior) === threadHistoryLineage(mapped)) {
+        mapped.pg_effective_message_ids = prior.pg_effective_message_ids;
+      }
       if (raw.family === 'resource_view_state' && prior) mapped.viewed_activity_version = Math.max(Number(prior.viewed_activity_version || 0), Number(mapped.viewed_activity_version || 0));
       mapped = { ...mapped, pg_delta_generation: generation, pg_delta_family: raw.family };
       // Preserve separately hydrated document bytes, absent from canonical PG rows.
@@ -322,6 +327,7 @@ export async function resetPgRecordAuthority(store) {
       }
       await table.clear();
     }
+    await db.sync_state.where('key').between('thread-history-page:', 'thread-history-page:\uffff', true, true).delete();
     await db.pg_record_rows.clear(); await db.channel_summaries.clear(); await db.pg_actors.clear();
     await db.pg_resource_attention.clear(); await db.pg_attention_counts.clear();
     await db.workspace_members.clear(); await db.groups.clear();

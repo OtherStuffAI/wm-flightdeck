@@ -1,3 +1,4 @@
+import { threadHistoryLineage, mergeThreadHistoryIds } from './thread-history-coverage.js';
 import { FLIGHT_DECK_PG_APP_NPUB } from './app-identity.js';
 import { normalizeBackendUrl } from './utils/state-helpers.js';
 import {
@@ -2029,6 +2030,8 @@ export async function hydrateTowerPgChannelMessages(store, channelId, deps = {})
 export async function readTowerPgThreadHistoryPage(store, channelId, threadId, options = {}) {
   const context = resolveTowerPgWorkspaceContext(store);
   if (!context.workspaceId || !context.baseUrl || !channelId || !threadId) return null;
+  const authorityState = await getSyncState(`${towerPgSyncCursorKey(store)}:record-delta-v1`);
+  const expectedGeneration = Number(authorityState?.localGeneration || 0);
   const request = { baseUrl: context.baseUrl, appNpub: context.appNpub };
   const threadResult = await (options.getTowerPgThread || getTowerPgThread)(context.workspaceId, threadId, request);
   const thread = threadResult?.thread || threadResult;
@@ -2039,7 +2042,7 @@ export async function readTowerPgThreadHistoryPage(store, channelId, threadId, o
   });
   if (page?.next_cursor && page.next_cursor === options.cursor) throw new Error('Conversation history cursor did not advance');
   return { thread_history_page: { channelId, thread, messages: page?.messages || [],
-    cursor: options.cursor || null, nextCursor: page?.next_cursor || null } };
+    cursor: options.cursor || null, nextCursor: page?.next_cursor || null, expectedGeneration } };
 }
 
 async function materializeThreadHistoryPage(store, page) {
@@ -2050,22 +2053,47 @@ async function materializeThreadHistoryPage(store, page) {
   const rows = page.messages.map(message => mapPgMessageToLocal(message, { ...context, threadById }));
   const key = `thread-history-page:${threadId}`;
   return db.transaction('rw', db.chat_messages, db.pending_writes, db.sync_state, db.pg_record_rows, async () => {
-    const previous = await db.sync_state.get(key);
-    // The coverage is scoped to this thread, independent of workspace sync cursors.
-    const ids = [...new Set([...(page.cursor ? previous?.value?.messageIds || [] : []), ...rows.map(row => row.record_id)])];
-    const thread = { ...mapPgThreadToLocal(page.thread, context), pg_effective_message_ids: ids };
-    const candidates = [...rows, thread];
-    const authority = await db.pg_record_rows.bulkGet(candidates.map(row => `${row.pg_record_type}:${row.record_id}`));
+    const authorityState = (await db.sync_state.get(`${towerPgSyncCursorKey(store)}:record-delta-v1`))?.value;
+    if (authorityState?.resetting || (page.expectedGeneration !== undefined
+      && page.expectedGeneration !== Number(authorityState?.localGeneration || 0))) {
+      throw new Error('Conversation history authority changed; reopen to retry');
+    }
+    const previous = (await db.sync_state.get(key))?.value;
+    const local = await db.chat_messages.get(threadId);
+    const thread = mapPgThreadToLocal(page.thread, context);
+    const lineage = threadHistoryLineage(thread);
+    const [canonical, channel] = await db.pg_record_rows.bulkGet([`thread:${threadId}`, `channel:${page.channelId}`]);
+    const revoked = record => record && (record.operation === 'delete' || record.row?.deleted_at);
+    if (revoked(canonical) || revoked(channel) || local?.record_state === 'deleted'
+      || Number(canonical?.row?.row_version || canonical?.row?.version || 0) > thread.version
+      || Number(local?.version || 0) > thread.version
+      || Number(previous?.version || 0) > thread.version
+      || (local && Number(local.version || 0) === thread.version && threadHistoryLineage(local) !== lineage)
+      || (canonical?.row && Number(canonical.row.row_version || canonical.row.version || 0) === thread.version
+        && threadHistoryLineage(canonical.row) !== lineage)) {
+      throw new Error('Conversation history is older than current authority; reopen to retry');
+    }
+    const sameLineage = threadHistoryLineage(local) === lineage;
+    const priorCoverage = previous?.lineage === lineage ? previous : null;
+    // Unbound legacy coverage cannot establish inherited membership. A persisted
+    // full transcript on the matching thread can, without scanning message rows.
+    const known = mergeThreadHistoryIds(sameLineage ? local?.pg_effective_message_ids || [] : [], priorCoverage?.messageIds || []);
+    const candidates = rows;
+    const authority = await db.pg_record_rows.bulkGet(candidates.map(row => `message:${row.record_id}`));
     const current = candidates.filter((row, index) => {
       const record = authority[index];
-      return !record || (record.operation !== 'delete' && !record.row?.deleted_at
-        && Number(record.row?.row_version || record.row?.version || 0) <= Number(row.version || 0));
+      return !revoked(record) && (!record || Number(record.row?.row_version || record.row?.version || 0) <= Number(row.version || 0));
     });
-    // A targeted historical response cannot resurrect a canonical tombstone,
-    // overwrite newer delta authority, or replace an unresolved local command.
-    await replacePgMessagesForChannel(page.channelId, current);
-    await db.sync_state.put({ key, value: { nextCursor: page.nextCursor, messageIds: ids } });
-    return { nextCursor: page.nextCursor, count: rows.length };
+    const tombstones = new Set(rows.filter((row, index) => revoked(authority[index]) || row.record_state === 'deleted').map(row => row.record_id));
+    const ids = mergeThreadHistoryIds(known.filter(id => !tombstones.has(id)), current.filter(row => row.record_state !== 'deleted').map(row => row.record_id), !page.cursor);
+    // Only the expected forward edge may move continuation. Replayed first or
+    // reordered pages can add membership but cannot move the cursor backwards.
+    if (page.cursor && !priorCoverage) throw new Error('Conversation history lineage changed; reopen to retry');
+    const advances = !priorCoverage || (page.cursor && page.cursor === priorCoverage.nextCursor);
+    const nextCursor = advances ? page.nextCursor : priorCoverage.nextCursor;
+    await replacePgMessagesForChannel(page.channelId, [...current, { ...thread, pg_effective_message_ids: ids }]);
+    await db.sync_state.put({ key, value: { lineage, version: thread.version, nextCursor, messageIds: ids } });
+    return { nextCursor, count: rows.length };
   });
 }
 

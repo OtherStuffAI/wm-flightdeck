@@ -1165,6 +1165,13 @@
       "notes": [
         "Update rendered conversation replies reliably when a live edit changes an existing message."
       ]
+    },
+    {
+      "buildNumber": 1883,
+      "label": "Preserve reopened conversation history",
+      "notes": [
+        "Keep known inherited conversation history visible when reopening or refreshing a partial page, and preserve forward paging progress."
+      ]
     }
   ]
 }

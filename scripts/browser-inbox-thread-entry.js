@@ -38,7 +38,7 @@ window.startThreadProbe = async ({ worker, workspaceId }) => {
     'thread-history-page': {
       load: (_, options) => readTowerPgThreadHistoryPage(store, options.channelId, options.threadId, {
         ...options,
-        getTowerPgThread: async () => window.threadRemote[options.threadId]?.thread || { id: options.threadId, channel_id: options.channelId, workspace_id: workspaceId },
+        getTowerPgThread: async () => window.threadRemote[options.threadId]?.thread || window.threadFixtures?.[options.threadId]?.thread || { id: options.threadId, channel_id: options.channelId, workspace_id: workspaceId },
         getTowerPgChannelMessages: async (_, __, request) => {
           window.threadReads.push({ threadId: options.threadId, ...request });
           const remote = window.threadRemote[options.threadId];

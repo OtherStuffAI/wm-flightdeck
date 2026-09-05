@@ -153,6 +153,19 @@ tombstones. Paging coverage uses a separate per-thread sync-state key; workspace
 sync cursors are unchanged. Only pagination/loading/error state returns to the
 UI directly; messages arrive through liveQuery.
 
+Partial pages retain previously authorized effective membership only for matching
+workspace/channel/thread/source/parent/branch-point/scope lineage. Canonical
+metadata-only thread updates preserve complete effective ID arrays; changed
+lineage invalidates inherited coverage. ID metadata merges do not read historical
+message values. Detail reads still fetch only the requested bounded values and
+honor canonical tombstones. Indexed own-thread replies remain live independently
+of the effective ID prefix. Legacy coverage lacking a lineage binding is not
+used as independent authority; intact thread effective arrays remain usable.
+Only the expected forward cursor edge advances continuation, so first-page
+replays and reordered pages cannot regress it. Older thread authority is rejected
+with a retry error. Authority reset removes coverage and rejects history reads
+started in the prior local authority generation.
+
 Current transport limit: Tower's existing effective-transcript endpoint exposes
 only `created_at ASC, id ASC` and an after cursor. Cached recent replies render
 immediately, but a completely cold conversation begins with the first bounded
@@ -164,8 +177,12 @@ contract extension. The existing branch hydration API is unchanged.
 `node scripts/verify-inbox-thread-browser.mjs` exercises the production Alpine
 store, Inbox card action, open handlers and actual thread modal in WebKit, with
 in-memory transport and canonical worker fixtures. Set
-`FLIGHTDECK_VERIFY_BUILT_WORKER=1` to use the packaged Vite worker. This is an
-offline browser regression, not an authenticated Tower or native-device test.
+`FLIGHTDECK_VERIFY_BUILT_WORKER=1` to use the packaged Vite worker and extract
+Inbox/modal templates from the built index. `FLIGHTDECK_VERIFY_DIST` selects an
+alternate unpacked asset directory (default `dist`), including its styles. This
+can verify downloaded OTA worker/templates/styles with the real source-built
+production store and fixture transport. It does not execute the complete OTA
+application entry or test authenticated Tower, OTA installation, or a native device.
 
 ## Unread semantics and migration
 
