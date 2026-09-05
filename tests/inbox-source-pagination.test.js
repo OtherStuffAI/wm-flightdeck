@@ -64,19 +64,17 @@ describe('Inbox source pagination and complete navigation', () => {
     expect(store.visibleAutopilotOverviewInbox).toHaveLength(225);
   });
 
-  it('keeps loading available for an empty filtered prefix and does one bounded expansion per click', async () => {
+  it('selects old search matches before paging and exhausts unrelated source history', async () => {
     const { deliver } = await setup();
     store.setDeckInboxSearchDraft('Older match'); store.applyDeckInboxSearch();
-    expect(store.visibleAutopilotOverviewInbox).toHaveLength(0);
-    expect(store.hasMoreAutopilotOverviewInbox).toBe(true);
-    for (const limit of [150, 200, 250]) {
-      store.revealMoreDeckInbox(); await deliver();
-      expect(store.inboxActivityVisibleCount).toBe(limit);
-      expect(store.deckInboxVisibleCount).toBe(50);
-    }
+    expect(store.inboxActivityLoading).toBe(true);
+    await deliver();
+    expect(store.inboxActivityVisibleCount).toBe(100);
+    expect(store.deckInboxVisibleCount).toBe(50);
     expect(store.visibleAutopilotOverviewInbox).toHaveLength(25);
     expect(store.hasMoreAutopilotOverviewInbox).toBe(false);
-    store.setDeckInboxSearchDraft('no match'); store.applyDeckInboxSearch();
+    store.setDeckInboxSearchDraft('no match'); store.applyDeckInboxSearch(); await deliver();
+    expect(store.visibleAutopilotOverviewInbox).toHaveLength(0);
     expect(store.hasMoreAutopilotOverviewInbox).toBe(false);
   });
 

@@ -277,8 +277,8 @@ function commentTargetContext(comment, context) {
   if (family === recordFamilyHash('document')) {
     const document = context.documentById.get(targetId);
     return {
-      scope_id: getRecordScopeId(document),
-      channel_id: document?.pg_channel_id || null,
+      scope_id: getRecordScopeId(document) || comment.pg_scope_id || null,
+      channel_id: document?.pg_channel_id || comment.pg_channel_id || null,
       thread_id: document?.pg_thread_id || null,
       source_label: `Comment on ${document?.title || 'document'}`,
       source_target_type: 'document',
@@ -289,8 +289,8 @@ function commentTargetContext(comment, context) {
   if (family === recordFamilyHash('task')) {
     const task = context.taskById.get(targetId);
     return {
-      scope_id: getRecordScopeId(task),
-      channel_id: task?.pg_channel_id || null,
+      scope_id: getRecordScopeId(task) || comment.pg_scope_id || null,
+      channel_id: task?.pg_channel_id || comment.pg_channel_id || null,
       thread_id: task?.pg_thread_id || null,
       source_label: `Comment on ${task?.title || 'task'}`,
       source_target_type: 'task',
@@ -442,6 +442,7 @@ export function buildFileBrowserRows(store = {}) {
         source_type: 'chat',
         source_label: channel?.title || 'Chat',
         source_record_id: message.record_id,
+        scope_id: getRecordScopeId(channel),
         channel_id: message.channel_id || null,
         thread_id: message.pg_thread_id || message.parent_message_id || null,
         content_type: ref.contentType,

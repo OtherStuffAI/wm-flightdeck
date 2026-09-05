@@ -81,10 +81,7 @@ try {
   await footer.click(); await page.waitForFunction(() => window.probeStore.visibleAutopilotOverviewInbox.length === 150);
   await page.locator('#deck-inbox-search').fill('Older match');
   await page.locator('.inbox-search-submit').click();
-  await page.waitForFunction(() => window.probeStore.visibleAutopilotOverviewInbox.length === 0);
-  assert(await footer.isVisible());
-  await footer.click(); await page.waitForFunction(() => window.probeStore.inboxActivityVisibleCount === 200);
-  await footer.click(); await page.waitForFunction(() => window.probeStore.visibleAutopilotOverviewInbox.length === 25);
+  await page.waitForFunction(() => !window.probeStore.inboxActivityLoading && window.probeStore.visibleAutopilotOverviewInbox.length === 25);
   await page.waitForFunction(() => !window.probeStore.hasMoreAutopilotOverviewInbox);
   await footer.waitFor({ state: 'hidden' });
   assert.equal(await footer.isVisible(), false);

@@ -102,15 +102,33 @@ metadata/index storage and write cost of 14–28 board keys per task plus unique
 text can generate many tokens. Native count operations can walk matching index
 entries internally even though they return no record values.
 
-Overview/files filters operate on the loaded activity prefix. Inbox initially renders 50 mixed cards. Its footer “Load older activity” button
-reveals up to 50 more; when loaded matches run short, the click expands each
-source prefix by 50 once. It stays available when source pages remain even if a
-filter matches nothing. Scrolling does not drain pages. Files has its own footer,
-source limit and has-more state. Neither prefix has a finite history cap.
-Channel metadata is an independent, unwindowed workspace subscription and never
-requires Inbox paging, recent messages or a nonempty history. Related metadata families, documents'
-existing explicit history views, workrooms and unadvertised protocol families
-keep their established APIs; this is not a complete-workspace replacement claim.
+Inbox starts with 50 cards. Its All, Chat, Task, Docs and Files selector combines
+with scope and submitted search before selecting source candidates. One footer
+reveals the next 50 matching cards and expands relevant source prefixes by 50
+when necessary. Type, scope and search transitions reset the visible prefix;
+source subscription generations reject late results. Files retains its own
+footer and source window.
+
+Chat activity uses the existing channel/active/time index, including PG rows
+cached before ownership was populated by the canonical mappers. This read-time
+compatibility path requires no rewrite, migration, resync or cache reset. Chat
+candidates are grouped by thread before limiting and their indexed root identities
+are loaded separately. Tasks/documents retain comment activity and file
+classification. Search may examine many index candidates, but does not load an
+unbounded history array. Returned activity prefixes remain bounded; this is not
+a constant-time arbitrary-substring search guarantee.
+
+Recent Channels independently reads one actual latest message per authorized
+channel, then applies the Deck scope and ten-channel display limit. Empty channels
+and thread-only metadata do not become recent activity. Displayed thread attention
+is read by primary key alongside Inbox and Recent rows, so their unread state does
+not depend on the selected Chat message window. Feed retains its independent
+WApp activity live query and its existing explicit Feed filters.
+
+Channel metadata remains an independent, unwindowed workspace subscription and
+never requires Inbox paging, recent messages or a nonempty history. Related
+metadata families, documents' existing explicit history views, workrooms and
+unadvertised protocol families keep their established APIs.
 
 ## Unread semantics and migration
 

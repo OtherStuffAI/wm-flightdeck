@@ -1625,15 +1625,74 @@ export async function getTaskBoardWindow({ ownerNpub, channelId, threadId, scope
 // expands this prefix; source history is never silently fetched in a subscription.
 export async function getOwnerActivityWindow(tableName, ownerNpub, options = {}) {
   const limit = Math.max(1, Math.trunc(Number(options.limit) || 100));
+  if (tableName === 'chat_messages') {
+    const channels = options.channels || await getChannelsByOwner(ownerNpub);
+    return getChannelActivityWindow(channels.map(row => row.record_id), options);
+  }
   if (tableName === 'tasks') {
+    if (options.matches) {
+      const states = ['new', 'ready', 'in_progress', 'blocked', 'review', 'done'];
+      const pages = await Promise.all(states.map(state => wsDb().tasks.where('cache_board_keys')
+        .between([`owner:${ownerNpub}`, 1, state, 'modified_desc', Dexie.minKey],
+          [`owner:${ownerNpub}`, 1, state, 'modified_desc', Dexie.maxKey])
+        .filter(options.matches).limit(limit + 1).toArray()));
+      const rows = pages.flat().sort((a, b) => compareIndexedTasks(a, b, 'modified_desc'));
+      return { rows: rows.slice(0, limit).map(taskWithoutIndexFields), hasMore: rows.length > limit };
+    }
     const page = await getTaskBoardWindow({ ownerNpub, limit, sortMode: 'modified_desc' });
     return { rows: page.rows, hasMore: page.hasMore };
   }
   if (!['chat_messages', 'comments', 'documents'].includes(tableName)) throw new Error('Unsupported activity family');
   const rows = await wsDb().table(tableName).where('[owner_npub+cache_active+cache_time+record_id]')
     .between([ownerNpub, 1, Dexie.minKey, Dexie.minKey], [ownerNpub, 1, '\uffff', Dexie.maxKey])
-    .reverse().limit(limit + 1).toArray();
+    .reverse().filter(options.matches || (() => true)).limit(limit + 1).toArray();
   return { rows: rows.slice(0, limit), hasMore: rows.length > limit };
+}
+
+// Channel indexes existed before owner-indexed activity. Reading these also
+// recovers already materialized PG rows that never carried owner_npub, without
+// rewriting user data, pending commands or sync cursors.
+export async function getChannelActivityWindow(channelIds, options = {}) {
+  const db = wsDb();
+  const limit = Math.max(1, Number(options.limit) || 100);
+  const pages = await Promise.all([...new Set(channelIds)].map(async channelId => {
+    const seen = new Set();
+    return db.chat_messages.where('[channel_id+cache_active+cache_time+record_id]')
+      .between([channelId, 1, Dexie.minKey, Dexie.minKey], [channelId, 1, '\uffff', Dexie.maxKey])
+      .reverse().filter(row => {
+        if (row.record_state === 'archived' || (options.messagesOnly && row.pg_record_type === 'thread')) return false;
+        if (options.matches && !options.matches(row)) return false;
+        if (!options.groupThreads) return true;
+        const id = row.pg_thread_id || row.parent_message_id || row.record_id;
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      }).limit(limit + 1).toArray();
+  }));
+  const ordered = pages.flat().sort((a, b) => String(b.cache_time).localeCompare(String(a.cache_time))
+    || String(b.record_id).localeCompare(String(a.record_id)));
+  const rows = ordered.slice(0, limit);
+  if (options.groupThreads) {
+    const roots = await db.chat_messages.bulkGet([...new Set(rows.flatMap(row =>
+      [row.pg_thread_id, row.parent_message_id]).filter(Boolean))]);
+    rows.push(...roots.filter(row => row && row.record_state !== 'deleted' && row.record_state !== 'archived'
+      && !rows.some(item => item.record_id === row.record_id)));
+  }
+  return { rows, hasMore: ordered.length > limit };
+}
+
+export async function getRecentChannelActivity(ownerNpub) {
+  const channels = await getChannelsByOwner(ownerNpub);
+  // One actual latest message per authorized channel; no history or Inbox cap.
+  const pages = await Promise.all(channels.filter(row => row.record_state !== 'archived')
+    .map(row => getChannelActivityWindow([row.record_id], { limit: 1, messagesOnly: true })));
+  return pages.flatMap(page => page.rows);
+}
+
+export async function getActivityThreadAttention(messages) {
+  const ids = [...new Set(messages.map(row => row.pg_thread_id || row.parent_message_id || row.record_id))];
+  const rows = await wsDb().pg_resource_attention.bulkGet(ids.map(id => `thread:${id}`));
+  return Object.fromEntries(rows.filter(Boolean).map(row => [row.resource_id, row.unread === true]));
 }
 
 export async function getTasksByOwner(ownerNpub) {

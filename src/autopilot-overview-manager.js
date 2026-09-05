@@ -148,7 +148,7 @@ function isDocumentBodyStorageRow(row = {}) {
     && normalizeString(row.kind) === 'document';
 }
 
-function scopeMatches(rowScopeId, selectedScopeId, scopesMap) {
+export function scopeMatches(rowScopeId, selectedScopeId, scopesMap) {
   const selected = normalizeString(selectedScopeId);
   const rowScope = normalizeString(rowScopeId);
   if (!selected || selected === ALL_SCOPE_ID || selected === '__all__') return true;
@@ -681,9 +681,9 @@ function inboxRowSearchText(row = {}) {
   return '';
 }
 
-export function filterAutopilotOverviewInbox(rows = [], query = '') {
+export function filterAutopilotOverviewInbox(rows = [], query = '', type = 'all') {
   const needle = normalizeInboxSearchText(query);
-  const source = Array.isArray(rows) ? rows : [];
+  const source = (Array.isArray(rows) ? rows : []).filter(row => type === 'all' || row.inboxKind === type);
   if (!needle) return source;
   return source.filter((row) => normalizeInboxSearchText(inboxRowSearchText(row)).includes(needle));
 }
@@ -748,6 +748,8 @@ export const autopilotOverviewManagerMixin = {
   deckMobileResizeObserver: null,
   deckMobileEntryResetToken: 0,
   deckMobileEntryResetPending: false,
+  deckInboxType: 'all',
+  recentChannelMessages: null,
   deckInboxSearchDraft: '',
   deckInboxSearchQuery: '',
   deckInboxVisibleCount: DECK_INBOX_PAGE_SIZE,
@@ -1251,20 +1253,34 @@ export const autopilotOverviewManagerMixin = {
     this.deckMobileColumn = cards[index].id;
   },
 
+  resetDeckInboxSources() {
+    this.deckInboxVisibleCount = DECK_INBOX_PAGE_SIZE;
+    this.inboxActivityVisibleCount = 100;
+    this.inboxActivityPageHasMore = {};
+    this.inboxActivityLoading = true;
+    this.inboxActivityQueryRevision = (this.inboxActivityQueryRevision || 0) + 1;
+    this.startWorkspaceLiveQueries?.();
+  },
+
+  setDeckInboxType(value) {
+    this.deckInboxType = ['chat', 'task', 'document', 'file'].includes(value) ? value : 'all';
+    autopilotOverviewManagerMixin.resetDeckInboxSources.call(this);
+  },
+
   setDeckInboxSearchDraft(value) {
     this.deckInboxSearchDraft = String(value || '');
     if (!this.deckInboxSearchDraft) {
       this.deckInboxSearchQuery = '';
-      this.deckInboxVisibleCount = DECK_INBOX_PAGE_SIZE;
+      autopilotOverviewManagerMixin.resetDeckInboxSources.call(this);
     }
   },
 
   applyDeckInboxSearch() {
     const nextQuery = String(this.deckInboxSearchDraft || '');
     if (normalizeInboxSearchText(nextQuery) !== normalizeInboxSearchText(this.deckInboxSearchQuery)) {
-      this.deckInboxVisibleCount = DECK_INBOX_PAGE_SIZE;
+      this.deckInboxSearchQuery = nextQuery;
+      autopilotOverviewManagerMixin.resetDeckInboxSources.call(this);
     }
-    this.deckInboxSearchQuery = nextQuery;
   },
 
   syncDeckInboxContext(contextKey, scopeId) {
@@ -1275,6 +1291,7 @@ export const autopilotOverviewManagerMixin = {
       this.deckInboxVisibleCount = DECK_INBOX_PAGE_SIZE;
       this.deckInboxSearchDraft = '';
       this.deckInboxSearchQuery = '';
+      autopilotOverviewManagerMixin.resetDeckInboxSources.call(this);
     }
     this.deckInboxScopeId = nextScopeId;
   },
@@ -1467,13 +1484,13 @@ export const autopilotOverviewManagerMixin = {
 
   get autopilotOverviewThreads() {
     const context = this.autopilotOverviewContext;
-    const messages = this.fileMessages?.length ? this.fileMessages : this.messages;
+    const messages = this.navSection === 'status' ? (this.fileMessages || []) : (this.fileMessages?.length ? this.fileMessages : this.messages);
     const sessionNpub = this.session?.npub || this.signingNpub || '';
     return memoizedProjection(this, 'threads', [
       this.channels, messages, context.scopeId, context.channelId, this.scopesMap,
       this.groups, this.chatProfiles, this.addressBookPeople, this._wsKeyDisplayMap,
       sessionNpub, this._unreadChannels,
-      this._unreadThreadItems, Boolean(this.isTowerPgMode),
+      this._unreadThreadItems, this.inboxUnreadThreads, Boolean(this.isTowerPgMode),
     ], () => buildAutopilotOverviewThreads({
       channels: this.channels,
       messages,
@@ -1485,19 +1502,19 @@ export const autopilotOverviewManagerMixin = {
       getSenderName: this.getSenderName?.bind?.(this),
       sessionNpub,
       unreadChannelMap: this._unreadChannels || {},
-      unreadThreadMap: this._unreadThreadItems || {},
+      unreadThreadMap: { ...this._unreadThreadItems, ...this.inboxUnreadThreads },
       resourceViewStateMode: Boolean(this.isTowerPgMode),
     }));
   },
 
   get deckRecentChannels() {
     const contextScopeId = this.autopilotOverviewContext.scopeId || ALL_SCOPE_ID;
-    const messages = this.fileMessages?.length ? this.fileMessages : this.messages;
+    const messages = this.recentChannelMessages ?? (this.navSection === 'status' ? (this.fileMessages || []) : (this.fileMessages?.length ? this.fileMessages : this.messages));
     const sessionNpub = this.session?.npub || this.signingNpub || '';
     return memoizedProjection(this, 'recent-channels', [
       this.channels, messages, contextScopeId, this.scopesMap, this.groups,
       this.chatProfiles, this.addressBookPeople, this._wsKeyDisplayMap,
-      sessionNpub, this._unreadChannels, this._unreadThreadItems,
+      sessionNpub, this._unreadChannels, this._unreadThreadItems, this.recentChannelUnreadThreads,
       Boolean(this.isTowerPgMode),
     ], () => buildRecentChannels(buildAutopilotOverviewThreads({
       channels: this.channels,
@@ -1510,7 +1527,7 @@ export const autopilotOverviewManagerMixin = {
       getSenderName: this.getSenderName?.bind?.(this),
       sessionNpub,
       unreadChannelMap: this._unreadChannels || {},
-      unreadThreadMap: this._unreadThreadItems || {},
+      unreadThreadMap: { ...this._unreadThreadItems, ...this.recentChannelUnreadThreads },
       resourceViewStateMode: Boolean(this.isTowerPgMode),
     })));
   },
@@ -1580,8 +1597,8 @@ export const autopilotOverviewManagerMixin = {
 
   get filteredAutopilotOverviewInbox() {
     const inbox = this.autopilotOverviewInbox;
-    return memoizedProjection(this, 'filtered-inbox', [inbox, this.deckInboxSearchQuery], () => (
-      filterAutopilotOverviewInbox(inbox, this.deckInboxSearchQuery)
+    return memoizedProjection(this, 'filtered-inbox', [inbox, this.deckInboxSearchQuery, this.deckInboxType], () => (
+      filterAutopilotOverviewInbox(inbox, this.deckInboxSearchQuery, this.deckInboxType || 'all')
     ));
   },
 

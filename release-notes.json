@@ -1120,6 +1120,14 @@
         "Start with 50 Inbox cards and load older activity from one button at the bottom, including older search results.",
         "Keep Files paging in its own footer and channel navigation independent of activity paging."
       ]
+    },
+    {
+      "buildNumber": 1877,
+      "label": "Inbox chat activity and type filters",
+      "notes": [
+        "Restored cached chats in Inbox and kept Recent Channels current independently of Inbox history.",
+        "Filter Inbox by All, Chat, Task, Docs or Files, with scope and search applied before paging."
+      ]
     }
   ]
 }

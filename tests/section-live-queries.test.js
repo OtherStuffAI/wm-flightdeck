@@ -279,11 +279,12 @@ describe('section live query plan', () => {
       'ws:channels',
       'ws:groups',
       'ws:daily-notes', 'ws:record-attention',
-      'status:messages:100',
-      'status:comments:100',
+      'status:recent-channels',
+      'status:messages:100:all:::0',
+      'status:comments:100:all:::0',
       'status:directories',
-      'status:documents:100',
-      'status:tasks:100',
+      'status:documents:100:all:::0',
+      'status:tasks:100:all:::0',
       'status:wapp-activity',
     ]);
     expect(plan.detail).toEqual([]);

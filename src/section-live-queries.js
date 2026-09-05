@@ -21,6 +21,8 @@ import {
   getTaskBoardWindow,
   taskWithoutIndexFields,
   getOwnerActivityWindow,
+  getRecentChannelActivity,
+  getActivityThreadAttention,
   getWorkspaceDb,
   getSchedulesByOwner,
   getScopesByOwner,
@@ -46,8 +48,76 @@ import { isFlightDeckSurfaceDisabled } from './disabled-surfaces.js';
 import { flightDeckLog } from './logging.js';
 import { parsePgTaskBoardId, resolvePgThreadId } from './pg-record-context.js';
 import { sameLogicalValue } from './utils/state-helpers.js';
+import { normalizeInboxSearchText, scopeMatches, buildAutopilotOverviewThreads, buildAutopilotOverviewTasks, buildAutopilotOverviewDocuments,
+  buildAutopilotOverviewFiles, buildAutopilotOverviewInbox, filterAutopilotOverviewInbox } from './autopilot-overview-manager.js';
+import { buildFileBrowserRows } from './files-manager.js';
 
 const SECTION_STATE = new WeakMap();
+
+// Apply card classification, scope and search while selecting source candidates,
+// before the bounded display prefix. Unrelated types cannot keep paging alive.
+export async function queryInboxSource(store, ownerNpub, tableName) {
+  const context = store.autopilotOverviewContext || {};
+  const channels = await getChannelsByOwner(ownerNpub);
+  const scopes = await getScopesByOwner(ownerNpub);
+  const options = { selectedScopeId: context.scopeId, selectedChannelId: context.channelId,
+    scopesMap: new Map(scopes.map(row => [row.record_id, row])) };
+  const type = store.deckInboxType || 'all';
+  if ((type === 'chat' && tableName !== 'chat_messages')
+    || (type === 'task' && !['tasks', 'comments'].includes(tableName))
+    || (type === 'document' && !['documents', 'comments'].includes(tableName))) return { rows: [], hasMore: false };
+  const matches = (row, comments = []) => {
+    const sources = { channels, documents: [], tasks: [], fileMessages: [], fileComments: comments };
+    sources[{ chat_messages: 'fileMessages', comments: 'fileComments', tasks: 'tasks', documents: 'documents' }[tableName]] = [row];
+    const cards = buildAutopilotOverviewInbox({
+      threads: buildAutopilotOverviewThreads({ ...options, channels, messages: sources.fileMessages }),
+      tasks: buildAutopilotOverviewTasks({ ...options, tasks: sources.tasks, comments }),
+      documents: buildAutopilotOverviewDocuments({ ...options, documents: sources.documents, comments }),
+      files: buildAutopilotOverviewFiles(buildFileBrowserRows(sources), options),
+    });
+    return filterAutopilotOverviewInbox(cards, store.deckInboxSearchQuery, type).length > 0;
+  };
+  // Comments enrich the selected parent cards; they are not independent Inbox
+  // cards and must never advertise another page by themselves.
+  if (tableName === 'comments') {
+    const parents = await Promise.all(['tasks', 'documents'].map(name => queryInboxSource(store, ownerNpub, name)));
+    const pages = await Promise.all(parents.flatMap(page => page.rows).map(row => getCommentsByTarget(row.record_id, { limit: 100 })));
+    if (type === 'all' || type === 'file') {
+      const attachments = await getOwnerActivityWindow('comments', ownerNpub, {
+        limit: store.inboxActivityVisibleCount || 100, matches,
+      });
+      return { rows: [...new Map([...pages.flat(), ...attachments.rows].map(row => [row.record_id, row])).values()], hasMore: attachments.hasMore };
+    }
+    return { rows: pages.flat(), hasMore: false };
+  }
+  const page = await getOwnerActivityWindow(tableName, ownerNpub, {
+    limit: store.inboxActivityVisibleCount || 100, matches,
+    channels: channels.filter(row => scopeMatches(row.scope_id, context.scopeId, options.scopesMap)
+      && (!context.channelId || context.channelId === 'all' || row.record_id === context.channelId)),
+    groupThreads: tableName === 'chat_messages' && type !== 'file',
+  });
+  if (['tasks', 'documents'].includes(tableName) && type !== 'file') {
+    const family = recordFamilyHash(tableName === 'tasks' ? 'task' : 'document');
+    const needle = normalizeInboxSearchText(store.deckInboxSearchQuery);
+    const seen = new Set();
+    const activity = await getOwnerActivityWindow('comments', ownerNpub, {
+      limit: store.inboxActivityVisibleCount || 100,
+      matches: row => {
+        if (row.target_record_family_hash !== family || seen.has(row.target_record_id)) return false;
+        if (!scopeMatches(row.pg_scope_id, context.scopeId, options.scopesMap)) return false;
+        if (context.channelId && context.channelId !== 'all' && row.pg_channel_id !== context.channelId) return false;
+        if (needle && !normalizeInboxSearchText(row.body).includes(needle)) return false;
+        seen.add(row.target_record_id); return true;
+      },
+    });
+    const parents = (await getWorkspaceDb().table(tableName).bulkGet(activity.rows.map(row => row.target_record_id)))
+      .filter(row => row && row.record_state !== 'deleted' && matches(row, activity.rows));
+    page.rows = [...new Map([...page.rows, ...parents].map(row => [row.record_id, row])).values()];
+    page.hasMore ||= activity.hasMore;
+  }
+  if (tableName === 'chat_messages') page.unreadThreads = await getActivityThreadAttention(page.rows);
+  return page;
+}
 
 function getSectionState(store) {
   let state = SECTION_STATE.get(store);
@@ -314,23 +384,43 @@ function buildWorkspaceSpecs(store) {
     }] : []),
   ];
 
+  const inboxKey = `${store.inboxActivityVisibleCount || 100}:${store.deckInboxType || 'all'}:${store.deckInboxSearchQuery || ''}:${store.deckInboxCurrentContextKey || ''}:${store.inboxActivityQueryRevision || 0}`;
+  const inboxGuard = () => isSameWorkspace(store, workspaceKey, ownerNpub)
+    && inboxKey === `${store.inboxActivityVisibleCount || 100}:${store.deckInboxType || 'all'}:${store.deckInboxSearchQuery || ''}:${store.deckInboxCurrentContextKey || ''}:${store.inboxActivityQueryRevision || 0}`;
   let sectionSpecs;
   switch (store?.navSection) {
     case 'status':
       sectionSpecs = [
         {
-          key: `status:messages:${store.inboxActivityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('chat_messages', ownerNpub, { limit: store.inboxActivityVisibleCount || 100 }),
+          key: 'status:recent-channels',
+          query: async () => {
+            const rows = await getRecentChannelActivity(ownerNpub);
+            return { rows, unreadThreads: await getActivityThreadAttention(rows) };
+          },
+          onNext: page => {
+            if (!isSameWorkspace(store, workspaceKey, ownerNpub)) return;
+            store.recentChannelMessages = page.rows;
+            store.recentChannelUnreadThreads = page.unreadThreads;
+          },
+        },
+        {
+          key: `status:messages:${store.inboxActivityVisibleCount || 100}:${store.deckInboxType || "all"}:${store.deckInboxSearchQuery || ""}:${store.deckInboxCurrentContextKey || ""}:${store.inboxActivityQueryRevision || 0}`,
+          query: () => queryInboxSource(store, ownerNpub, 'chat_messages'),
           onNext: (page) => {
+            if (!inboxGuard()) return;
             store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, messages: page.hasMore };
+            store.inboxActivityLoading = Object.keys(store.inboxActivityPageHasMore).length < 4;
+            store.inboxUnreadThreads = page.unreadThreads || {};
             return store.applyFileMessages(page.rows);
           },
         },
         {
-          key: `status:comments:${store.inboxActivityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('comments', ownerNpub, { limit: store.inboxActivityVisibleCount || 100 }),
+          key: `status:comments:${store.inboxActivityVisibleCount || 100}:${store.deckInboxType || "all"}:${store.deckInboxSearchQuery || ""}:${store.deckInboxCurrentContextKey || ""}:${store.inboxActivityQueryRevision || 0}`,
+          query: () => queryInboxSource(store, ownerNpub, 'comments'),
           onNext: (page) => {
+            if (!inboxGuard()) return;
             store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, comments: page.hasMore };
+            store.inboxActivityLoading = Object.keys(store.inboxActivityPageHasMore).length < 4;
             return store.applyFileComments(page.rows);
           },
         },
@@ -340,18 +430,22 @@ function buildWorkspaceSpecs(store) {
           onNext: (directories) => store.applyDirectories(directories),
         },
         {
-          key: `status:documents:${store.inboxActivityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('documents', ownerNpub, { limit: store.inboxActivityVisibleCount || 100 }),
+          key: `status:documents:${store.inboxActivityVisibleCount || 100}:${store.deckInboxType || "all"}:${store.deckInboxSearchQuery || ""}:${store.deckInboxCurrentContextKey || ""}:${store.inboxActivityQueryRevision || 0}`,
+          query: () => queryInboxSource(store, ownerNpub, 'documents'),
           onNext: (page) => {
+            if (!inboxGuard()) return;
             store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, documents: page.hasMore };
+            store.inboxActivityLoading = Object.keys(store.inboxActivityPageHasMore).length < 4;
             return store.applyDocuments(page.rows);
           },
         },
         {
-          key: `status:tasks:${store.inboxActivityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('tasks', ownerNpub, { limit: store.inboxActivityVisibleCount || 100 }),
+          key: `status:tasks:${store.inboxActivityVisibleCount || 100}:${store.deckInboxType || "all"}:${store.deckInboxSearchQuery || ""}:${store.deckInboxCurrentContextKey || ""}:${store.inboxActivityQueryRevision || 0}`,
+          query: () => queryInboxSource(store, ownerNpub, 'tasks'),
           onNext: (page) => {
+            if (!inboxGuard()) return;
             store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, tasks: page.hasMore };
+            store.inboxActivityLoading = Object.keys(store.inboxActivityPageHasMore).length < 4;
             return store.applyTasks(page.rows);
           },
         },
@@ -883,6 +977,9 @@ export const sectionLiveQueryMixin = {
       state.workspaceOwnerNpub = ownerNpub;
       this.inboxActivityVisibleCount = 100;
       this.inboxActivityPageHasMore = {};
+      this.recentChannelMessages = [];
+      this.recentChannelUnreadThreads = {};
+      this.inboxUnreadThreads = {};
       this.filesActivityVisibleCount = 100;
       this.filesActivityPageHasMore = {};
       this.deckInboxVisibleCount = 50;

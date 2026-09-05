@@ -5458,6 +5458,28 @@ button:disabled {
   margin: 0;
 }
 
+.inbox-type-select {
+  flex: 0 0 auto;
+  width: 76px;
+  min-height: 36px;
+  border: 1px solid var(--border-color, #dfe4ed);
+  border-radius: 8px;
+  background: var(--bg-primary, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px;
+}
+.inbox-type-select:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .inbox-panel-heading { flex-wrap: wrap; }
+  .inbox-search-form { order: 3; flex: 1 0 100%; }
+}
+
 .inbox-search-form input {
   flex: 1 1 auto;
   width: auto;

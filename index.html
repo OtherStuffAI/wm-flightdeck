@@ -1910,6 +1910,13 @@
               <div class="autopilot-panel-heading inbox-panel-heading" data-deck-mobile-sticky-heading>
                 <h3>Inbox</h3>
                 <form class="inbox-search-form" role="search" @submit.prevent="$store.chat.applyDeckInboxSearch()">
+                  <select class="inbox-type-select" aria-label="Inbox type" :value="$store.chat.deckInboxType" @change="$store.chat.setDeckInboxType($event.target.value)">
+                    <option value="all">All</option>
+                    <option value="chat">Chat</option>
+                    <option value="task">Task</option>
+                    <option value="document">Docs</option>
+                    <option value="file">Files</option>
+                  </select>
                   <input id="deck-inbox-search" type="search" autocomplete="off" aria-label="Search Inbox" placeholder="Search Inbox" :value="$store.chat.deckInboxSearchDraft" @input="$store.chat.setDeckInboxSearchDraft($event.target.value)" />
                   <button type="submit" class="inbox-search-submit" title="Search Inbox" aria-label="Search Inbox">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
@@ -1957,8 +1964,8 @@
                   </div>
                 </template>
               </div>
-              <p class="settings-field-help inbox-no-results" x-show="$store.chat.filteredAutopilotOverviewInbox.length === 0" role="status" x-text="$store.chat.deckInboxSearchQuery.trim() ? 'No Inbox cards match your search.' : 'No matching activity.'"></p>
-              <button type="button" class="inbox-load-more" x-show="$store.chat.hasMoreAutopilotOverviewInbox" x-cloak @click="$store.chat.revealMoreDeckInbox()" aria-label="Load 50 more Inbox cards or older activity">Load older activity</button>
+              <p class="settings-field-help inbox-no-results" x-show="$store.chat.filteredAutopilotOverviewInbox.length === 0" role="status" x-text="$store.chat.inboxActivityLoading ? 'Loading activity…' : ($store.chat.deckInboxSearchQuery.trim() ? 'No Inbox cards match your search.' : 'No matching activity.')"></p>
+              <button type="button" class="inbox-load-more" :disabled="$store.chat.inboxActivityLoading" x-show="$store.chat.hasMoreAutopilotOverviewInbox" x-cloak @click="$store.chat.revealMoreDeckInbox()" aria-label="Load 50 more Inbox cards or older activity">Load older activity</button>
             </section>
 
             <div class="deck-right-stack" data-testid="deck-right-stack">

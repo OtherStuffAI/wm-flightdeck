@@ -85,13 +85,14 @@ it('indexes every supported task sort with fixed pages and separate exact counts
 it('bounds overview and file history reads and exposes older pages', async () => {
   const { getOwnerActivityWindow } = await import('../src/db.js');
   const { instrumentIndexedDb } = await import('./helpers/indexeddb-metrics.js');
+  await db.channels.put({ record_id: 'channel', owner_npub: 'owner' });
   for (const table of ['chat_messages','comments','documents']) {
     await db.table(table).bulkPut(Array.from({length:300},(_,i)=>row(`history-${String(i).padStart(4,'0')}`,{owner_npub:'owner'})));
     const metrics=instrumentIndexedDb();
     try {
       const page=await getOwnerActivityWindow(table,'owner',{limit:21});
       expect(page.rows).toHaveLength(21);expect(page.hasMore).toBe(true);
-      expect(metrics.snapshot().valueRowsRead).toBe(22);
+      expect(metrics.snapshot().valueRowsRead).toBe(table === 'chat_messages' ? 23 : 22);
       expect((await getOwnerActivityWindow(table,'owner',{limit:400})).hasMore).toBe(false);
     } finally {metrics.restore()}
   }

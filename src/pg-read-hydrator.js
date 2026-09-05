@@ -557,6 +557,7 @@ export function mapPgThreadToLocal(thread, {
   const latest = trimText(thread?.latest);
   return {
     record_id: recordId,
+    owner_npub: trimText(workspaceOwnerNpub),
     channel_id: trimText(thread?.channel_id),
     parent_message_id: null,
     title: title || latest || 'Untitled thread',
@@ -606,6 +607,7 @@ export function mapPgMessageToLocal(message, {
     : sourceMetadata;
   return {
     record_id: recordId,
+    owner_npub: trimText(workspaceOwnerNpub),
     channel_id: trimText(message?.channel_id),
     parent_message_id: threadId
       ? (sourceMessageId && sourceMessageId !== recordId ? sourceMessageId : (!sourceMessageId ? threadId : null))
