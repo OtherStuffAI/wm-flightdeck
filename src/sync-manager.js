@@ -91,6 +91,7 @@ import {
   hydrateTowerPgTasks,
   hydrateTowerPgTaskComments,
   hydrateTowerPgThreadMessages,
+  readTowerPgThreadHistoryPage,
   hydrateTowerPgWappActivity,
   hydrateTowerPgWappPublishingGrants,
   hydrateTowerPgWorkroom,
@@ -242,6 +243,10 @@ export const syncManagerMixin = {
           freshMs: DETAIL_FAMILY_FRESH_MS,
           load: (channelId, options) => hydrateTowerPgChannelMessages(this, channelId, options),
           materialize: (result) => result,
+        },
+        'thread-history-page': {
+          load: (_key, options) => readTowerPgThreadHistoryPage(this, options.channelId, options.threadId, options),
+          materialize: bundle => bundle ? this.materializeTowerPgWorkspaceBundle(bundle) : null,
         },
         'thread-history': {
           freshMs: DETAIL_FAMILY_FRESH_MS,
@@ -398,6 +403,8 @@ export const syncManagerMixin = {
       case 'channel-tasks': return hydrateTowerPgChannelTasks(this, id, options);
       case 'channel-documents': return hydrateTowerPgChannelDocumentsAndFiles(this, id, options);
       case 'channel-messages': return hydrateTowerPgChannelMessages(this, id, options);
+      case 'thread-history-page': return readTowerPgThreadHistoryPage(this, options.channelId, options.threadId, options)
+        .then(bundle => bundle ? this.materializeTowerPgWorkspaceBundle(bundle) : null);
       case 'thread-history': return hydrateTowerPgThreadMessages(this, options.channelId, options.threadId, options);
       case 'task': return hydrateTowerPgTask(this, id, options);
       case 'task-comments': return hydrateTowerPgTaskComments(this, id, options);

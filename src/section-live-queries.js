@@ -3,6 +3,7 @@ import {
   getChannelsByOwner,
   getCommentsByOwner,
   getMessagesByChannel,
+  getThreadMessagePresentationWindow,
   getMessagePresentationWindowByChannel,
   getMessagePresentationWindowByChannels,
   getMessagesByOwner,
@@ -648,8 +649,33 @@ function buildDetailSpecs(store) {
   const deckThreadChannelId = String(store?.deckThreadChannelId || '').trim();
   const deckThreadId = String(store?.activeThreadId || '').trim();
   if (store?.navSection === 'status' && deckThreadChannelId && deckThreadId) {
+    const replyLimit = store.threadVisibleReplyCount || store.THREAD_REPLY_PAGE_SIZE || 6;
+    const threadId = String(store.deckThreadTowerId || '');
+    const openGeneration = store.autopilotOverviewThreadOpenRequestId;
+    const isCurrent = () => isSameWorkspace(store, workspaceKey, ownerNpub)
+      && store.navSection === 'status'
+      && store.deckThreadChannelId === deckThreadChannelId
+      && store.activeThreadId === deckThreadId
+      && store.autopilotOverviewThreadOpenRequestId === openGeneration;
+    const query = () => getThreadMessagePresentationWindow(deckThreadChannelId, deckThreadId, { threadId, replyLimit });
     return [{
-      key: `deck:agent-activities:${deckThreadChannelId}`,
+      key: `deck:messages:${deckThreadChannelId}:${deckThreadId}:${replyLimit}:${openGeneration || 0}`,
+      equals: sameLogicalValue,
+      query,
+      onNext: messages => {
+        if (!isCurrent() || (store.threadVisibleReplyCount || store.THREAD_REPLY_PAGE_SIZE || 6) !== replyLimit) return;
+        return store.applyMessages(messages, { isCurrent, threadDetail: true });
+      },
+    }, {
+      key: `deck:reactions:${deckThreadChannelId}:${deckThreadId}:${replyLimit}:${openGeneration || 0}`,
+      query: async () => getReactionsByTargets((await query()).map(row => row.record_id), recordFamilyHash('chat_message')),
+      onNext: rows => { if (isCurrent()) return store.applyReactions?.(rows); },
+    }, {
+      key: `deck:response-activities:${threadId || deckThreadId}:${openGeneration || 0}`,
+      query: () => getResponseActivitiesForTarget('chat_thread', threadId || deckThreadId),
+      onNext: rows => { if (isCurrent()) return store.applyThreadResponseActivities?.(rows); },
+    }, {
+      key: `deck:agent-activities:${deckThreadChannelId}:${deckThreadId}:${openGeneration || 0}`,
       query: () => getAgentActivitiesForChannel(deckThreadChannelId),
       onNext: (activities) => {
         if (

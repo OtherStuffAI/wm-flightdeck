@@ -880,6 +880,35 @@ export async function getMessagePresentationWindowByChannel(channelId, options =
   return buildThreadAwarePresentationWindow(presentationRows, { ...options, rootLimit: rootLimit + 1 });
 }
 
+// A thread detail must not inherit the selected channel or Inbox source window.
+// Each parent key reads only the explicitly requested prefix plus one lookahead.
+export async function getThreadMessagePresentationWindow(channelId, rootId, options = {}) {
+  const db = wsDb();
+  const root = await db.chat_messages.get(rootId);
+  const threadId = String(options.threadId || root?.pg_thread_id || rootId || '').trim();
+  const thread = threadId === rootId ? root : await db.chat_messages.get(threadId);
+  const limit = Math.max(1, Number(options.replyLimit) || 6) + 1;
+  const keys = [...new Set([threadId, rootId].filter(Boolean))];
+  const pages = await Promise.all(keys.map(key => db.chat_messages
+    .where('[cache_parent+cache_active+cache_time+record_id]')
+    .between([key, 1, Dexie.minKey, Dexie.minKey], [key, 1, '\uffff', Dexie.maxKey])
+    .reverse().limit(limit).toArray()));
+  const coverage = await db.sync_state.get(`thread-history-page:${threadId}`);
+  const effectiveIds = (coverage?.value?.messageIds || thread?.pg_effective_message_ids || root?.pg_effective_message_ids || []).slice(-limit);
+  const effective = effectiveIds.length ? await db.chat_messages.bulkGet(effectiveIds) : [];
+  const sourceId = thread?.pg_source_message_id;
+  const source = sourceId && sourceId !== rootId ? await db.chat_messages.get(sourceId) : null;
+  const parent = root || thread;
+  if (!parent || parent.channel_id !== channelId || parent.record_state === 'deleted') return [];
+  const rows = new Map();
+  for (const row of [...pages.flat(), ...effective, source]) {
+    if (!row || row.channel_id !== channelId || row.record_state === 'deleted' || row.record_id === rootId) continue;
+    rows.set(row.record_id, { ...row, parent_message_id: rootId });
+  }
+  return [parent, ...[...rows.values()].sort((a, b) => String(a.updated_at || '').localeCompare(String(b.updated_at || ''))
+    || String(a.record_id).localeCompare(String(b.record_id))).slice(-limit)];
+}
+
 export async function getMessagesByChannels(channelIds = [], options = {}) {
   const ids = [...new Set(
     (Array.isArray(channelIds) ? channelIds : [])

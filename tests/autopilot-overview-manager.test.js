@@ -714,7 +714,6 @@ describe('autopilot overview manager', () => {
     expect(store.deckThreadTowerId).toBe('tower-thread-a');
     expect(store.activeThreadId).toBe('root-a');
     expect(calls).toEqual([
-      ['applyMessages', ['root-a'], { scrollToLatest: false }],
       ['openThread', 'root-a', {
         syncRoute: false,
         preserveChannelContext: true,
@@ -855,7 +854,7 @@ describe('autopilot overview manager', () => {
         message.record_id === store.activeThreadId || message.parent_message_id === store.activeThreadId
       ))).toBe(true);
 
-      await expect(store.reconcileDeckThreadMessages([])).resolves.toBe(false);
+      await expect(store.reconcileDeckThreadMessages([])).resolves.toBe(true);
       expect(store.activeThreadId).toBe('source-message-1');
       await expect(store.reconcileDeckThreadMessages([
         ...messages,

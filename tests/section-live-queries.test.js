@@ -220,7 +220,12 @@ describe('section live query plan', () => {
       applyAddressBookPeople() {},
     });
 
-    expect(plan.detail).toEqual(['deck:agent-activities:channel-1']);
+    expect(plan.detail).toEqual([
+      'deck:messages:channel-1:root-message-1:6:0',
+      'deck:reactions:channel-1:root-message-1:6:0',
+      'deck:response-activities:root-message-1:0',
+      'deck:agent-activities:channel-1:root-message-1:0',
+    ]);
   });
 
   it('subscribes to all current scope channels on chat scope home', () => {

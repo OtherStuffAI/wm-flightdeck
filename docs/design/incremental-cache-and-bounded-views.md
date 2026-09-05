@@ -136,6 +136,37 @@ never requires Inbox paging, recent messages or a nonempty history. Related
 metadata families, documents' existing explicit history views, workrooms and
 unadvertised protocol families keep their established APIs.
 
+## Inbox conversation detail
+
+Opening an Inbox chat starts a dedicated Deck detail subscription, independent
+of the Inbox projection and selected Chat channel. It resolves the canonical
+thread and source-message IDs by primary key, reads the requested reply prefix
+plus one lookahead through the existing parent/active/time/ID index, and binds
+message/reaction projections to workspace, conversation, open generation and
+page size. Inbox refreshes never replace the detail message window. Explicit
+older-reply expansion retains the existing scroll anchor behavior.
+
+The `thread-history-page` TowerSyncService family requests one page of at most
+100 messages and a targeted thread record. The materialization worker reconciles
+these into Dexie, respecting pending commands, newer versions and canonical
+tombstones. Paging coverage uses a separate per-thread sync-state key; workspace
+sync cursors are unchanged. Only pagination/loading/error state returns to the
+UI directly; messages arrive through liveQuery.
+
+Current transport limit: Tower's existing effective-transcript endpoint exposes
+only `created_at ASC, id ASC` and an after cursor. Cached recent replies render
+immediately, but a completely cold conversation begins with the first bounded
+page. “Load more conversation history” advances that remote cursor explicitly;
+it does not claim to jump to the newest remote reply. A newest-first initial
+remote page with bounded older keysets requires a separately reviewed Tower
+contract extension. The existing branch hydration API is unchanged.
+
+`node scripts/verify-inbox-thread-browser.mjs` exercises the production Alpine
+store, Inbox card action, open handlers and actual thread modal in WebKit, with
+in-memory transport and canonical worker fixtures. Set
+`FLIGHTDECK_VERIFY_BUILT_WORKER=1` to use the packaged Vite worker. This is an
+offline browser regression, not an authenticated Tower or native-device test.
+
 ## Unread semantics and migration
 
 PG unread remains resource activity-version greater than the viewer's read

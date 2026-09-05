@@ -994,6 +994,9 @@ export const autopilotOverviewManagerMixin = {
     const normalizedChannelId = normalizeString(channelId);
     const normalizedThreadId = normalizeString(threadId);
     if (!normalizedChannelId || !normalizedThreadId) return;
+    if (options.requestId == null) {
+      this.autopilotOverviewThreadOpenRequestId = Number(this.autopilotOverviewThreadOpenRequestId || 0) + 1;
+    }
     if (!this.deckThreadReturnContext || options.captureReturnContext !== false) {
       this.deckThreadReturnContext = this.captureDeckReturnContext();
     }
@@ -1009,9 +1012,6 @@ export const autopilotOverviewManagerMixin = {
       || matchingMessage?.pg_thread_id
       || ''
     );
-    if (channelMessages.length > 0) {
-      await this.applyMessages?.(channelMessages, { scrollToLatest: false });
-    }
     if (
       options.requestId != null
       && Number(this.autopilotOverviewThreadOpenRequestId || 0) !== Number(options.requestId)
@@ -1097,18 +1097,12 @@ export const autopilotOverviewManagerMixin = {
     return true;
   },
 
-  async reconcileDeckThreadMessages(messages = this.fileMessages) {
+  async reconcileDeckThreadMessages() {
     if (this.navSection !== 'status' || !this.activeThreadId || !this.deckThreadChannelId) return false;
-    const activeThreadId = normalizeString(this.activeThreadId);
-    const channelMessages = (Array.isArray(messages) ? messages : [])
-      .filter((message) => normalizeString(message?.channel_id) === normalizeString(this.deckThreadChannelId));
-    const includesActiveThread = channelMessages.some((message) => (
-      normalizeString(message?.record_id) === activeThreadId
-      || normalizeString(message?.parent_message_id) === activeThreadId
-    ));
-    if (!includesActiveThread) return false;
-    await this.applyMessages?.(channelMessages, { scrollToLatest: false });
-    return this.activeThreadId === activeThreadId;
+    // Inbox activity can refresh while a detail is open. Its preview rows must
+    // never replace the dedicated thread subscription's history window.
+    this.startWorkspaceLiveQueries?.();
+    return true;
   },
 
   closeDeckThread(options = {}) {

@@ -1510,6 +1510,7 @@ function mapPgSyncGroup(group = {}, workspaceOwnerNpub = '') {
 }
 
 export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
+  if (bundle.thread_history_page) return materializeThreadHistoryPage(store, bundle.thread_history_page);
   if (bundle.protocol_version === 1) {
     const { applyPgRecordChanges, resetPgRecordAuthority, reconcilePgRecordConflicts, rebuildPgRecordSummaries } = await import('./pg-record-delta.js');
     if (bundle.rebuild_summaries) return rebuildPgRecordSummaries(store);
@@ -2021,6 +2022,51 @@ export async function hydrateTowerPgChannelMessages(store, channelId, deps = {})
   ]);
 
   return rows;
+}
+
+// One explicit history page. The current Tower contract is oldest-first; never
+// drain cursors to manufacture a newest page when the local cache is incomplete.
+export async function readTowerPgThreadHistoryPage(store, channelId, threadId, options = {}) {
+  const context = resolveTowerPgWorkspaceContext(store);
+  if (!context.workspaceId || !context.baseUrl || !channelId || !threadId) return null;
+  const request = { baseUrl: context.baseUrl, appNpub: context.appNpub };
+  const threadResult = await (options.getTowerPgThread || getTowerPgThread)(context.workspaceId, threadId, request);
+  const thread = threadResult?.thread || threadResult;
+  if (!thread?.id || thread.channel_id !== channelId) throw new Error('Thread does not belong to this channel');
+  const page = await (options.getTowerPgChannelMessages || getTowerPgChannelMessages)(context.workspaceId, channelId, {
+    ...request, threadId, effectiveTranscript: true, cursor: options.cursor || null,
+    limit: Math.min(100, Math.max(1, Number(options.limit) || 100)),
+  });
+  if (page?.next_cursor && page.next_cursor === options.cursor) throw new Error('Conversation history cursor did not advance');
+  return { thread_history_page: { channelId, thread, messages: page?.messages || [],
+    cursor: options.cursor || null, nextCursor: page?.next_cursor || null } };
+}
+
+async function materializeThreadHistoryPage(store, page) {
+  const context = resolveTowerPgWorkspaceContext(store);
+  const db = getWorkspaceDb();
+  const threadId = page.thread.id;
+  const threadById = new Map([[threadId, page.thread]]);
+  const rows = page.messages.map(message => mapPgMessageToLocal(message, { ...context, threadById }));
+  const key = `thread-history-page:${threadId}`;
+  return db.transaction('rw', db.chat_messages, db.pending_writes, db.sync_state, db.pg_record_rows, async () => {
+    const previous = await db.sync_state.get(key);
+    // The coverage is scoped to this thread, independent of workspace sync cursors.
+    const ids = [...new Set([...(page.cursor ? previous?.value?.messageIds || [] : []), ...rows.map(row => row.record_id)])];
+    const thread = { ...mapPgThreadToLocal(page.thread, context), pg_effective_message_ids: ids };
+    const candidates = [...rows, thread];
+    const authority = await db.pg_record_rows.bulkGet(candidates.map(row => `${row.pg_record_type}:${row.record_id}`));
+    const current = candidates.filter((row, index) => {
+      const record = authority[index];
+      return !record || (record.operation !== 'delete' && !record.row?.deleted_at
+        && Number(record.row?.row_version || record.row?.version || 0) <= Number(row.version || 0));
+    });
+    // A targeted historical response cannot resurrect a canonical tombstone,
+    // overwrite newer delta authority, or replace an unresolved local command.
+    await replacePgMessagesForChannel(page.channelId, current);
+    await db.sync_state.put({ key, value: { nextCursor: page.nextCursor, messageIds: ids } });
+    return { nextCursor: page.nextCursor, count: rows.length };
+  });
 }
 
 export async function hydrateTowerPgThreadMessages(store, channelId, threadId, deps = {}) {

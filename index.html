@@ -4176,6 +4176,13 @@
                 <p>Your first message starts this thread in <strong x-text="'#' + ($store.chat.getChannelLabel($store.chat.activeThreadChannel) || 'channel')"></strong>.</p>
               </div>
               <div class="thread-replies" data-thread-replies x-show="!$store.chat.deckThreadComposerOpen">
+                <template x-if="$store.chat.navSection === 'status'">
+                  <div>
+                    <p x-show="$store.chat.threadHistoryLoading" role="status">Loading conversation history…</p>
+                    <p x-show="$store.chat.threadHistoryError" x-text="$store.chat.threadHistoryError" role="alert"></p>
+                    <button type="button" class="thread-load-more-btn" x-show="$store.chat.threadHistoryCursor || $store.chat.threadHistoryError" :disabled="$store.chat.threadHistoryLoading" @click="$store.chat.loadDeckThreadHistoryPage()">Load more conversation history</button>
+                  </div>
+                </template>
                 <button
                   type="button"
                   class="thread-load-more-btn"

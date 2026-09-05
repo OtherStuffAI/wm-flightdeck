@@ -1,0 +1,148 @@
+// Offline WebKit verification of the real Inbox action, production store and
+// actual conversation modal. No preview server, auth, or external Tower calls.
+import { webkit } from 'playwright';
+import { JSDOM } from 'jsdom';
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+const root = path.resolve('dist');
+const html = await readFile('index.html', 'utf8');
+const document = new JSDOM(html).window.document;
+const find = (node, selector) => node.querySelector(selector) || [...node.querySelectorAll('template')].map(t => find(t.content, selector)).find(Boolean);
+const inbox = find(document, '[data-deck-column="inbox"]').outerHTML;
+const modal = find(document, '.chat-thread-modal-backdrop').outerHTML;
+const built = await readFile(path.join(root, 'index.html'), 'utf8');
+const stylesheet = [...new JSDOM(built).window.document.querySelectorAll('link[rel="stylesheet"]')].map(l => l.outerHTML).join('');
+const temporary = await mkdtemp(path.join(tmpdir(), 'fd-thread-browser-'));
+const build = (source, output) => execFileSync('bun', ['build', source, '--target=browser', `--outfile=${temporary}/${output}`, '--define', '__FLIGHT_DECK_PG_APP_NPUB__="npub1fixture"', '--define', 'import.meta.env={"DEV":false}'], { stdio: 'pipe' });
+build('scripts/browser-inbox-thread-entry.js', 'probe.js');
+let worker = 'thread-worker.js';
+if (process.env.FLIGHTDECK_VERIFY_BUILT_WORKER === '1') {
+  const entry = built.match(/src="(\/assets\/index-[^"]+\.js)"/)[1];
+  worker = (await readFile(path.join(root, entry), 'utf8')).match(/tower-pg-materialization-worker-[\w-]+\.js/)[0];
+} else build('src/worker/tower-pg-materialization-worker.js', worker);
+const browser = await webkit.launch();
+let page;
+try {
+  const context = await browser.newContext({ viewport: { width: 1440, height: 950 } });
+  await context.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    const p = url.pathname;
+    if (p === '/') return route.fulfill({ contentType: 'text/html', body: `<!doctype html><html><head><meta charset="utf-8">${stylesheet}<style>body{display:block;padding:20px}.deck-column{height:750px;width:450px;overflow:auto}[x-cloak]{display:none!important}</style></head><body x-data><main class="content-scroll-area">${inbox}</main>${modal}<script type="module" src="/probe.js"></script></body></html>` });
+    const file = p === '/probe.js' || p === '/assets/thread-worker.js' ? path.join(temporary, path.basename(p)) : path.resolve(root, `.${p}`);
+    if (!file.startsWith(temporary + path.sep) && !file.startsWith(root + path.sep)) return route.abort();
+    try { await route.fulfill({ contentType: p.endsWith('.css') ? 'text/css' : 'text/javascript', body: await readFile(file) }); }
+    catch { await route.fulfill({ status: 404, body: '' }); }
+  });
+  page = await context.newPage();
+  const errors = []; page.on('pageerror', error => { errors.push(error.message); console.error(error.message); });
+  await page.goto('http://flightdeck-thread.test/');
+  await page.waitForFunction(() => typeof window.startThreadProbe === 'function');
+  const fixture = JSON.parse(await readFile('tests/fixtures/flightdeck-record-delta-v1.json', 'utf8'));
+  const bundle = fixture.canonical_upserts;
+  const workspaceId = bundle.changes[0].workspace_id;
+  await page.evaluate(async ({ worker, bundle, workspaceId }) => {
+    await window.prepareInboxV25(bundle.changes.find(row => row.family === 'message').row);
+    // Upgrade the real v25 ownerless row before using the module worker.
+    await window.startThreadProbe({ worker, workspaceId });
+    await window.materializeThreadProbe(bundle);
+  }, { worker, bundle, workspaceId });
+  await page.waitForFunction(() => window.probeStore.channels.length > 0);
+  await page.evaluate(async ({ bundle }) => {
+    const originals = Object.fromEntries(['thread', 'message'].map(family => [family, bundle.changes.find(change => change.family === family)]));
+    const channel = window.probeStore.channels[0];
+    const changes = [];
+    window.threadFixtures = {};
+    for (const [id, count] of [['history-a', 241], ['history-b', 151], ['cold-thread', 151]]) {
+      const thread = { ...originals.thread.row, id, channel_id: channel.record_id, title: `Conversation ${id}`, source_message_id: `${id}-source`, created_at: '2030-01-01T00:00:00Z', updated_at: '2030-01-01T00:00:00Z', row_version: 1 };
+      const messages = Array.from({ length: count }, (_, n) => ({ ...originals.message.row, id: n === 0 ? `${id}-source` : `${id}-${n}`, thread_id: id, channel_id: channel.record_id, body: `${id} reply ${n}`, row_version: 1, created_at: new Date(Date.UTC(2030, 0, 1, 0, n)).toISOString(), updated_at: new Date(Date.UTC(2030, 0, 1, 0, n)).toISOString() }));
+      window.threadFixtures[id] = { thread, messages };
+      changes.push({ ...originals.thread, id, channel_id: channel.record_id, row: thread });
+      if (id !== 'cold-thread') changes.push(...messages.map(row => ({ ...originals.message, id: row.id, channel_id: channel.record_id, row })));
+    }
+    // More unrelated threads than the Inbox source prefix.
+    for (let i = 0; i < 125; i++) {
+      const id = `unrelated-${i}`;
+      const row = { ...originals.message.row, id, thread_id: id, channel_id: channel.record_id, body: `Unrelated ${i}`, updated_at: new Date(Date.UTC(2029, 0, 1, 0, i)).toISOString() };
+      changes.push({ ...originals.message, id, channel_id: channel.record_id, row });
+    }
+    for (let i = 0; i < changes.length; i += 100) await window.materializeThreadProbe({ ...bundle, mode: 'delta', changes: changes.slice(i, i + 100), next_cursor: `thread-probe-${i}` });
+    await window.probeDb.chat_messages.toCollection().modify(row => { delete row.owner_npub; });
+    window.threadRemote['cold-thread'] = window.threadFixtures['cold-thread'];
+    window.probeStore.setDeckInboxType('chat');
+  }, { bundle });
+  await page.waitForFunction(() => !window.probeStore.inboxActivityLoading && window.probeStore.visibleAutopilotOverviewInbox.some(row => row.id === 'history-a'));
+  const card = page.locator('.attention-card').filter({ hasText: 'Conversation history-a' });
+  const selectedChannel = await page.evaluate(() => { const s = window.probeStore; s.selectedChannelId = s.channels.at(-1).record_id; return s.selectedChannelId; });
+  await page.locator('[data-deck-column="inbox"]').evaluate(el => { el.style.height = '240px'; el.scrollTop = 40; });
+  await card.click();
+  const returnScroll = await page.evaluate(() => window.probeStore.deckThreadReturnContext.deckInboxScrollTop);
+  assert(returnScroll > 0);
+  await page.waitForFunction(() => window.probeStore.visibleThreadMessages.at(-1)?.body === 'history-a reply 240');
+  await page.locator('[data-thread-message-id="history-a-240"]').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('[data-thread-message-id]').count(), 7);
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.chat-thread-modal-backdrop')).opacity === '1');
+  await page.screenshot({ path: '/tmp/flightdeck-open-thread-recent-webkit.png', fullPage: true });
+  assert.equal(await page.evaluate(() => window.probeStore.selectedChannelId), selectedChannel);
+  await page.locator('.thread-load-more-btn').filter({ hasText: 'older' }).click();
+  await page.waitForFunction(() => window.probeStore.visibleThreadMessages.length === 12);
+  await page.evaluate(() => { for (let i = 0; i < 39; i++) window.probeStore.showMoreThreadMessages(); });
+  await page.waitForFunction(() => window.probeStore.visibleThreadMessages.some(row => row.body === 'history-a reply 1'));
+  await page.evaluate(async () => {
+    await window.probeDb.chat_messages.update('history-a-240', { body: 'History edited', version: 2 });
+  });
+  await page.locator('.chat-thread-modal-backdrop').getByText('History edited', { exact: true }).waitFor();
+  await page.evaluate(() => window.probeDb.chat_messages.delete('history-a-240'));
+  await page.locator('.chat-thread-modal-backdrop').getByText('History edited', { exact: true }).waitFor({ state: 'hidden' });
+  await page.evaluate(async () => {
+    const { messages } = window.threadFixtures['history-a'];
+    await window.materializeThreadProbe({ thread_history_page: { channelId: messages[0].channel_id, thread: window.threadFixtures['history-a'].thread,
+      messages: [{ ...messages.at(-1), id: 'live-new-reply', body: 'New live reply', created_at: '2030-02-01T00:00:00Z', updated_at: '2030-02-01T00:00:00Z' }], nextCursor: null } });
+  });
+  await page.locator('.chat-thread-modal-backdrop').getByText('New live reply', { exact: true }).waitFor();
+  await page.screenshot({ path: '/tmp/flightdeck-open-thread-webkit.png', fullPage: true });
+  // Real next/previous handlers, including overlapping remote completion.
+  await page.evaluate(async () => {
+    const rows = ['history-a', 'history-b'].map(id => ({ id, rootRecordId: id, channelId: window.threadFixtures[id].thread.channel_id, inboxKind: 'chat' }));
+    window.probeStore.deckThreadNavigationRows = rows;
+    await window.probeStore.openAutopilotOverviewThread(rows[0], { preserveNavigationRows: true });
+    const next = window.probeStore.navigateDeckThread('older');
+    const previous = window.probeStore.navigateDeckThread('newer');
+    await Promise.all([next, previous]);
+  });
+  await page.waitForFunction(() => window.probeStore.activeThreadId === 'history-a' && window.probeStore.visibleThreadMessages.at(-1)?.body === 'New live reply');
+  await page.evaluate(() => window.probeStore.closeDeckThread({ fromRoute: true, syncRoute: false }));
+  await page.waitForFunction(() => !window.probeStore.activeThreadId);
+  assert.equal(await page.getByRole('combobox', { name: 'Inbox type', exact: true }).inputValue(), 'chat');
+  await page.waitForFunction(expected => Math.abs(document.querySelector('[data-deck-column="inbox"]').scrollTop - expected) < 1, returnScroll);
+  assert.equal(await page.evaluate(() => window.probeStore.selectedChannelId), selectedChannel);
+  await page.locator('.attention-card').filter({ hasText: 'Conversation cold-thread' }).click();
+  await page.waitForFunction(() => !window.probeStore.threadHistoryLoading);
+  await page.waitForFunction(() => window.probeStore.threadHistoryCursor === '100');
+  await page.locator('[data-thread-message-id="cold-thread-99"]').waitFor({ state: 'visible' });
+  await page.getByRole('button', { name: 'Load more conversation history', exact: true }).click();
+  await page.waitForFunction(() => !window.probeStore.threadHistoryLoading && !window.probeStore.threadHistoryCursor && window.probeStore.visibleThreadMessages.at(-1)?.body === 'cold-thread reply 150');
+  const evidence = await page.evaluate(async () => ({
+    coldReads: window.threadReads.filter(row => row.threadId === 'cold-thread').map(({ cursor, limit }) => ({ cursor, limit })),
+    channels: window.probeStore.channels.length,
+    draftPreserved: !!(await window.probeDb.document_drafts.get('upgrade-proof')),
+    openThread: window.probeStore.activeThreadId,
+  }));
+  assert.deepEqual(evidence.coldReads, [{ cursor: null, limit: 100 }, { cursor: '100', limit: 100 }]);
+  assert(await page.evaluate(async () => !!(await window.probeDb.document_drafts.get('upgrade-proof'))));
+  assert.equal(errors.length, 0, errors.join('\n'));
+  await writeFile('/tmp/flightdeck-open-thread-webkit.json', JSON.stringify({ ...evidence, errors, coldCacheLimit: 'Tower oldest-first contract: newest cold reply appears only after explicit forward pages', worker }, null, 2));
+  console.log(JSON.stringify(evidence));
+} catch (error) {
+  console.error('Thread probe failure state', await page?.evaluate(() => ({
+    active: window.probeStore?.activeThreadId, nav: window.probeStore?.navSection,
+    count: window.probeStore?.threadVisibleReplyCount,
+    rows: window.probeStore?.messages?.slice(-3).map(row => [row.record_id, row.body]),
+    visible: window.probeStore?.visibleThreadMessages?.slice(-3).map(row => [row.record_id, row.body]),
+    modal: document.querySelector('.chat-thread-modal-backdrop')?.getAttribute('style'),
+  })));
+  await page?.screenshot({ path: '/tmp/flightdeck-thread-probe-failure.png', fullPage: true });
+  throw error;
+} finally { await browser.close(); await rm(temporary, { recursive: true, force: true }); }

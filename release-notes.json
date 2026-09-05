@@ -1136,6 +1136,35 @@
         "Keep Inbox and Recent Channels responsive in large histories, with scoped activity indexes and explicit progress through older search candidates.",
         "Preserve cached conversations, pending changes and drafts when upgrading activity indexes."
       ]
+    },
+    {
+      "buildNumber": 1879,
+      "label": "Inbox conversation history",
+      "notes": [
+        "Open Inbox chats with their own live conversation history and reveal older cached replies without depending on Inbox previews.",
+        "Load missing conversation history in explicit pages while preserving cached messages and pending changes."
+      ]
+    },
+    {
+      "buildNumber": 1880,
+      "label": "Conversation navigation follow-up",
+      "notes": [
+        "Keep conversation activity subscriptions current when reopening a chat or switching between Inbox chats."
+      ]
+    },
+    {
+      "buildNumber": 1881,
+      "label": "Inbox thread read state",
+      "notes": [
+        "Preserve marking an Inbox conversation read when its history loads independently of the Inbox preview."
+      ]
+    },
+    {
+      "buildNumber": 1882,
+      "label": "Live conversation edits",
+      "notes": [
+        "Update rendered conversation replies reliably when a live edit changes an existing message."
+      ]
     }
   ]
 }
