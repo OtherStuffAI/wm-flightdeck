@@ -1313,6 +1313,19 @@
       </nav>
 
       <div class="main-content">
+        <details class="error-banner" x-show="$store.chat.recordSyncConflictCount > 0" x-cloak>
+          <summary x-text="`${$store.chat.recordSyncConflictCount} local changes need review`"></summary>
+          <p>Your saved edits have been kept alongside the latest shared versions.</p>
+          <template x-for="conflict in $store.chat.recordSyncConflicts" :key="conflict.key">
+            <div>
+              <strong x-text="conflict.local?.title || conflict.remote?.row?.title || conflict.record_id"></strong>
+              <p>Your edit: <span x-text="conflict.local?.body || conflict.local?.description || conflict.local?.title || '(saved locally)'"></span></p>
+              <button type="button" class="btn btn-secondary" x-show="conflict.remote"
+                @click="$store.chat.acceptRecordSyncRemoteConflict(conflict.key)">Use shared version (keep a recovery copy)</button>
+              <p>Shared version: <span x-text="conflict.remote?.operation === 'delete' ? 'Deleted' : (conflict.remote?.row?.body || conflict.remote?.row?.description || conflict.remote?.row?.title || 'Access changed')"></span></p>
+            </div>
+          </template>
+        </details>
           <div
             class="global-pg-channel-bar"
             :class="{ 'global-pg-channel-bar-sidebar-expanded': !$store.chat.navCollapsed || $store.chat.mobileNavOpen }"
@@ -1528,6 +1541,7 @@
         <div class="content-scroll-area">
         <template x-if="$store.chat.navSection === 'status'">
           <div class="status-section">
+          <button type="button" class="inbox-load-more" x-show="Object.values($store.chat.activityPageHasMore).some(Boolean)" @click="$store.chat.activityVisibleCount += 100; $store.chat.startWorkspaceLiveQueries()">Load older cached activity</button>
           <div class="pg-work-context-bar" x-show="false" x-cloak>
             <div class="chat-channel-header">
               <div class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels">
@@ -2525,11 +2539,13 @@
               type="text"
               class="task-search-input"
               x-model="$store.chat.taskFilter"
+              @input.debounce.200ms="$store.chat.startWorkspaceLiveQueries()"
               placeholder="Search tasks..."
             />
             <select
               class="task-state-filter"
               x-model="$store.chat.taskFilterState"
+              @change="$store.chat.startWorkspaceLiveQueries()"
               aria-label="Filter tasks by status"
             >
               <option value="">All statuses</option>
@@ -2711,6 +2727,9 @@
             </div>
           </div>
 
+          <button type="button" class="btn btn-secondary" x-show="!$store.chat.showTaskDetail && $store.chat.taskPageHasMore"
+            @click="$store.chat.taskVisibleCount += 50; $store.chat.startWorkspaceLiveQueries()">Load more tasks</button>
+
           <!-- Kanban board -->
           <template x-if="!$store.chat.showTaskDetail && $store.chat.taskViewMode === 'kanban'">
             <div class="kanban-board">
@@ -2718,7 +2737,7 @@
                 <div class="kanban-column" :class="{ [`kanban-col-${col.state}`]: true, 'kanban-column-collapsed': $store.chat.isSectionCollapsed(col.state) }" :style="{ '--task-status-color': col.color }">
                   <div class="kanban-column-header" @click="$store.chat.toggleSectionCollapse(col.state)" style="cursor: pointer;">
                     <span class="kanban-column-title" x-text="col.label"></span>
-                    <span class="kanban-column-count" @click.stop="$store.chat.selectColumnTasks(col.state)" x-text="col.tasks.length" title="Select all tasks in this column"></span>
+                    <span class="kanban-column-count" @click.stop="$store.chat.selectColumnTasks(col.state)" x-text="$store.chat.taskPageCounts[col.state] ?? col.tasks.length" title="Select loaded tasks in this column"></span>
                   </div>
                   <div class="kanban-column-body" x-show="!$store.chat.isSectionCollapsed(col.state)"
                     @dragover.prevent="col.state !== 'summary' && $store.chat.handleTaskDragOver($event, col.state)"
@@ -3508,6 +3527,9 @@
                     </template>
                   </div>
                   <div class="task-comments-list">
+                    <button type="button" class="btn btn-secondary"
+                      x-show="$store.chat.taskComments.length > $store.chat.commentVisibleCount"
+                      @click="$store.chat.commentVisibleCount += $store.chat.commentPageSize; $store.chat.startWorkspaceLiveQueries()">Load older comments</button>
                     <template x-for="comment in $store.chat.taskComments" :key="comment.record_id">
                       <div class="task-comment-row">
                         <div class="task-comment-header">
@@ -5209,6 +5231,9 @@
                       </button>
 
                       <aside class="doc-comment-thread-panel" data-doc-thread-panel x-show="$store.chat.docCommentsVisible">
+                        <button type="button" class="btn btn-secondary"
+                          x-show="$store.chat.docComments.length > $store.chat.commentVisibleCount"
+                          @click="$store.chat.commentVisibleCount += $store.chat.commentPageSize; $store.chat.startWorkspaceLiveQueries()">Load older comments</button>
                         <div class="doc-comment-thread-header">
                           <div>
                             <h3>Comments</h3>
@@ -5965,6 +5990,7 @@
 
         <template x-if="$store.chat.navSection === 'files'">
           <section class="files-section" x-init="$store.chat.scheduleStorageImageHydration()" x-effect="$store.chat.filteredFileBrowserRows.length; $nextTick(() => $store.chat.scheduleStorageImageHydration())">
+            <button type="button" class="inbox-load-more" x-show="Object.values($store.chat.activityPageHasMore).some(Boolean)" @click="$store.chat.activityVisibleCount += 100; $store.chat.startWorkspaceLiveQueries()">Load older cached activity</button>
             <div class="pg-work-context-bar files-work-context-bar" x-show="false" x-cloak>
               <div class="chat-channel-header">
                 <div class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels">

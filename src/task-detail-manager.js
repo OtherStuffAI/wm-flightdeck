@@ -51,6 +51,7 @@ export const taskDetailManagerMixin = {
   },
 
   openTaskDetail(taskId, options = {}) {
+    this.commentVisibleCount = this.commentPageSize || 80;
     const isNewDetailEntry = !this.showTaskDetail;
     if (isNewDetailEntry || options.captureOrigin === false) {
       const browserRoute = typeof window === 'undefined'
@@ -194,7 +195,7 @@ export const taskDetailManagerMixin = {
       return;
     }
     this.startTaskCommentsLiveQuery();
-    const comments = await getCommentsByTarget(recordId);
+    const comments = await getCommentsByTarget(recordId, { limit: (this.commentVisibleCount || 80) + 1 });
     if (String(this.activeTaskId || '').trim() !== recordId) return;
     await this.applyTaskComments(comments);
     if (isTowerPgBackendMode()) {

@@ -395,6 +395,8 @@ export function readDeterministicBuildVersion(environment = process.env) {
 }
 
 export default defineConfig({
+  // Both worker entry points are module workers; delta materialisers load in chunks.
+  worker: { format: 'es' },
   root: '.',
   plugins: [flightDeckIdentityPlugin(), buildVersionPlugin(), missingDistAssetGuardPlugin()],
   server: {

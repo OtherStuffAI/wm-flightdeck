@@ -63,9 +63,9 @@ describe('section live query plan', () => {
     });
 
     expect(plan.shared).toEqual(['address-book']);
-    expect(plan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes', 'chat:audio-notes']);
+    expect(plan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes', 'ws:record-attention', 'chat:audio-notes']);
     expect(plan.detail).toEqual([
-      'chat:messages:channel-1',
+      'chat:messages:channel-1:undefined:undefined:',
       'chat:reactions:channel-1',
       'chat:channel-response-activities:channel-1',
       'chat:agent-activities:channel-1',
@@ -236,7 +236,7 @@ describe('section live query plan', () => {
     });
 
     expect(plan.detail).toEqual([
-      'chat:messages:scope-home:channel-a,channel-b',
+      'chat:messages:scope-home:channel-a,channel-b:undefined:undefined',
       'chat:reactions:scope-home:channel-a,channel-b',
     ]);
   });
@@ -248,11 +248,11 @@ describe('section live query plan', () => {
       activeTaskId: 'task-1',
       applyAddressBookPeople() {},
     });
-    expect(taskPlan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes', 'tasks:tasks', 'tasks:documents']);
+    expect(taskPlan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes', 'ws:record-attention', 'tasks:tasks::50:manual:::::false', 'tasks:documents']);
     expect(taskPlan.detail).toEqual([
       'tasks:selected-task:task-1',
-      'tasks:comments:task-1',
-      'tasks:comment-reactions:task-1',
+      'tasks:comments:task-1:undefined',
+      'tasks:comment-reactions:task-1:undefined',
     ]);
 
     const reportPlan = getSectionLiveQueryPlan({
@@ -261,7 +261,7 @@ describe('section live query plan', () => {
       selectedReportId: 'report-1',
       applyAddressBookPeople() {},
     });
-    expect(reportPlan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes']);
+    expect(reportPlan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes', 'ws:record-attention']);
     expect(reportPlan.detail).toEqual([]);
   });
 
@@ -278,12 +278,12 @@ describe('section live query plan', () => {
       'ws:scopes',
       'ws:channels',
       'ws:groups',
-      'ws:daily-notes',
-      'status:messages',
-      'status:comments',
+      'ws:daily-notes', 'ws:record-attention',
+      'status:messages:100',
+      'status:comments:100',
       'status:directories',
-      'status:documents',
-      'status:tasks',
+      'status:documents:100',
+      'status:tasks:100',
       'status:wapp-activity',
     ]);
     expect(plan.detail).toEqual([]);
@@ -341,7 +341,7 @@ describe('section live query plan', () => {
       selectedDocId: null,
       applyAddressBookPeople() {},
     });
-    expect(browserPlan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes', 'docs:directories', 'docs:documents']);
+    expect(browserPlan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes', 'ws:record-attention', 'docs:directories', 'docs:documents']);
     expect(browserPlan.detail).toEqual([]);
 
     const detailPlan = getSectionLiveQueryPlan({
@@ -353,8 +353,8 @@ describe('section live query plan', () => {
     });
     expect(detailPlan.detail).toEqual([
       'docs:selected-doc:doc-1',
-      'docs:comments:doc-1',
-      'docs:comment-reactions:doc-1',
+      'docs:comments:doc-1:undefined',
+      'docs:comment-reactions:doc-1:undefined',
     ]);
   });
 
@@ -370,7 +370,7 @@ describe('section live query plan', () => {
       'ws:scopes',
       'ws:channels',
       'ws:groups',
-      'ws:daily-notes',
+      'ws:daily-notes', 'ws:record-attention',
       'settings:wapp-publishing-grants',
     ]);
     expect(plan.detail).toEqual([]);
@@ -391,13 +391,14 @@ describe('section live query plan', () => {
       'ws:groups',
       'ws:daily-notes',
       'ws:members',
-      'files:messages',
-      'files:comments',
+      'ws:record-attention',
+      'files:messages:100',
+      'files:comments:100',
       'files:audio-notes',
       'files:directories',
-      'files:documents',
+      'files:documents:100',
       'files:file-folders',
-      'files:tasks',
+      'files:tasks:100',
     ]);
   });
 
@@ -409,7 +410,7 @@ describe('section live query plan', () => {
       applyAddressBookPeople() {},
     });
 
-    expect(plan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes']);
+    expect(plan.workspace).toEqual(['ws:personal-wapps', 'ws:scopes', 'ws:channels', 'ws:groups', 'ws:daily-notes', 'ws:record-attention']);
     expect(plan.detail).toEqual([]);
   });
 

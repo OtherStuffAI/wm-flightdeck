@@ -31,11 +31,15 @@ import {
   getTowerPgScopeChannels,
   getTowerPgScopeTasks,
   getTowerPgWorkspaceMembers,
+  getTowerPgWorkspaceGroups,
   getTowerPgWorkspaceScopes,
   getTowerPgWorkspaceSync,
+  getTowerPgRecordSync,
+  getTowerPgResourceViewStates,
   downloadStorageObject,
 } from './api.js';
 import {
+  getWorkspaceDb,
   replaceAudioNotesForOwner,
   replaceChannelsForOwner,
   replaceDailyNotesForOwner,
@@ -699,6 +703,7 @@ export function mapPgTaskToLocal(task, {
     pg_updated_by_actor_npub: trimText(task?.updated_by_actor_npub)
       || trimText(actorNpubByActorId.get(trimText(task?.updated_by_actor_id))),
     pg_metadata: metadata,
+    pg_client_record_id: trimText(metadata.client_record_id),
   };
 }
 
@@ -1503,6 +1508,24 @@ function mapPgSyncGroup(group = {}, workspaceOwnerNpub = '') {
 }
 
 export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
+  if (bundle.protocol_version === 1) {
+    const { applyPgRecordChanges, resetPgRecordAuthority, reconcilePgRecordConflicts, rebuildPgRecordSummaries } = await import('./pg-record-delta.js');
+    if (bundle.rebuild_summaries) return rebuildPgRecordSummaries(store);
+    if (bundle.reconcile_commands) return reconcilePgRecordConflicts(store, { acceptRemoteKey: bundle.accept_remote_key || null });
+    if (bundle.reference_directory) {
+      const context = resolveTowerPgWorkspaceContext(store);
+      const db = getWorkspaceDb();
+      await db.transaction('rw', db.workspace_members, db.groups, async () => {
+        const members = (bundle.members || []).map(row => mapPgWorkspaceMemberToLocal(row, context)).filter(Boolean);
+        const groups = (bundle.groups || []).map(row => mapPgSyncGroup(row, context.workspaceOwnerNpub));
+        if (members.length) await db.workspace_members.bulkPut(members);
+        if (groups.length) await db.groups.bulkPut(groups);
+      });
+      return { applied: (bundle.members?.length || 0) + (bundle.groups?.length || 0), cursor: null, hasMore: false };
+    }
+    if (bundle.reset_authority === true) { const reset = await resetPgRecordAuthority(store); return { applied: 0, cursor: null, hasMore: false, ...reset }; }
+    return applyPgRecordChanges(store, bundle, bundle.local_apply_options || {});
+  }
   const context = resolveTowerPgWorkspaceContext(store);
   if (!context.workspaceId || !context.workspaceOwnerNpub) return { applied: 0, cursor: null };
 
@@ -1707,9 +1730,88 @@ export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
   };
 }
 
+async function syncTowerPgRecordWorkspace(store, options, deps) {
+  const { recordDeltaCursorKey } = await import('./pg-record-delta.js');
+  const context = resolveTowerPgWorkspaceContext(store);
+  const read = deps.getTowerPgRecordSync || getTowerPgRecordSync;
+  const state = await (deps.getSyncState || getSyncState)(recordDeltaCursorKey(store));
+  let cursor = state?.cursor || null;
+  let applied = 0;
+  let localGeneration = Number(state?.localGeneration || 0);
+  let resets = 0;
+  let directoryReady = Boolean(cursor);
+  let viewBaselineInitialized = Boolean(state?.viewBaselineInitialized);
+  const materialize = deps.hydrateTowerPgSyncBundle || hydrateTowerPgSyncBundle;
+  if (options.forceSnapshot && state?.cursor) {
+    const reset = await materialize(store, { protocol_version: 1, reset_authority: true }, deps);
+    localGeneration = reset.localGeneration; cursor = null; directoryReady = false;
+  }
+  for (let pages = 1; pages <= (options.maxPages || 1000); pages++) {
+    options.onProgress?.({ stage: 'receiving', page: pages, applied, cursorPresent: Boolean(cursor) });
+    let page;
+    try {
+      page = await read(context.workspaceId, { baseUrl: context.baseUrl, appNpub: context.appNpub, cursor, limit: options.limit || 200, timeoutMs: options.timeoutMs || 30000 });
+    } catch (error) {
+      if (!state && !cursor && [404, 406, 501].includes(error.status)) return null;
+      if (error.status === 403 || (error.status === 409 && String(error.responseText || error.message).includes('reset_required'))) {
+        const reset = await materialize(store, { protocol_version: 1, reset_authority: true }, deps);
+        localGeneration = reset.localGeneration;
+        if (error.status === 403 || ++resets > 2) throw error;
+        cursor = null;
+        directoryReady = false;
+        continue;
+      }
+      throw error;
+    }
+    if (page.protocol_version !== 1) throw new Error('Tower did not negotiate record-delta v1');
+    if (!viewBaselineInitialized) {
+      // Retain the existing first-view baseline semantics. The typed read seeds
+      // visible resource watermarks once; its journal changes join the snapshot
+      // handover. Only one returned state is needed, not a second history pull.
+      await (deps.getTowerPgResourceViewStates || getTowerPgResourceViewStates)(context.workspaceId, {
+        baseUrl: context.baseUrl, appNpub: context.appNpub, limit: 1,
+      });
+      viewBaselineInitialized = true;
+    }
+    if (Array.isArray(page.actors)) directoryReady = true;
+    if (!directoryReady) {
+      let members = { members: [] };
+      try { members = await (deps.getTowerPgWorkspaceMembers || getTowerPgWorkspaceMembers)(context.workspaceId, { baseUrl: context.baseUrl, appNpub: context.appNpub, limit: 200 }); }
+      catch (error) { if (error.status !== 403) throw error; }
+      let groups = { groups: [] };
+      try { groups = await (deps.getTowerPgWorkspaceGroups || getTowerPgWorkspaceGroups)(context.workspaceId, { baseUrl: context.baseUrl, appNpub: context.appNpub, limit: 200 }); }
+      catch (error) { if (error.status !== 403) throw error; }
+      const memberRows = members.members || [], groupRows = groups.groups || [];
+      for (let offset = 0; offset < Math.max(memberRows.length, groupRows.length); offset += 200) {
+        await materialize(store, { protocol_version: 1, reference_directory: true, members: memberRows.slice(offset, offset + 200), groups: groupRows.slice(offset, offset + 200) }, deps);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+      directoryReady = true;
+    }
+    options.onProgress?.({ stage: 'applying', page: pages, applied });
+    const result = await materialize(store, { ...page, local_apply_options: { expectedCursor: cursor, expectedGeneration: localGeneration, viewBaselineInitialized } }, deps);
+    applied += result.applied;
+    if (page.has_more && page.next_cursor === cursor) throw new Error('Tower record sync repeated its cursor');
+    cursor = result.cursor;
+    if (!result.hasMore) {
+      if (result.needsSummaryBackfill) await materialize(store, { protocol_version: 1, rebuild_summaries: true }, deps);
+      options.onProgress?.({ stage: 'complete', page: pages, applied });
+      return { ...result, applied, pages };
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+  throw new Error('Tower record sync exceeded the maximum page count');
+}
+
 export async function syncTowerPgWorkspace(store, options = {}, deps = {}) {
   const context = resolveTowerPgWorkspaceContext(store);
   if (!context.workspaceId || !context.baseUrl) return { applied: 0, cursor: null };
+  // Existing injected legacy ports remain legacy-only. Production negotiates the
+  // versioned endpoint once per service sync, never reuses the legacy cursor.
+  if (!deps.getTowerPgWorkspaceSync || deps.getTowerPgRecordSync) {
+    const result = await syncTowerPgRecordWorkspace(store, options, deps);
+    if (result) return result;
+  }
   const readSync = deps.getTowerPgWorkspaceSync || getTowerPgWorkspaceSync;
   let cursor = options.forceSnapshot
     ? null

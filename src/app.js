@@ -939,7 +939,16 @@ export function initApp() {
     chatTaskModalFullScreen: false,
     tasks: [],
     schedules: [],
+    recordSyncConflictCount: 0,
+    recordSyncConflicts: [],
+    activityVisibleCount: 100,
+    activityPageHasMore: {},
+    taskVisibleCount: 50,
+    taskPageHasMore: false,
+    taskPageCounts: {},
     taskComments: [],
+    commentPageSize: 80,
+    commentVisibleCount: 80,
     taskCommentsFullscreenOpen: false,
     taskCommentAudioDrafts: [],
     expandedTaskCommentIds: [],
@@ -7573,6 +7582,7 @@ export function initApp() {
       } else {
         this.taskFilterTags = [...this.taskFilterTags, tag];
       }
+      this.startWorkspaceLiveQueries?.();
     },
 
     clearTaskFilters() {
@@ -7581,6 +7591,7 @@ export function initApp() {
       this.taskFilterState = '';
       this.taskFilterAssignee = null;
       this.taskTagCloudOpen = false;
+      this.startWorkspaceLiveQueries?.();
     },
 
     toggleFilterToMe() {
@@ -7589,6 +7600,7 @@ export function initApp() {
       } else {
         this.taskFilterAssignee = this.currentViewerNpub || null;
       }
+      this.startWorkspaceLiveQueries?.();
     },
 
     async moveTaskToBoard(taskId, boardScopeId) {

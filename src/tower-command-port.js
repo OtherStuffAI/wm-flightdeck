@@ -41,6 +41,7 @@ import { mapTowerResourceViewState } from './resource-view-state.js';
 
 export const TOWER_WORKSPACE_COMMAND_CONTRACT = Object.freeze({
   descriptorReconciled: Object.freeze([
+    'record-conflict.accept-remote',
     'task.create', 'task.update', 'task.delete', 'task.move', 'task-comment.create',
     'document.create', 'document.update', 'document.delete', 'document.move',
     'document-comment.create', 'document-comment.update', 'document-comment.delete',
@@ -260,6 +261,10 @@ export function prepareTowerWorkspaceCommand(store, name, input = {}) {
       reconcile: reconcile || ((result) => reconcileTypedCommand(name, result, { owner, args })),
       fail,
     };
+  }
+  if (name === 'record-conflict.accept-remote') {
+    return { entityKey: `record-conflict:${input.key}`,
+      execute: () => store.materializeTowerPgWorkspaceBundle({ protocol_version: 1, reconcile_commands: true, accept_remote_key: input.key }) };
   }
   if (name === 'compatibility.pending-write') {
     const pendingWrite = input.pendingWrite;

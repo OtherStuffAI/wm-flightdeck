@@ -31,7 +31,7 @@ import {
   getTowerPgResourceViewStates,
   markTowerPgResourcesViewed,
 } from './api.js';
-import { putTowerPgResourceViewState } from './tower-command-intents.js';
+import { putTowerPgResourceViewState, acceptTowerPgRemoteConflict } from './tower-command-intents.js';
 import { isTowerPgBackendMode } from './backend-mode.js';
 import { resolveTowerPgWorkspaceContext } from './pg-read-hydrator.js';
 import {
@@ -575,7 +575,29 @@ export const unreadStoreMixin = {
     }
   },
 
+  async acceptRecordSyncRemoteConflict(key) {
+    try { await acceptTowerPgRemoteConflict(this, key); }
+    catch (error) { this.error = error.message; }
+  },
+
+  applyPgAttentionProjection(projection) {
+    if (!projection) { this._recordDeltaAttentionActive = false; return false; }
+    this._recordDeltaAttentionActive = true;
+    this.recordSyncConflictCount = projection.conflictCount || 0;
+    this.recordSyncConflicts = projection.conflicts || [];
+    this._unreadChat = Boolean(projection.values['section:chat']);
+    this._unreadTasks = Boolean(projection.values['section:tasks']);
+    this._unreadDocs = Boolean(projection.values['section:docs']);
+    this._unreadChannels = Object.fromEntries(Object.entries(projection.values)
+      .filter(([key, count]) => key.startsWith('channel:') && count > 0).map(([key]) => [key.slice(8), true]));
+    for (const [type, field] of [['thread','_unreadThreadItems'],['task','_unreadTaskItems'],['document','_unreadDocItems']]) {
+      this[field] = Object.fromEntries(projection.visible.filter(r => r.resource_type === type && r.unread).map(r => [r.resource_id,true]));
+    }
+    return true;
+  },
+
   applyTowerPgResourceViewStates(states = []) {
+    if (this._recordDeltaAttentionActive) return;
     const threadItems = {};
     const taskItems = {};
     const docItems = {};
@@ -623,6 +645,8 @@ export const unreadStoreMixin = {
   async recomputeTowerPgUnreadProjection() {
     if (!usesTowerResourceViewState(this)) return false;
     if (!isWorkspaceDbOpenForKey(this.currentWorkspaceKey)) return false;
+    const { getPgAttentionProjection } = await import('./pg-record-delta.js');
+    if ((this.applyPgAttentionProjection || unreadStoreMixin.applyPgAttentionProjection).call(this, await getPgAttentionProjection(this))) return true;
     this.applyTowerPgResourceViewStates(await getResourceViewStates());
     return true;
   },
@@ -666,6 +690,8 @@ export const unreadStoreMixin = {
         // Keep the optimistic monotonic row pending for the next reconnect/sync pass.
       }
     }
+    const { getPgAttentionProjection } = await import('./pg-record-delta.js');
+    if ((this.applyPgAttentionProjection || unreadStoreMixin.applyPgAttentionProjection).call(this, await getPgAttentionProjection(this))) return;
     try {
       const result = await readCompleteResourceViewStateSnapshot((cursor) => (
         getTowerPgResourceViewStates(context.workspaceId, {

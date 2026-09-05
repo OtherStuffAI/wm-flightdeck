@@ -50,7 +50,8 @@ describe('app DB operations', () => {
 
     const window = await getMessagePresentationWindowByChannel('channel-window', { rootLimit: 80 });
     const ids = new Set(window.map((row) => row.record_id));
-    expect(window.filter((row) => !row.parent_message_id)).toHaveLength(81);
+    // One additional root is the load-more sentinel.
+    expect(window.filter((row) => !row.parent_message_id)).toHaveLength(82);
     expect(ids.has('root-0')).toBe(false);
     expect(ids.has('root-1')).toBe(true);
     expect(ids.has('recent-reply')).toBe(true);

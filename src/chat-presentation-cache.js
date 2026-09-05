@@ -28,7 +28,7 @@ export function buildThreadAwarePresentationWindow(messages = [], {
   const requiredIds = new Set();
   const roots = rows
     .filter((message) => !String(message.parent_message_id || '').trim())
-    .sort((left, right) => timestamp(left).localeCompare(timestamp(right)))
+    .sort((left, right) => timestamp(left).localeCompare(timestamp(right)) || String(left.record_id).localeCompare(String(right.record_id)))
     .slice(-Math.max(1, Number(rootLimit) || CHAT_PRESENTATION_ROOT_LIMIT));
   for (const root of roots) requiredIds.add(String(root.record_id || ''));
 
@@ -62,7 +62,7 @@ export function buildThreadAwarePresentationWindow(messages = [], {
 
   return rows
     .filter((message) => requiredIds.has(String(message.record_id || '')))
-    .sort((left, right) => timestamp(left).localeCompare(timestamp(right)));
+    .sort((left, right) => timestamp(left).localeCompare(timestamp(right)) || String(left.record_id).localeCompare(String(right.record_id)));
 }
 
 export function createChatPresentationCache(limit = CHAT_PRESENTATION_CACHE_LIMIT) {

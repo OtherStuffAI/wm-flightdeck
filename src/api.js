@@ -736,6 +736,15 @@ export async function getTowerPgWorkspaceScopes(workspaceId, { baseUrl = _baseUr
   return json(resp, { requestUrl: finalUrl, method: 'GET', prefix: 'Tower PG API' });
 }
 
+export async function getTowerPgRecordSync(workspaceId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, cursor = null, limit = 200, timeoutMs = 30_000 } = {}) {
+  const params = new URLSearchParams({ protocol_version: '1', limit: String(Math.min(200, Math.max(1, limit))) });
+  if (cursor) params.set('cursor', cursor);
+  const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/record-sync?${params}`;
+  const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
+  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub, timeoutMs });
+  return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG record sync' });
+}
+
 export async function getTowerPgWorkspaceSync(workspaceId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, cursor = null, limit = 500, timeoutMs = 30_000 } = {}) {
   const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
   if (!encodedWorkspaceId) throw new Error('Tower PG workspace id is required');

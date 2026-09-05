@@ -18,6 +18,10 @@ import {
   getWindowedReportsByOwner,
   getTaskById,
   getTasksByOwner,
+  getTaskBoardWindow,
+  taskWithoutIndexFields,
+  getOwnerActivityWindow,
+  getWorkspaceDb,
   getSchedulesByOwner,
   getScopesByOwner,
   getCommentsByTarget,
@@ -40,7 +44,7 @@ import { recordFamilyHash } from './translators/chat.js';
 import { isTowerPgBackendMode } from './backend-mode.js';
 import { isFlightDeckSurfaceDisabled } from './disabled-surfaces.js';
 import { flightDeckLog } from './logging.js';
-import { resolvePgThreadId } from './pg-record-context.js';
+import { parsePgTaskBoardId, resolvePgThreadId } from './pg-record-context.js';
 import { sameLogicalValue } from './utils/state-helpers.js';
 
 const SECTION_STATE = new WeakMap();
@@ -315,14 +319,20 @@ function buildWorkspaceSpecs(store) {
     case 'status':
       sectionSpecs = [
         {
-          key: 'status:messages',
-          query: () => getMessagesByOwner(ownerNpub),
-          onNext: (messages) => store.applyFileMessages(messages),
+          key: `status:messages:${store.activityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('chat_messages', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          onNext: (page) => {
+            store.activityPageHasMore = { ...store.activityPageHasMore, messages: page.hasMore };
+            return store.applyFileMessages(page.rows);
+          },
         },
         {
-          key: 'status:comments',
-          query: () => getCommentsByOwner(ownerNpub),
-          onNext: (comments) => store.applyFileComments(comments),
+          key: `status:comments:${store.activityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('comments', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          onNext: (page) => {
+            store.activityPageHasMore = { ...store.activityPageHasMore, comments: page.hasMore };
+            return store.applyFileComments(page.rows);
+          },
         },
         {
           key: 'status:directories',
@@ -330,14 +340,20 @@ function buildWorkspaceSpecs(store) {
           onNext: (directories) => store.applyDirectories(directories),
         },
         {
-          key: 'status:documents',
-          query: () => getDocumentsByOwner(ownerNpub),
-          onNext: (documents) => store.applyDocuments(documents),
+          key: `status:documents:${store.activityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('documents', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          onNext: (page) => {
+            store.activityPageHasMore = { ...store.activityPageHasMore, documents: page.hasMore };
+            return store.applyDocuments(page.rows);
+          },
         },
         {
-          key: 'status:tasks',
-          query: () => getTasksByOwner(ownerNpub),
-          onNext: (tasks) => store.applyTasks(tasks),
+          key: `status:tasks:${store.activityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('tasks', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          onNext: (page) => {
+            store.activityPageHasMore = { ...store.activityPageHasMore, tasks: page.hasMore };
+            return store.applyTasks(page.rows);
+          },
         },
         {
           key: 'status:wapp-activity',
@@ -361,14 +377,20 @@ function buildWorkspaceSpecs(store) {
     case 'files':
       sectionSpecs = [
         {
-          key: 'files:messages',
-          query: () => getMessagesByOwner(ownerNpub),
-          onNext: (messages) => store.applyFileMessages(messages),
+          key: `files:messages:${store.activityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('chat_messages', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          onNext: (page) => {
+            store.activityPageHasMore = { ...store.activityPageHasMore, messages: page.hasMore };
+            return store.applyFileMessages(page.rows);
+          },
         },
         {
-          key: 'files:comments',
-          query: () => getCommentsByOwner(ownerNpub),
-          onNext: (comments) => store.applyFileComments(comments),
+          key: `files:comments:${store.activityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('comments', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          onNext: (page) => {
+            store.activityPageHasMore = { ...store.activityPageHasMore, comments: page.hasMore };
+            return store.applyFileComments(page.rows);
+          },
         },
         {
           key: 'files:audio-notes',
@@ -381,9 +403,12 @@ function buildWorkspaceSpecs(store) {
           onNext: (directories) => store.applyDirectories(directories),
         },
         {
-          key: 'files:documents',
-          query: () => getDocumentsByOwner(ownerNpub),
-          onNext: (documents) => store.applyDocuments(documents),
+          key: `files:documents:${store.activityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('documents', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          onNext: (page) => {
+            store.activityPageHasMore = { ...store.activityPageHasMore, documents: page.hasMore };
+            return store.applyDocuments(page.rows);
+          },
         },
         {
           key: 'files:file-folders',
@@ -391,9 +416,12 @@ function buildWorkspaceSpecs(store) {
           onNext: (folders) => store.applyFileFolders(folders),
         },
         {
-          key: 'files:tasks',
-          query: () => getTasksByOwner(ownerNpub),
-          onNext: (tasks) => store.applyTasks(tasks),
+          key: `files:tasks:${store.activityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('tasks', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          onNext: (page) => {
+            store.activityPageHasMore = { ...store.activityPageHasMore, tasks: page.hasMore };
+            return store.applyTasks(page.rows);
+          },
         },
       ];
       break;
@@ -414,9 +442,13 @@ function buildWorkspaceSpecs(store) {
     case 'tasks':
       sectionSpecs = [
         {
-          key: 'tasks:tasks',
-          query: () => getTasksByOwner(ownerNpub),
-          onNext: (tasks) => store.applyTasks(tasks),
+          key: `tasks:tasks:${store.selectedBoardId || ''}:${store.taskVisibleCount || 50}:${store.taskSortMode || 'manual'}:${store.taskFilter || ''}:${store.taskFilterState || ''}:${store.taskFilterTags || ''}:${store.taskFilterAssignee || ''}:${store.showBoardDescendantTasks || false}`,
+          query: () => queryTaskBoard(store, ownerNpub),
+          onNext: (page) => {
+            store.taskPageHasMore = page.hasMore;
+            store.taskPageCounts = page.counts;
+            return store.applyTasks(page.rows);
+          },
         },
         {
           key: 'tasks:documents',
@@ -452,7 +484,60 @@ function buildWorkspaceSpecs(store) {
       onNext: (schedules) => store.applySchedules(schedules),
     });
   }
+  alwaysOn.push({
+    key: 'ws:record-attention',
+    query: async () => {
+      const { getPgAttentionProjection } = await import('./pg-record-delta.js');
+      return getPgAttentionProjection(store);
+    },
+    onNext: (projection) => store.applyPgAttentionProjection?.(projection),
+  });
   return [...alwaysOn, ...sectionSpecs];
+}
+
+async function queryTaskBoard(store, ownerNpub) {
+  const board = parsePgTaskBoardId(store.selectedBoardId);
+  const options = { ownerNpub, channelId: board.channelId, threadId: board.threadId,
+    scopeIds: board.type === 'scope' && board.scopeId && !['__all__','__recent__'].includes(board.scopeId)
+      ? [board.scopeId === '__unscoped__' ? '' : board.scopeId] : undefined,
+    state: store.taskFilterState || undefined, limit: store.taskVisibleCount || 50,
+    sortMode: store.taskSortMode || 'manual' };
+  if (store.showBoardDescendantTasks && options.scopeIds) {
+    const scopes = store.scopes || [];
+    const selected = new Set(options.scopeIds);
+    for (let depth = 0; depth < 5; depth++) for (const scope of scopes) {
+      if (selected.has(scope.parent_id) || ['l1_id','l2_id','l3_id','l4_id','l5_id'].some(key => selected.has(scope[key]))) selected.add(scope.record_id);
+    }
+    options.scopeIds = [...selected];
+  }
+  if (!store.taskFilter && !store.taskFilterTags?.length && !store.taskFilterAssignee && store.selectedBoardId !== '__recent__') return getTaskBoardWindow(options);
+  // Exact arbitrary substring searches use n-gram candidates. Common/short
+  // queries may still match many candidates; no rows are silently excluded.
+  const table = getWorkspaceDb().tasks;
+  const text = String(store.taskFilter || '').trim().toLowerCase();
+  let query;
+  if (text) query = table.where('cache_search_tokens').equals(text.slice(0,3));
+  else if (store.taskFilterAssignee) query = table.where('cache_assignees').equals(store.taskFilterAssignee);
+  else if (store.taskFilterTags?.length) query = table.where('cache_tags').anyOf(store.taskFilterTags.map(t=>t.toLowerCase())).distinct();
+  else query = table.where('updated_at').aboveOrEqual(new Date(Date.now()-86400000).toISOString());
+  const candidateIds = await query.primaryKeys();
+  const { computeBoardScopedTasks, computeFilteredTasks, sortTasksForBoard } = await import('./task-board-state.js');
+  const scopesMap = new Map((store.scopes || []).map(s=>[s.record_id,s]));
+  const groups = new Map(), counts = {};
+  for (let offset = 0; offset < candidateIds.length; offset += 200) {
+    const candidates = (await table.bulkGet(candidateIds.slice(offset, offset + 200))).filter(Boolean);
+    const scoped = computeBoardScopedTasks(candidates, store.selectedBoardId, scopesMap.get(store.selectedBoardId), scopesMap, store.showBoardDescendantTasks);
+    const filtered = computeFilteredTasks(scoped,text,store.taskFilterTags || [],store.taskFilterAssignee,store.taskFilterState);
+    for (const row of filtered) {
+      const state=row.cache_state || row.state || 'new';
+      counts[state]=(counts[state]||0)+1;
+      if(!groups.has(state))groups.set(state,[]);
+      groups.get(state).push(row);
+    }
+    for (const [state, rows] of groups) groups.set(state, sortTasksForBoard(rows,options.sortMode).slice(0,options.limit));
+    if (offset + 200 < candidateIds.length) await new Promise(resolve=>setTimeout(resolve,0));
+  }
+  return {rows:[...groups.values()].flat().map(taskWithoutIndexFields),counts,hasMore:Object.values(counts).some(count=>count>options.limit)};
 }
 
 function buildDetailSpecs(store) {
@@ -490,7 +575,7 @@ function buildDetailSpecs(store) {
         const signature = channelIds.join(',');
         return [
           {
-            key: `chat:messages:scope-home:${signature}`,
+            key: `chat:messages:scope-home:${signature}:${store.mainFeedVisibleCount}:${store.threadVisibleReplyCount}`,
             equals: sameLogicalValue,
             query: () => getMessagePresentationWindowByChannels(channelIds, {
               rootLimit: store?.mainFeedVisibleCount || store?.MAIN_FEED_PAGE_SIZE,
@@ -525,12 +610,13 @@ function buildDetailSpecs(store) {
       const activeThreadId = String(store?.activeThreadId || '').trim();
       const specs = [
         {
-          key: `chat:messages:${channelId}`,
+          key: `chat:messages:${channelId}:${store.mainFeedVisibleCount}:${store.threadVisibleReplyCount}:${activeThreadId}`,
           equals: sameLogicalValue,
           query: async () => {
             const startedAt = globalThis.performance?.now?.() ?? Date.now();
             const messages = await getMessagePresentationWindowByChannel(channelId, {
-              rootLimit: store?.MAIN_FEED_PAGE_SIZE,
+              rootLimit: store?.mainFeedVisibleCount || store?.MAIN_FEED_PAGE_SIZE,
+              replyLimit: store?.threadVisibleReplyCount || store?.THREAD_REPLY_PAGE_SIZE,
               activeThreadId,
               focusMessageId: store?.focusMessageId,
             });
@@ -625,17 +711,17 @@ function buildDetailSpecs(store) {
           },
         },
         {
-          key: `tasks:comments:${taskId}`,
-          query: () => getCommentsByTarget(taskId),
+          key: `tasks:comments:${taskId}:${store.commentVisibleCount}`,
+          query: () => getCommentsByTarget(taskId, { limit: (store.commentVisibleCount || 80) + 1 }),
           onNext: (comments) => {
             if (!isSameWorkspace(store, workspaceKey, ownerNpub) || store.activeTaskId !== taskId) return;
             return store.applyTaskComments(comments);
           },
         },
         {
-          key: `tasks:comment-reactions:${taskId}`,
+          key: `tasks:comment-reactions:${taskId}:${store.commentVisibleCount}`,
           query: async () => {
-            const comments = await getCommentsByTarget(taskId);
+            const comments = await getCommentsByTarget(taskId, { limit: (store.commentVisibleCount || 80) + 1 });
             return getReactionsByTargets(
               comments.map((comment) => comment.record_id).filter(Boolean),
               recordFamilyHash('comment'),
@@ -667,8 +753,8 @@ function buildDetailSpecs(store) {
           },
         },
         {
-          key: `docs:comments:${docId}`,
-          query: () => getCommentsByTarget(docId),
+          key: `docs:comments:${docId}:${store.commentVisibleCount}`,
+          query: () => getCommentsByTarget(docId, { limit: (store.commentVisibleCount || 80) + 1, focusId: store.selectedDocCommentId }),
           onNext: (comments) => {
             if (
               !isSameWorkspace(store, workspaceKey, ownerNpub)
@@ -682,9 +768,9 @@ function buildDetailSpecs(store) {
           },
         },
         {
-          key: `docs:comment-reactions:${docId}`,
+          key: `docs:comment-reactions:${docId}:${store.commentVisibleCount}`,
           query: async () => {
-            const comments = await getCommentsByTarget(docId);
+            const comments = await getCommentsByTarget(docId, { limit: (store.commentVisibleCount || 80) + 1, focusId: store.selectedDocCommentId });
             return getReactionsByTargets(
               comments
                 .filter((comment) => comment.target_record_family_hash === documentFamilyHash)

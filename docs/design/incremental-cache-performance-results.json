@@ -1,0 +1,1289 @@
+{
+  "browser": "152.0.7977.76",
+  "environment": "Headless Chromium on this host; mobile is 4x CPU emulation, not a physical device. In-memory HTTP routing; no backend/network. Simple DOM harness is not the authenticated application.",
+  "runs": [
+    {
+      "target": {
+        "name": "desktop",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "cpuRate": 1
+      },
+      "results": [
+        {
+          "size": 1000,
+          "name": "seed-and-storage",
+          "seedMs": 215.1,
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "baseline-channel-history-read",
+          "medianMs": 3.3,
+          "p95Ms": 4.2,
+          "valueRowsRead": 1000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 1000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "baseline-task-history-read",
+          "medianMs": 9.3,
+          "p95Ms": 14.3,
+          "valueRowsRead": 1000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 1000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "chat-window-21",
+          "medianMs": 1.2,
+          "p95Ms": 5.8,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "comment-window-21",
+          "medianMs": 0.4,
+          "p95Ms": 0.7,
+          "valueRowsRead": 21,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 21,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "task-board-window-50",
+          "medianMs": 0.9,
+          "p95Ms": 3.4,
+          "valueRowsRead": 51,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 51,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "message-one-row",
+          "medianMs": 0.4,
+          "p95Ms": 1.6,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "task-one-row",
+          "medianMs": 0.5,
+          "p95Ms": 1.3,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "comment-one-row",
+          "medianMs": 0.3,
+          "p95Ms": 0.6,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "canonical-message-delta",
+          "medianMs": 0.8,
+          "p95Ms": 3.6,
+          "valueRowsRead": 6,
+          "keyRowsRead": 0,
+          "writeRequests": 5,
+          "lastByStore": {
+            "sync_state": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_rows": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "chat_messages": {
+              "valueRowsRead": 3,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_conflicts": {
+              "valueRowsRead": 0,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "channel_summaries": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "query-and-simple-dom-21",
+          "medianMs": 141.2,
+          "p95Ms": 166.7,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "canonical-payload",
+          "bytes": 319,
+          "renderedRows": 21
+        },
+        {
+          "size": 10000,
+          "name": "seed-and-storage",
+          "seedMs": 2201.8,
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "baseline-channel-history-read",
+          "medianMs": 30.4,
+          "p95Ms": 42.4,
+          "valueRowsRead": 10000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 10000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "baseline-task-history-read",
+          "medianMs": 130.7,
+          "p95Ms": 161.3,
+          "valueRowsRead": 10000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 10000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "chat-window-21",
+          "medianMs": 1.5,
+          "p95Ms": 5,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "comment-window-21",
+          "medianMs": 0.4,
+          "p95Ms": 0.5,
+          "valueRowsRead": 21,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 21,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "task-board-window-50",
+          "medianMs": 1.1,
+          "p95Ms": 1.8,
+          "valueRowsRead": 51,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 51,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "message-one-row",
+          "medianMs": 0.4,
+          "p95Ms": 0.9,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "task-one-row",
+          "medianMs": 0.5,
+          "p95Ms": 0.9,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "comment-one-row",
+          "medianMs": 0.3,
+          "p95Ms": 0.6,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "canonical-message-delta",
+          "medianMs": 0.8,
+          "p95Ms": 1.8,
+          "valueRowsRead": 6,
+          "keyRowsRead": 0,
+          "writeRequests": 5,
+          "lastByStore": {
+            "sync_state": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_rows": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "chat_messages": {
+              "valueRowsRead": 3,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_conflicts": {
+              "valueRowsRead": 0,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "channel_summaries": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "query-and-simple-dom-21",
+          "medianMs": 166.6,
+          "p95Ms": 167,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "canonical-payload",
+          "bytes": 319,
+          "renderedRows": 21
+        },
+        {
+          "size": 100000,
+          "name": "seed-and-storage",
+          "seedMs": 24161.9,
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "baseline-channel-history-read",
+          "medianMs": 310.5,
+          "p95Ms": 364,
+          "valueRowsRead": 100000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 100000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "baseline-task-history-read",
+          "medianMs": 1387,
+          "p95Ms": 1678.5,
+          "valueRowsRead": 100000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 100000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "chat-window-21",
+          "medianMs": 1.1,
+          "p95Ms": 4.3,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "comment-window-21",
+          "medianMs": 0.4,
+          "p95Ms": 0.5,
+          "valueRowsRead": 21,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 21,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "task-board-window-50",
+          "medianMs": 2.8,
+          "p95Ms": 4.6,
+          "valueRowsRead": 51,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 51,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "message-one-row",
+          "medianMs": 0.3,
+          "p95Ms": 1.1,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "task-one-row",
+          "medianMs": 0.6,
+          "p95Ms": 14,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "comment-one-row",
+          "medianMs": 0.3,
+          "p95Ms": 44.7,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "canonical-message-delta",
+          "medianMs": 0.7,
+          "p95Ms": 1.3,
+          "valueRowsRead": 6,
+          "keyRowsRead": 0,
+          "writeRequests": 5,
+          "lastByStore": {
+            "sync_state": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_rows": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "chat_messages": {
+              "valueRowsRead": 3,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_conflicts": {
+              "valueRowsRead": 0,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "channel_summaries": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "query-and-simple-dom-21",
+          "medianMs": 266.5,
+          "p95Ms": 273.2,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "canonical-payload",
+          "bytes": 319,
+          "renderedRows": 21
+        }
+      ]
+    },
+    {
+      "target": {
+        "name": "mobile-emulation",
+        "viewport": {
+          "width": 390,
+          "height": 844
+        },
+        "cpuRate": 4
+      },
+      "results": [
+        {
+          "size": 1000,
+          "name": "seed-and-storage",
+          "seedMs": 379.9,
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "baseline-channel-history-read",
+          "medianMs": 6.4,
+          "p95Ms": 10,
+          "valueRowsRead": 1000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 1000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "baseline-task-history-read",
+          "medianMs": 24.6,
+          "p95Ms": 36.3,
+          "valueRowsRead": 1000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 1000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "chat-window-21",
+          "medianMs": 4,
+          "p95Ms": 20.6,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "comment-window-21",
+          "medianMs": 0.5,
+          "p95Ms": 5.1,
+          "valueRowsRead": 21,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 21,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "task-board-window-50",
+          "medianMs": 3,
+          "p95Ms": 7.2,
+          "valueRowsRead": 51,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 51,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "message-one-row",
+          "medianMs": 1.3,
+          "p95Ms": 6.6,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "task-one-row",
+          "medianMs": 2.7,
+          "p95Ms": 6.2,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "comment-one-row",
+          "medianMs": 0.3,
+          "p95Ms": 3.3,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "canonical-message-delta",
+          "medianMs": 3.8,
+          "p95Ms": 5.8,
+          "valueRowsRead": 6,
+          "keyRowsRead": 0,
+          "writeRequests": 5,
+          "lastByStore": {
+            "sync_state": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_rows": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "chat_messages": {
+              "valueRowsRead": 3,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_conflicts": {
+              "valueRowsRead": 0,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "channel_summaries": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "query-and-simple-dom-21",
+          "medianMs": 166.5,
+          "p95Ms": 260.4,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 1000,
+          "name": "canonical-payload",
+          "bytes": 319,
+          "renderedRows": 21
+        },
+        {
+          "size": 10000,
+          "name": "seed-and-storage",
+          "seedMs": 3947.3,
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "baseline-channel-history-read",
+          "medianMs": 49.7,
+          "p95Ms": 66.1,
+          "valueRowsRead": 10000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 10000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "baseline-task-history-read",
+          "medianMs": 321.8,
+          "p95Ms": 363.1,
+          "valueRowsRead": 10000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 10000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "chat-window-21",
+          "medianMs": 4.7,
+          "p95Ms": 18.5,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "comment-window-21",
+          "medianMs": 1.5,
+          "p95Ms": 2.8,
+          "valueRowsRead": 21,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 21,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "task-board-window-50",
+          "medianMs": 4.3,
+          "p95Ms": 5.9,
+          "valueRowsRead": 51,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 51,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "message-one-row",
+          "medianMs": 0.4,
+          "p95Ms": 3.6,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "task-one-row",
+          "medianMs": 1.6,
+          "p95Ms": 4.1,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "comment-one-row",
+          "medianMs": 1,
+          "p95Ms": 3.3,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "canonical-message-delta",
+          "medianMs": 2.4,
+          "p95Ms": 4.8,
+          "valueRowsRead": 6,
+          "keyRowsRead": 0,
+          "writeRequests": 5,
+          "lastByStore": {
+            "sync_state": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_rows": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "chat_messages": {
+              "valueRowsRead": 3,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_conflicts": {
+              "valueRowsRead": 0,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "channel_summaries": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "query-and-simple-dom-21",
+          "medianMs": 232.3,
+          "p95Ms": 236.6,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 10000,
+          "name": "canonical-payload",
+          "bytes": 319,
+          "renderedRows": 21
+        },
+        {
+          "size": 100000,
+          "name": "seed-and-storage",
+          "seedMs": 40250.5,
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "baseline-channel-history-read",
+          "medianMs": 507.6,
+          "p95Ms": 563.5,
+          "valueRowsRead": 100000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 100000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "baseline-task-history-read",
+          "medianMs": 3381.1,
+          "p95Ms": 3839.1,
+          "valueRowsRead": 100000,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 100000,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "chat-window-21",
+          "medianMs": 4.5,
+          "p95Ms": 11.7,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "comment-window-21",
+          "medianMs": 1.9,
+          "p95Ms": 3.4,
+          "valueRowsRead": 21,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 21,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "task-board-window-50",
+          "medianMs": 4.7,
+          "p95Ms": 6.1,
+          "valueRowsRead": 51,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 51,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "message-one-row",
+          "medianMs": 0.5,
+          "p95Ms": 3.9,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "task-one-row",
+          "medianMs": 4.2,
+          "p95Ms": 176.6,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "tasks": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "comment-one-row",
+          "medianMs": 1.2,
+          "p95Ms": 3.5,
+          "valueRowsRead": 2,
+          "keyRowsRead": 0,
+          "writeRequests": 1,
+          "lastByStore": {
+            "comments": {
+              "valueRowsRead": 2,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "canonical-message-delta",
+          "medianMs": 2.7,
+          "p95Ms": 6,
+          "valueRowsRead": 6,
+          "keyRowsRead": 0,
+          "writeRequests": 5,
+          "lastByStore": {
+            "sync_state": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_rows": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "chat_messages": {
+              "valueRowsRead": 3,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "pg_record_conflicts": {
+              "valueRowsRead": 0,
+              "keyRowsRead": 0,
+              "writeRequests": 1
+            },
+            "channel_summaries": {
+              "valueRowsRead": 1,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "query-and-simple-dom-21",
+          "medianMs": 216.1,
+          "p95Ms": 300.8,
+          "valueRowsRead": 22,
+          "keyRowsRead": 0,
+          "writeRequests": 0,
+          "lastByStore": {
+            "chat_messages": {
+              "valueRowsRead": 22,
+              "keyRowsRead": 0,
+              "writeRequests": 0
+            }
+          },
+          "sampleTaskValueBytes": 2625
+        },
+        {
+          "size": 100000,
+          "name": "canonical-payload",
+          "bytes": 319,
+          "renderedRows": 21
+        }
+      ]
+    }
+  ],
+  "buildNumber": 1873,
+  "samplesPerOperation": 15,
+  "instrumentation": "IndexedDB-delivered value/key rows and write requests, including Dexie hook reads; excludes internal B-tree node visits and count-index traversal.",
+  "indexValueExample": {
+    "inputValueBytes": 327,
+    "indexedValueBytes": 2625,
+    "boardSortEntries": 21,
+    "searchTokenEntries": 20,
+    "limitation": "JSON-value bytes only, excluding physical index/storage overhead and long-text token growth."
+  },
+  "workerResponsiveness": {
+    "rows": 20000,
+    "totalMs": 3629,
+    "callerTicks": 1558,
+    "maxEventLoopDelayMs": 5,
+    "environment": "Focused Node worker/fake-indexeddb run"
+  },
+  "builtWorkerSmoke": {
+    "browser": "152.0.7977.76",
+    "result": {
+      "worker": "tower-pg-materialization-worker-D7ub8TN_.js",
+      "applied": {
+        "applied": 14,
+        "cursor": "60000000-0000-4000-8000-000000000001",
+        "hasMore": true,
+        "fullSnapshot": true,
+        "protocolVersion": 1,
+        "needsSummaryBackfill": false
+      },
+      "cursorGuard": "Record-delta cursor changed before page commit"
+    }
+  },
+  "validation": {
+    "fullSuiteFourWorkers": "249 files / 3395 tests passed; 27.31s",
+    "fullSuiteDefault": "248 files passed / 1 failed; 3394 tests passed / 1 failed; worker responsiveness test timed out at 10 seconds under broad parallel load; 19.65s",
+    "publicSource": "107 pre-existing findings in unchanged tracked handoffs; staged implementation adds zero findings",
+    "build": "1873 passed",
+    "verifyDist": "passed",
+    "fixture": "byte-identical to Tower tests/fixtures/flightdeck-record-delta-v1.json"
+  },
+  "unmetAcceptance": [
+    "Physical desktop/mobile measurements and agreed absolute latency budgets",
+    "Authenticated local-Tower UI, scroll/load-more and real old-tab upgrade pass",
+    "Shared-runtime negotiation/ACL integration smoke",
+    "Production-sized migration and physical index/storage measurements",
+    "Common substring exact matching/counts remain candidate-count dependent"
+  ]
+}

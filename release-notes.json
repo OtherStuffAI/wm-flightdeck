@@ -583,7 +583,7 @@
       "buildNumber": 1771,
       "label": "Delegated WApp management",
       "notes": [
-        "Grant a person or agent narrow, expiring WApp management authority from Setup → Permissions, preview its limits before signing, and revoke it immediately.",
+        "Grant a person or agent narrow, expiring WApp management authority from Setup \u2192 Permissions, preview its limits before signing, and revoke it immediately.",
         "Assign existing WApps through installation intents and inspect pending, active, failed, repairable, or revoked lifecycle state with reconcile and revoke controls."
       ]
     },
@@ -1089,6 +1089,14 @@
       "label": "Reliable branched chat messages",
       "notes": [
         "Keep newly sent messages visible in branched chats during delivery, agent work, background reconciliation, and later reopen or reload."
+      ]
+    },
+    {
+      "buildNumber": 1873,
+      "label": "Faster cached activity and large histories",
+      "notes": [
+        "Chat, task boards, comments, overview and files now load bounded cached windows with controls for older activity.",
+        "Compatible Tower servers send incremental record updates; local edits stay recoverable when shared changes conflict."
       ]
     }
   ]

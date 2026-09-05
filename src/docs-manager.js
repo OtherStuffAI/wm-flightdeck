@@ -875,6 +875,7 @@ export const docsManagerMixin = {
   },
 
   openDoc(recordId, options = {}) {
+    this.commentVisibleCount = this.commentPageSize || 80;
     const nextRecordId = String(recordId || '').trim();
     const isNewDetailEntry = this.selectedDocType !== 'document' || !this.selectedDocId;
     if (isNewDetailEntry || options.captureOrigin === false) {

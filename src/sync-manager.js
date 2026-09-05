@@ -554,7 +554,16 @@ export const syncManagerMixin = {
   commandTowerWorkspace(name, input = {}, options = {}) {
     const service = this.getTowerSyncService();
     if (!service) throw new Error('TowerSyncService is unavailable for the active workspace');
-    return service.command(name, input, options);
+    return service.command(name, input, options).then(async (result) => {
+      if (this._recordDeltaAttentionActive && !result?.stale && name !== 'record-conflict.accept-remote') {
+        try {
+          await service.materialize('workspace-bundle', { protocol_version: 1, reconcile_commands: true }, {
+            workspaceDbKey: this.workspaceDbKey, store: this.buildTowerPgMaterializationStoreSnapshot(),
+          });
+        } catch (error) { flightDeckLog('warn', 'sync', 'Acknowledgement reconciliation remains pending', { error: error.message }); }
+      }
+      return result;
+    });
   },
 
   get workspaceDbKey() {

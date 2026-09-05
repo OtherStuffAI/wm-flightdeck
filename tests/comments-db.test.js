@@ -49,7 +49,7 @@ describe('comment db helpers', () => {
       record_state: 'active',
       pg_backend: true,
       updated_at: '2026-06-23T00:00:00.000Z',
-    }]);
+    }], { authoritative: true });
 
     const comments = await getCommentsByTarget('task-1');
     expect(comments.map((comment) => comment.record_id)).toEqual([

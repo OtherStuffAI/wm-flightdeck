@@ -38,6 +38,8 @@ const prohibitedMarkers = [
 ];
 
 const approvedSyntheticNpubs = new Set([
+  // Shared Tower record-delta v1 synthetic actor fixture.
+  join('npub1rwzv24nmzfjypx2a8m264ws9vht3uxp5vpypnluuzl67n4waq78', 'suk0wul'),
   // Public schema authority embedded by the SuperBased record-family bundle.
   join('npub1hd37reqgfcnz3pvzj4grknd2nkzc94p9ercmunrxx22razr2rfxsw6', 'dns5'),
   join('npub10xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vq', 'pkge6d'),

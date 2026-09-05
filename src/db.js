@@ -1,4 +1,5 @@
 import Dexie from 'dexie';
+import { taskIndexFields, compareIndexedTasks } from './task-index-keys.js';
 import {
   preserveHydratedDocumentContent,
 } from './document-selection.js';
@@ -138,6 +139,29 @@ const WORKSPACE_STORES_V24 = {
   document_drafts: '&draft_key, workspace_id, document_id, recovery_id, dirty_at, updated_at, &[workspace_id+document_id]',
 };
 
+// Materialized index fields keep deleted rows and replies out of root windows.
+function messageIndexFields(row) {
+  return {
+    cache_parent: String(row.parent_message_id ? (row.pg_thread_id || row.parent_message_id) : '').trim(),
+    cache_active: row.record_state === 'deleted' ? 0 : 1,
+    cache_time: String(row.updated_at || row.created_at || ''),
+  };
+}
+const WORKSPACE_STORES_V25 = {
+  ...WORKSPACE_STORES_V24,
+  chat_messages: WORKSPACE_STORES_V24.chat_messages + ', pg_client_record_id, [channel_id+sync_status], [channel_id+cache_active+cache_parent+cache_time+record_id], [cache_parent+cache_active+cache_time+record_id], [channel_id+cache_active+cache_time+record_id], [owner_npub+cache_active+cache_time+record_id]',
+  tasks: WORKSPACE_STORES_V24.tasks + ', pg_channel_id, pg_client_record_id, *cache_board_keys, *cache_search_tokens, *cache_tags, *cache_assignees',
+  documents: WORKSPACE_STORES_V24.documents + ', [owner_npub+cache_active+cache_time+record_id]',
+  pg_record_rows: '&key, family, parent_id, [family+parent_id], generation',
+  pg_actors: '&actor_id, npub, generation',
+  pg_record_conflicts: '&key, family, record_id',
+  pg_command_recovery: '&key, record_id',
+  channel_summaries: '&channel_id, latest_at',
+  pg_resource_attention: '&record_id, channel_id, resource_type, unread',
+  pg_attention_counts: '&key',
+  comments: WORKSPACE_STORES_V24.comments + ', pg_client_record_id, [target_record_id+cache_active+cache_time+record_id], [parent_comment_id+cache_active+cache_time+record_id], [owner_npub+cache_active+cache_time+record_id]',
+};
+
 function createWorkspaceDb(workspaceDbKey) {
   const db = new Dexie(`wingman-fd-ws-${workspaceDbKey}`);
   const WORKSPACE_STORES_V2 = {
@@ -222,6 +246,21 @@ function createWorkspaceDb(workspaceDbKey) {
   db.version(23).stores(WORKSPACE_STORES_V23);
   // v24: workspace/document-scoped durable editor drafts and recovery metadata.
   db.version(24).stores(WORKSPACE_STORES_V24);
+  db.version(25).stores(WORKSPACE_STORES_V25).upgrade(async (tx) => {
+    await tx.table('chat_messages').toCollection().modify((row) => Object.assign(row, messageIndexFields(row)));
+    await tx.table('tasks').toCollection().modify((row) => Object.assign(row, taskIndexFields(row)));
+    await tx.table('documents').toCollection().modify((row) => Object.assign(row, { cache_active: row.record_state === 'deleted' ? 0 : 1, cache_time: String(row.updated_at || row.created_at || '') }));
+    await tx.table('comments').toCollection().modify((row) => Object.assign(row, { cache_active: row.record_state === 'deleted' ? 0 : 1, cache_time: String(row.updated_at || row.created_at || '') }));
+  });
+  const commentFields = row => ({ cache_active: row.record_state === 'deleted' ? 0 : 1, cache_time: String(row.updated_at || row.created_at || '') });
+  db.documents.hook('creating', (_key, row) => { Object.assign(row, commentFields(row)); });
+  db.documents.hook('updating', (changes, _key, row) => commentFields({ ...row, ...changes }));
+  db.comments.hook('creating', (_key, row) => { Object.assign(row, commentFields(row)); });
+  db.comments.hook('updating', (changes, _key, row) => commentFields({ ...row, ...changes }));
+  db.tasks.hook('creating', (_key, row) => { Object.assign(row, taskIndexFields(row)); });
+  db.tasks.hook('updating', (changes, _key, row) => taskIndexFields({ ...row, ...changes }));
+  db.chat_messages.hook('creating', (_key, row) => { Object.assign(row, messageIndexFields(row)); });
+  db.chat_messages.hook('updating', (changes, _key, row) => messageIndexFields({ ...row, ...changes }));
   return db;
 }
 
@@ -265,7 +304,7 @@ export async function upsertResourceViewState(row) {
   if (!recordId || !incoming?.resource_type || !incoming?.resource_id) {
     throw new Error('Resource view state requires resource_type and resource_id');
   }
-  return wsDb().transaction('rw', wsDb().resource_view_states, async () => {
+  return wsDb().transaction('rw', wsDb().resource_view_states, wsDb().pg_resource_attention, wsDb().pg_attention_counts, async () => {
     const current = await wsDb().resource_view_states.get(recordId);
     const currentVersion = Number(current?.viewed_activity_version || 0);
     const incomingVersion = Number(incoming.viewed_activity_version || 0);
@@ -280,6 +319,15 @@ export async function upsertResourceViewState(row) {
       viewed_activity_version: Math.max(currentVersion, incomingVersion),
     };
     await wsDb().resource_view_states.put(merged);
+    const attention = await wsDb().pg_resource_attention.get(recordId);
+    if (attention?.unread && merged.viewed_activity_version >= attention.activity_version) {
+      await wsDb().pg_resource_attention.update(recordId, { unread: 0, viewed_activity_version: merged.viewed_activity_version });
+      const section = incoming.resource_type === 'thread' ? 'chat' : incoming.resource_type === 'task' ? 'tasks' : 'docs';
+      for (const key of [`section:${section}`, ...(attention.channel_id ? [`channel:${attention.channel_id}`] : [])]) {
+        const count = await wsDb().pg_attention_counts.get(key);
+        await wsDb().pg_attention_counts.put({ key, count: Math.max(0, Number(count?.count || 0) - 1) });
+      }
+    }
     return merged;
   });
 }
@@ -758,39 +806,35 @@ export async function getMessagePresentationWindowByChannel(channelId, options =
   if (!normalizedChannelId) return [];
   const rootLimit = Math.max(1, Number(options.rootLimit) || 80);
   const db = wsDb();
-  let rootsSeen = 0;
   const recentRows = await db.chat_messages
-    .where('[channel_id+updated_at]')
-    .between([normalizedChannelId, Dexie.minKey], [normalizedChannelId, Dexie.maxKey])
-    .reverse()
-    .until((row) => {
-      if (!String(row?.parent_message_id || '').trim() && String(row?.record_state || 'active') !== 'deleted') {
-        rootsSeen += 1;
-      }
-      return rootsSeen > rootLimit;
-    })
-    .toArray();
-  const rootIds = recentRows
-    .filter((row) => !String(row?.parent_message_id || '').trim())
-    .slice(0, rootLimit)
-    .map((row) => row.record_id)
-    .filter(Boolean);
-  const [replies, unsynced, focused] = await Promise.all([
-    rootIds.length
-      ? db.chat_messages.where('parent_message_id').anyOf(rootIds).toArray()
-      : [],
-    db.chat_messages.where('sync_status').anyOf(['pending', 'failed']).filter((row) => row.channel_id === normalizedChannelId).toArray(),
-    Promise.all([options.activeThreadId, options.focusMessageId]
-      .map((recordId) => String(recordId || '').trim())
-      .filter(Boolean)
-      .map((recordId) => db.chat_messages.get(recordId))),
+    .where('[channel_id+cache_active+cache_parent+cache_time+record_id]')
+    .between([normalizedChannelId, 1, '', Dexie.minKey, Dexie.minKey],
+      options.before ? [normalizedChannelId, 1, '', options.before.timestamp, options.before.recordId]
+        : [normalizedChannelId, 1, '', '\uffff', Dexie.maxKey], true, !options.before)
+    .reverse().limit(rootLimit + 1).toArray();
+  const rootIds = recentRows.map((row) => row.record_id);
+  const replyRootIds = [...new Set([...recentRows.map(row => row.pg_thread_id || row.record_id), options.activeThreadId].filter(Boolean))];
+  const [replyPages, unsynced, focused] = await Promise.all([
+    Promise.all(replyRootIds.map((rootId) => db.chat_messages
+      .where('[cache_parent+cache_active+cache_time+record_id]')
+      .between([rootId, 1, Dexie.minKey, Dexie.minKey], [rootId, 1, '\uffff', Dexie.maxKey])
+      .reverse().limit(Math.max(1, Number(options.replyLimit) || 80) + 1).toArray())),
+    db.chat_messages.where('[channel_id+sync_status]')
+      .anyOf([[normalizedChannelId, 'pending'], [normalizedChannelId, 'failed']]).limit(rootLimit).toArray(),
+    db.chat_messages.bulkGet([...new Set([options.activeThreadId, options.focusMessageId].filter(Boolean))]),
   ]);
+  const replies = replyPages.flat();
   const focusedRows = focused.filter(Boolean);
+  for (const parentKey of new Set(focusedRows.map(row => row.pg_thread_id).filter(id => id && !replyRootIds.includes(id)))) {
+    replies.push(...await db.chat_messages.where('[cache_parent+cache_active+cache_time+record_id]')
+      .between([parentKey, 1, Dexie.minKey, Dexie.minKey], [parentKey, 1, '\uffff', Dexie.maxKey])
+      .reverse().limit(Math.max(1, Number(options.replyLimit) || 80) + 1).toArray());
+  }
   const effectiveMessageIds = [...new Set(focusedRows.flatMap((row) => (
-    Array.isArray(row?.pg_effective_message_ids) ? row.pg_effective_message_ids.map(String) : []
+    Array.isArray(row?.pg_effective_message_ids) ? row.pg_effective_message_ids.slice(-(Math.max(1, Number(options.replyLimit) || 80) + 1)).map(String) : []
   )).filter(Boolean))];
   const effectiveRows = effectiveMessageIds.length
-    ? (await db.chat_messages.bulkGet(effectiveMessageIds)).filter(Boolean)
+    ? (await db.chat_messages.bulkGet(effectiveMessageIds.slice(-(Math.max(1, Number(options.replyLimit) || 80) + 1)))).filter(Boolean)
     : [];
   const focusedRootIds = [...focusedRows, ...unsynced]
     .map((row) => String(row.parent_message_id || '').trim())
@@ -802,7 +846,11 @@ export async function getMessagePresentationWindowByChannel(channelId, options =
   for (const row of [...recentRows, ...replies, ...unsynced, ...focusedRows, ...focusedRoots, ...effectiveRows]) {
     if (row?.record_id && row.channel_id === normalizedChannelId) rowsById.set(row.record_id, row);
   }
-  return buildThreadAwarePresentationWindow([...rowsById.values()], options);
+  const rootsByThread = new Map([...rowsById.values()].filter(row => !row.parent_message_id && row.pg_thread_id)
+    .map(row => [row.pg_thread_id, row.record_id]));
+  const presentationRows = [...rowsById.values()].map(row => row.parent_message_id && rootsByThread.has(row.pg_thread_id)
+    ? { ...row, parent_message_id: rootsByThread.get(row.pg_thread_id) } : row);
+  return buildThreadAwarePresentationWindow(presentationRows, { ...options, rootLimit: rootLimit + 1 });
 }
 
 export async function getMessagesByChannels(channelIds = [], options = {}) {
@@ -821,8 +869,9 @@ export async function getMessagesByChannels(channelIds = [], options = {}) {
 }
 
 export async function getMessagePresentationWindowByChannels(channelIds = [], options = {}) {
-  const rows = await getMessagesByChannels(channelIds);
-  return buildThreadAwarePresentationWindow(rows, options);
+  const ids = [...new Set(channelIds.map((id) => String(id || '').trim()).filter(Boolean))];
+  const pages = await Promise.all(ids.map((id) => getMessagePresentationWindowByChannel(id, options)));
+  return buildThreadAwarePresentationWindow(pages.flat(), options);
 }
 
 export async function getMessagesByOwner(ownerNpub) {
@@ -883,12 +932,24 @@ export async function replacePgMessagesForChannel(channelId, messages = [], opti
     .map((message) => sanitizeForStorage(message))
     .filter((message) => message?.record_id);
   const db = wsDb();
-  return db.transaction('rw', db.chat_messages, async () => {
-    const existing = await db.chat_messages.where('channel_id').equals(channelId).toArray();
+  return db.transaction('rw', db.chat_messages, db.pending_writes, async () => {
+    const incomingIds = [...new Set(rows.flatMap((row) => [row.record_id, row.pg_client_record_id]).filter(Boolean))];
+    const clientIds = [...new Set(rows.map((row) => row.pg_client_record_id).filter(Boolean))];
+    const existing = options.authoritative === true
+      ? await db.chat_messages.where('channel_id').equals(channelId).toArray()
+      : [...new Map([
+        ...(await db.chat_messages.bulkGet(incomingIds)).filter(Boolean),
+        ...(clientIds.length ? await db.chat_messages.where('pg_client_record_id').anyOf(clientIds).toArray() : []),
+      ].filter((row) => row.channel_id === channelId).map((row) => [row.record_id, row])).values()];
+    const commandIds = new Set((existing.length ? await db.pending_writes.where('record_id').anyOf(existing.map(row => row.record_id)).toArray() : []).map(row => row.record_id));
+    const blockedClients = new Set(existing.filter(local => {
+      const ack = rows.find(row => row.pg_client_record_id === (local.pg_client_record_id || local.record_id));
+      return ack && (commandIds.has(local.record_id) || Number(local.version || 0) > Number(ack.version || 0));
+    }).map(row => row.pg_client_record_id || row.record_id));
     const authoritativeClientIds = new Set(rows
       .map((message) => String(message?.pg_client_record_id || '').trim())
       .filter(Boolean));
-    const reconciledRows = rows.map((message) => {
+    const reconciledRows = rows.filter(row => !blockedClients.has(row.pg_client_record_id)).map((message) => {
       const clientRecordId = String(message?.pg_client_record_id || '').trim();
       if (!clientRecordId) return message;
       const { pg_reconciliation_pending, ...reconciled } = message;
@@ -897,6 +958,7 @@ export async function replacePgMessagesForChannel(channelId, messages = [], opti
     const protectedIds = new Set(existing
       .filter((message) => (
         message?.sync_status === 'pending'
+        || message?.sync_status === 'failed'
         || message?.pg_reconciliation_pending === true
       ))
       .filter((message) => {
@@ -905,6 +967,9 @@ export async function replacePgMessagesForChannel(channelId, messages = [], opti
       })
       .map((message) => message.record_id)
       .filter(Boolean));
+    for (const row of existing) {
+      if (commandIds.has(row.record_id) || blockedClients.has(row.pg_client_record_id || row.record_id)) protectedIds.add(row.record_id);
+    }
     const reconciledClientIds = new Set(reconciledRows
       .map((message) => String(message?.pg_client_record_id || '').trim())
       .filter(Boolean));
@@ -912,7 +977,7 @@ export async function replacePgMessagesForChannel(channelId, messages = [], opti
     const supersededOptimisticIds = existing
       .filter((message) => {
         const clientRecordId = String(message?.pg_client_record_id || message?.record_id || '').trim();
-        return clientRecordId
+        return !protectedIds.has(message.record_id) && clientRecordId
           && reconciledClientIds.has(clientRecordId)
           && !reconciledRecordIds.has(message.record_id);
       })
@@ -922,12 +987,14 @@ export async function replacePgMessagesForChannel(channelId, messages = [], opti
       ? existing
         .filter((message) => message?.pg_backend === true)
         .map((message) => message.record_id)
-        .filter((recordId) => recordId && !protectedIds.has(recordId))
+        .filter((recordId) => recordId && !protectedIds.has(recordId) && !reconciledRecordIds.has(recordId))
       : [];
     const deleteIds = [...new Set([...supersededOptimisticIds, ...omittedIds])];
     const existingById = new Map(existing.map((message) => [message.record_id, message]));
     const changedRows = reconciledRows.filter((message) => (
-      !sameLogicalValue(existingById.get(message.record_id), message)
+      Number(existingById.get(message.record_id)?.version || 0) <= Number(message.version || 0)
+      && !protectedIds.has(message.record_id)
+      && !sameLogicalValue(existingById.get(message.record_id), { ...message, ...messageIndexFields(message) })
     ));
     if (deleteIds.length > 0) await db.chat_messages.bulkDelete(deleteIds);
     if (changedRows.length > 0) await db.chat_messages.bulkPut(changedRows);
@@ -936,7 +1003,10 @@ export async function replacePgMessagesForChannel(channelId, messages = [], opti
 }
 
 export async function getMessageById(recordId) {
-  return wsDb().chat_messages.get(recordId);
+  const row = await wsDb().chat_messages.get(recordId);
+  if (!row) return row;
+  const { cache_active, cache_parent, cache_time, ...message } = row;
+  return message;
 }
 
 export async function getRecentChatMessagesSince(sinceIso, options = {}) {
@@ -1405,6 +1475,7 @@ export async function runWorkspaceSyncTransaction(callback) {
     db.channels,
     db.groups,
     db.chat_messages,
+    db.pending_writes,
     db.tasks,
     db.comments,
     db.documents,
@@ -1526,6 +1597,45 @@ export async function clearSyncQuarantineForFamilies(familyIds = []) {
 // tasks — workspace DB
 // ---------------------------------------------------------------------------
 
+// Manual board order is stable by record ID for ties, matching IndexedDB's
+// previous owner-index iteration. Counts use index keys, not materialized cards.
+export async function getTaskBoardWindow({ ownerNpub, channelId, threadId, scopeIds, limit = 50, state, sortMode = 'manual' } = {}) {
+  const db = wsDb();
+  const field = threadId ? 'thread' : channelId ? 'channel' : scopeIds ? 'scope' : 'owner';
+  const values = threadId ? [threadId] : channelId ? [channelId] : scopeIds || [ownerNpub];
+  const states = state ? [state] : ['new', 'ready', 'in_progress', 'blocked', 'review', 'done', 'archive'];
+  const counts = {};
+  const pages = await Promise.all(states.map(async (taskState) => {
+    let count = 0;
+    const rows = (await Promise.all(values.map(async (value) => {
+      const query = db.tasks.where('cache_board_keys')
+        .between([`${field}:${value}`, 1, taskState, sortMode, Dexie.minKey], [`${field}:${value}`, 1, taskState, sortMode, Dexie.maxKey]);
+      const [total, page] = await Promise.all([query.clone().count(), query.clone().limit(limit + 1).toArray()]);
+      count += total;
+      return page;
+    }))).flat().sort((a,b) => compareIndexedTasks(a,b,sortMode));
+    counts[taskState] = count;
+    return rows.slice(0, limit);
+  }));
+  const rows = pages.flat().map(taskWithoutIndexFields);
+  return { rows, counts, hasMore: Object.values(counts).some((count) => count > limit) };
+}
+
+// Overview/files read a bounded activity prefix. The visible Load older control
+// expands this prefix; source history is never silently fetched in a subscription.
+export async function getOwnerActivityWindow(tableName, ownerNpub, options = {}) {
+  const limit = Math.max(1, Math.trunc(Number(options.limit) || 100));
+  if (tableName === 'tasks') {
+    const page = await getTaskBoardWindow({ ownerNpub, limit, sortMode: 'modified_desc' });
+    return { rows: page.rows, hasMore: page.hasMore };
+  }
+  if (!['chat_messages', 'comments', 'documents'].includes(tableName)) throw new Error('Unsupported activity family');
+  const rows = await wsDb().table(tableName).where('[owner_npub+cache_active+cache_time+record_id]')
+    .between([ownerNpub, 1, Dexie.minKey, Dexie.minKey], [ownerNpub, 1, '\uffff', Dexie.maxKey])
+    .reverse().limit(limit + 1).toArray();
+  return { rows: rows.slice(0, limit), hasMore: rows.length > limit };
+}
+
 export async function getTasksByOwner(ownerNpub) {
   const rows = await wsDb().tasks.where('owner_npub').equals(ownerNpub).toArray();
   return rows.filter((row) => row.record_state !== 'deleted');
@@ -1556,39 +1666,70 @@ export async function replaceTaskRecordId(previousRecordId, task) {
   });
 }
 
-export async function replaceTasksForOwner(ownerNpub, tasks = []) {
+export async function replaceTasksForOwner(ownerNpub, tasks = [], options = {}) {
   if (!ownerNpub) return 0;
-  const rows = (Array.isArray(tasks) ? tasks : [])
-    .map((task) => sanitizeForStorage(task))
-    .filter((task) => task?.record_id);
+  const rows = (Array.isArray(tasks) ? tasks : []).map(sanitizeForStorage).filter(row => row?.record_id);
   const db = wsDb();
   return db.transaction('rw', db.tasks, async () => {
-    await db.tasks.where('owner_npub').equals(ownerNpub).delete();
-    if (rows.length > 0) await db.tasks.bulkPut(rows);
-    return rows.length;
+    const existing = options.authoritative === true ? await db.tasks.where('owner_npub').equals(ownerNpub).toArray()
+      : (await db.tasks.bulkGet(rows.map(row=>row.record_id))).filter(Boolean);
+    const byId = new Map(existing.map(row=>[row.record_id,row]));
+    const protectedRow = row => ['pending','failed'].includes(row?.sync_status) || row?.pg_reconciliation_pending;
+    const changed = rows.filter(row => !protectedRow(byId.get(row.record_id))
+      && Number(byId.get(row.record_id)?.version || 0) <= Number(row.version || 0)
+      && !sameLogicalValue(byId.get(row.record_id),{...row,...taskIndexFields(row)}));
+    const incoming = new Set(rows.map(row=>row.record_id));
+    const omitted = options.authoritative === true ? existing.filter(row=>!incoming.has(row.record_id) && !protectedRow(row)).map(row=>row.record_id) : [];
+    if (omitted.length) await db.tasks.bulkDelete(omitted);
+    if (changed.length) await db.tasks.bulkPut(changed);
+    return changed.length + omitted.length;
   });
 }
 
-export async function replacePgTasksForChannel(channelId, tasks = []) {
+// Ordinary list/bundle responses are partial. Only an explicitly complete snapshot
+// may reconcile omissions; commands and tombstones have their own identity paths.
+export async function replacePgTasksForChannel(channelId, tasks = [], options = {}) {
   if (!channelId) return 0;
-  const rows = (Array.isArray(tasks) ? tasks : [])
-    .map((task) => sanitizeForStorage(task))
-    .filter((task) => task?.record_id);
+  const rows = (Array.isArray(tasks) ? tasks : []).map(sanitizeForStorage).filter(row => row?.record_id);
   const db = wsDb();
-  return db.transaction('rw', db.tasks, async () => {
-    const existing = await db.tasks.toArray();
-    const pgTaskIds = existing
-      .filter((task) => task?.pg_backend === true && task?.pg_channel_id === channelId)
-      .map((task) => task.record_id)
-      .filter(Boolean);
-    if (pgTaskIds.length > 0) await db.tasks.bulkDelete(pgTaskIds);
-    if (rows.length > 0) await db.tasks.bulkPut(rows);
-    return rows.length;
+  return db.transaction('rw', db.tasks, db.pending_writes, async () => {
+    const ids = [...new Set(rows.flatMap(row => [row.record_id, row.pg_client_record_id]).filter(Boolean))];
+    const clients = rows.map(row => row.pg_client_record_id).filter(Boolean);
+    const existing = options.authoritative === true ? await db.tasks.where('pg_channel_id').equals(channelId).toArray()
+      : [...new Map([...(await db.tasks.bulkGet(ids)).filter(Boolean),
+        ...(clients.length ? await db.tasks.where('pg_client_record_id').anyOf(clients).toArray() : [])].map(row => [row.record_id, row])).values()];
+    const byId = new Map(existing.map(row => [row.record_id, row]));
+    const commands = new Set((ids.length ? await db.pending_writes.where('record_id').anyOf([...ids,...existing.map(row=>row.record_id)]).toArray() : []).map(row => row.record_id));
+    const incoming = new Set(rows.map(row => row.record_id));
+    const protectedRow = row => commands.has(row?.record_id) || ['pending','failed'].includes(row?.sync_status) || row?.pg_reconciliation_pending;
+    const changed = [], deletes = new Set();
+    for (const row of rows) {
+      const prior = byId.get(row.record_id);
+      const aliases = row.pg_client_record_id ? existing.filter(local => (local.pg_client_record_id || local.record_id) === row.pg_client_record_id) : [];
+      if (aliases.some(local => commands.has(local.record_id) || Number(local.version || 0) > Number(row.version || 0))) continue;
+      if (protectedRow(prior) && !aliases.includes(prior)) continue;
+      if (Number(prior?.version || 0) > Number(row.version || 0)) continue;
+      for (const alias of aliases) if (alias.record_id !== row.record_id) deletes.add(alias.record_id);
+      const { pg_reconciliation_pending, ...canonical } = row;
+      if (!sameLogicalValue(prior, { ...canonical, ...taskIndexFields(canonical) })) changed.push(canonical);
+    }
+    if (options.authoritative === true) for (const row of existing) {
+      if (row.pg_backend && !incoming.has(row.record_id) && !protectedRow(row)) deletes.add(row.record_id);
+    }
+    if (deletes.size) await db.tasks.bulkDelete([...deletes]);
+    if (changed.length) await db.tasks.bulkPut(changed);
+    return changed.length + deletes.size;
   });
+}
+
+export function taskWithoutIndexFields(row) {
+  if (!row) return row;
+  const { cache_active, cache_order, cache_scope, cache_state, cache_board_keys, cache_search_tokens, cache_tags, cache_assignees, ...task } = row;
+  return task;
 }
 
 export async function getTaskById(recordId) {
-  return wsDb().tasks.get(recordId);
+  return taskWithoutIndexFields(await wsDb().tasks.get(recordId));
 }
 
 // ---------------------------------------------------------------------------
@@ -1620,12 +1761,26 @@ export async function getScheduleById(recordId) {
 // ---------------------------------------------------------------------------
 
 export async function getCommentsByTarget(targetRecordId, options = {}) {
-  const rows = await wsDb().comments.where('target_record_id').equals(targetRecordId).toArray();
-  const ordered = rows
-    .filter((row) => row.record_state !== 'deleted')
-    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-  if (!options.limit) return ordered;
-  return takeWindow(ordered, resolveWindowLimit('threadReplies', options), { fromStart: true });
+  const query = wsDb().comments.where('[target_record_id+cache_active+cache_time+record_id]')
+    .between([targetRecordId, 1, Dexie.minKey, Dexie.minKey],
+      options.before ? [targetRecordId, 1, options.before.timestamp, options.before.recordId]
+        : [targetRecordId, 1, '\uffff', Dexie.maxKey], true, !options.before)
+    .reverse();
+  const rows = await (options.limit ? query.limit(resolveWindowLimit('threadReplies', options)) : query).toArray();
+  if (!options.limit) return rows;
+  const byId = new Map(rows.map(row => [row.record_id, row]));
+  const parentIds = [...new Set(rows.map(row => row.parent_comment_id).filter(id => id && !byId.has(id)))];
+  if (options.focusId && !byId.has(options.focusId)) parentIds.push(options.focusId);
+  for (const row of (await wsDb().comments.bulkGet(parentIds)).filter(Boolean)) {
+    if (row.target_record_id === targetRecordId && row.record_state !== 'deleted') byId.set(row.record_id,row);
+  }
+  if (options.focusId) {
+    const replies = await wsDb().comments.where('[parent_comment_id+cache_active+cache_time+record_id]')
+      .between([options.focusId,1,Dexie.minKey,Dexie.minKey],[options.focusId,1,'\uffff',Dexie.maxKey])
+      .reverse().limit(resolveWindowLimit('threadReplies',options)).toArray();
+    for(const row of replies) if(row.target_record_id === targetRecordId) byId.set(row.record_id,row);
+  }
+  return [...byId.values()].sort((a,b) => String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || '')) || b.record_id.localeCompare(a.record_id));
 }
 
 export async function getCommentsByOwner(ownerNpub) {
@@ -1662,20 +1817,32 @@ export async function replaceCommentRecord(previousRecordId, comment) {
   });
 }
 
-export async function replacePgCommentsForTarget(targetRecordId, comments = []) {
+export async function replacePgCommentsForTarget(targetRecordId, comments = [], options = {}) {
   const targetId = String(targetRecordId || '').trim();
   if (!targetId) return 0;
   const rows = (Array.isArray(comments) ? comments : [])
     .map((comment) => sanitizeForStorage(comment))
     .filter((comment) => comment?.record_id);
   const db = wsDb();
-  return db.transaction('rw', db.comments, async () => {
-    const existing = await db.comments.where('target_record_id').equals(targetId).toArray();
+  return db.transaction('rw', db.comments, db.pending_writes, async () => {
+    const ids = [...new Set(rows.flatMap((row) => [row.record_id, row.pg_client_record_id]).filter(Boolean))];
+    const clients = [...new Set(rows.map((row) => row.pg_client_record_id).filter(Boolean))];
+    const existing = options.authoritative === true
+      ? await db.comments.where('target_record_id').equals(targetId).toArray()
+      : [...new Map([
+        ...(await db.comments.bulkGet(ids)).filter(Boolean),
+        ...(clients.length ? await db.comments.where('pg_client_record_id').anyOf(clients).toArray() : []),
+      ].filter((row) => row.target_record_id === targetId).map((row) => [row.record_id, row])).values()];
+    const commandIds = new Set((existing.length ? await db.pending_writes.where('record_id').anyOf(existing.map(row => row.record_id)).toArray() : []).map(row => row.record_id));
+    const blockedClients = new Set(existing.filter(local => {
+      const ack = rows.find(row => row.pg_client_record_id === (local.pg_client_record_id || local.record_id));
+      return ack && (commandIds.has(local.record_id) || Number(local.version || 0) > Number(ack.version || 0));
+    }).map(row => row.pg_client_record_id || row.record_id));
     const authoritativeClientIds = new Set(rows
       .map((comment) => String(comment?.pg_client_record_id || '').trim())
       .filter(Boolean));
     const authoritativeRecordIds = new Set(rows.map((comment) => comment.record_id).filter(Boolean));
-    const reconciledRows = rows.map((comment) => {
+    const reconciledRows = rows.filter(row => !blockedClients.has(row.pg_client_record_id)).map((comment) => {
       const { pg_reconciliation_pending, ...reconciled } = comment;
       return reconciled;
     });
@@ -1686,20 +1853,25 @@ export async function replacePgCommentsForTarget(targetRecordId, comments = []) 
         || comment?.pg_reconciliation_pending === true
       ))
       .filter((comment) => {
-        if (authoritativeRecordIds.has(comment.record_id)) return false;
         const clientRecordId = String(comment?.pg_client_record_id || comment?.record_id || '').trim();
         return !authoritativeClientIds.has(clientRecordId);
       })
       .map((comment) => comment.record_id)
       .filter(Boolean));
+    for (const row of existing) {
+      if (commandIds.has(row.record_id) || blockedClients.has(row.pg_client_record_id || row.record_id)) protectedIds.add(row.record_id);
+    }
     const pgCommentIds = existing
-      .filter((comment) => comment?.pg_backend === true)
-      .filter((comment) => !protectedIds.has(comment.record_id))
-      .map((comment) => comment.record_id)
-      .filter(Boolean);
+      .filter((comment) => comment?.pg_backend === true && !protectedIds.has(comment.record_id))
+      .filter((comment) => !authoritativeRecordIds.has(comment.record_id))
+      .filter((comment) => options.authoritative === true || authoritativeClientIds.has(comment.pg_client_record_id || comment.record_id))
+      .map((comment) => comment.record_id);
+    const byId = new Map(existing.map((row) => [row.record_id, row]));
+    const changed = reconciledRows.filter((row) => !protectedIds.has(row.record_id) && Number(byId.get(row.record_id)?.version || 0) <= Number(row.version || 0)
+      && !sameLogicalValue(byId.get(row.record_id), { ...row, cache_active: row.record_state === 'deleted' ? 0 : 1, cache_time: String(row.updated_at || row.created_at || '') }));
     if (pgCommentIds.length > 0) await db.comments.bulkDelete(pgCommentIds);
-    if (reconciledRows.length > 0) await db.comments.bulkPut(reconciledRows);
-    return reconciledRows.length;
+    if (changed.length > 0) await db.comments.bulkPut(changed);
+    return changed.length + pgCommentIds.length;
   });
 }
 

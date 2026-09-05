@@ -6,6 +6,7 @@
  * and should be spread into the store definition.
  */
 
+import { compareIndexedTasks } from './task-index-keys.js';
 import {
   computeParentState,
   stateColor,
@@ -965,17 +966,7 @@ export function sortTasksForBoard(tasks = [], sortMode = 'manual') {
   if (normalizedMode === 'manual') return sortTasksByBoardOrder(tasks);
   if (!Array.isArray(tasks) || tasks.length <= 1) return Array.isArray(tasks) ? tasks : [];
 
-  return [...tasks].sort((left, right) => {
-    if (normalizedMode === 'created_asc' || normalizedMode === 'created_desc') {
-      const delta = parseTaskTime(left, 'created_at') - parseTaskTime(right, 'created_at');
-      if (delta !== 0) return normalizedMode === 'created_desc' ? -delta : delta;
-    } else if (normalizedMode === 'modified_desc' || normalizedMode === 'modified_asc') {
-      const delta = parseTaskTime(right, 'updated_at') - parseTaskTime(left, 'updated_at');
-      if (delta !== 0) return normalizedMode === 'modified_asc' ? -delta : delta;
-    }
-    const titleDelta = compareTaskTitleNatural(left, right);
-    return normalizedMode === 'alpha_desc' ? -titleDelta : titleDelta;
-  });
+  return [...tasks].sort((left, right) => compareIndexedTasks(left, right, normalizedMode));
 }
 
 export function getTaskVirtualBoardOrder(task, index) {
@@ -1769,6 +1760,7 @@ export const taskBoardStateMixin = {
 
   toggleBoardDescendantTasks() {
     this.showBoardDescendantTasks = !this.showBoardDescendantTasks;
+    this.startWorkspaceLiveQueries?.();
     this.normalizeTaskFilterTags();
     if (this.showTaskDetail) this.closeTaskDetail();
     else this.syncRoute();
@@ -1781,6 +1773,7 @@ export const taskBoardStateMixin = {
 
   setTaskSortMode(mode) {
     this.taskSortMode = normalizeTaskSortMode(mode);
+    this.startWorkspaceLiveQueries?.();
     if (typeof this.persistTaskSortMode === 'function') {
       this.persistTaskSortMode(this.taskSortMode);
     }
@@ -2058,6 +2051,7 @@ export const taskBoardStateMixin = {
       && this.selectedDocument?.record_id
       ? this.selectedDocument
       : null;
+    this.taskVisibleCount = 50;
     this.selectedBoardId = nextBoardId;
     this.syncSelectedChannelForPgBoard(nextBoardId);
     if (this.navSection === 'chat' && isPgWorkspaceStore(this) && nextBoard.type === 'scope') {

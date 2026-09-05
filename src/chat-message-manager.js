@@ -1452,6 +1452,7 @@ export const chatMessageManagerMixin = {
       itemAttribute: 'data-thread-message-id',
     });
     this.threadVisibleReplyCount += this.THREAD_REPLY_PAGE_SIZE;
+    this.startWorkspaceLiveQueries?.();
     this.restoreScrollAnchor(anchor);
   },
 
@@ -1462,6 +1463,7 @@ export const chatMessageManagerMixin = {
       itemAttribute: 'data-message-id',
     });
     this.mainFeedVisibleCount += this.MAIN_FEED_PAGE_SIZE;
+    this.startWorkspaceLiveQueries?.();
     this.restoreScrollAnchor(anchor);
     this.updateChatFeedLoadMoreVisibility();
   },

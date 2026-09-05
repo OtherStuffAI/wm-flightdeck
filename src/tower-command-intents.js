@@ -115,3 +115,5 @@ export const createTowerPgFileFromLocal = (store, file) => issue(store, 'file.cr
 export const updateTowerPgFileFromLocal = (store, file, previous = null) => issue(store, 'file.update', { file, previous }, mutationKey(file));
 export const createTowerPgFileFolderFromLocal = (store, folder) => issue(store, 'file-folder.create', { folder }, folder?.record_id);
 export const createTowerPgAudioNoteFromLocal = (store, audioNote) => issue(store, 'audio-note.create', { audioNote }, audioNote?.record_id);
+
+export const acceptTowerPgRemoteConflict = (store, key) => issue(store, 'record-conflict.accept-remote', { key }, key);
