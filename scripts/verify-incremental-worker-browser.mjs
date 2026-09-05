@@ -37,7 +37,14 @@ try {
     if(!applied.ok)throw new Error(applied.error.message);
     const rejected=await request({...fixture.one_message_delta,next_cursor:'unexpected-next',local_apply_options:{expectedCursor:'wrong'}});
     if(rejected.ok || !rejected.error.message.includes('cursor changed'))throw new Error('Missing production cursor guard: '+JSON.stringify(rejected));
-    instance.terminate();return {worker,applied:applied.value,cursorGuard:rejected.error.message};
+    const legacy={mode:'delta',next_cursor:'legacy-next',has_more:false,
+      local_record_fallback:{expectedCursor:fixture.canonical_upserts.next_cursor,expectedGeneration:0}};
+    const fallback=await request(legacy);
+    if(!fallback.ok)throw new Error('Production legacy fallback failed: '+JSON.stringify(fallback));
+    const staleFallback=await request({...legacy,local_record_fallback:{...legacy.local_record_fallback,expectedGeneration:1}});
+    if(staleFallback.ok || !staleFallback.error.message.includes('authority changed'))throw new Error('Missing production fallback guard: '+JSON.stringify(staleFallback));
+    instance.terminate();return {worker,applied:applied.value,cursorGuard:rejected.error.message,
+      legacyFallback:fallback.value,fallbackGuard:staleFallback.error.message};
   },{worker,fixture});
   console.log(JSON.stringify({browser:browser.version(),result}));
 } finally {await browser.close()}

@@ -9,9 +9,33 @@ directly. No React/native or workspace-storage redesign is involved.
 The producer contract is Tower's `docs/design/flightdeck-record-delta-v1.md`;
 the exact fixture is copied to `tests/fixtures/flightdeck-record-delta-v1.json`.
 `/record-sync?protocol_version=1` is negotiated before consumer activation.
-Initial 404/406/501 preserves the legacy workspace-sync path. Other failures do
-not silently fall back. The `:record-delta-v1` cursor is distinct from the legacy
-cursor and never passed to a legacy endpoint.
+404/406/501 from that endpoint selects legacy workspace sync for the current
+run, including first use, a partly committed snapshot, ordinary delta polling,
+and disappearance between pages. Already committed canonical/local rows, pending
+commands, the v1 cursor and its generation remain intact. Fallback uses only the
+persisted legacy cursor (or null if none exists), ignoring caller cursor and
+force-snapshot hints. Each legacy fallback page checks the captured v1 cursor and
+local authority generation in its worker transaction, so a concurrent reset or
+v1 advance rejects the delayed legacy page before it can repopulate authority.
+The `:record-delta-v1` cursor is distinct from the legacy cursor and is never
+passed to a legacy endpoint.
+
+Every later sync probes v1 again with its own saved cursor. A restored producer
+can resume the partial snapshot/delta or explicitly reject an expired or
+incompatible cursor with reset-required 409. Generic 400/409/500, transient
+network errors, malformed pages and materialisation failures never downgrade.
+403 still hides/purges revoked authority and throws while preserving command
+recovery copies. Reset-required 409 retains the existing bounded reset/retry
+path; unsupported responses during that recovery, including a persisted
+`resetting` state on the next run, fail closed without a legacy request.
+
+`forceSnapshot` remains a legacy-only refresh hint: v1 always resumes its saved
+cursor and only Tower's explicit authority/reset response triggers a purge.
+This prevents a refresh from clearing valid cached data before negotiation or
+invalidating an in-flight generation merely to probe protocol availability.
+Normal legacy-only callers retain their existing explicit snapshot behaviour.
+Rollback fallback itself neither resets nor retires v1 authority; legacy pages
+continue to apply their own explicit update/snapshot semantics.
 
 Each maximum-200-entry, maximum-1-MiB page commits canonical rows, explicit
 identity tombstones, decimal BigInt stream versions, actor identities, dependent
@@ -124,6 +148,10 @@ Reproducible harnesses:
 
 Final numeric evidence and command outcomes are recorded in
 `incremental-cache-performance-results.json` and the local manager handoff.
+The rollback orchestration regressions in `tests/pg-record-rollback.test.js` use
+the canonical fixtures and real Dexie transactions with injected network ports.
+They cover independent cursor restoration, partial-page disappearance, access
+revocation, reset recovery, malformed pages and delayed-response generation CAS.
 Core regression coverage includes equal timestamps, huge threads, active/deleted
 indexes, legacy timestamps, optimistic IDs, repeated/stale pages, crash atomicity,
 snapshot omission/handover, ACL reset races, actor sidecars, dependent assignments,

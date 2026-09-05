@@ -1098,6 +1098,13 @@
         "Chat, task boards, comments, overview and files now load bounded cached windows with controls for older activity.",
         "Compatible Tower servers send incremental record updates; local edits stay recoverable when shared changes conflict."
       ]
+    },
+    {
+      "buildNumber": 1874,
+      "label": "Recover sync after server rollback",
+      "notes": [
+        "Resume compatible sync after a Tower protocol rollback while retaining cached records, pending edits and separate recovery cursors."
+      ]
     }
   ]
 }

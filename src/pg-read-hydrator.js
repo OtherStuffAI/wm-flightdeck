@@ -1625,8 +1625,19 @@ export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
   const pagedSnapshot = fullSnapshot && Object.hasOwn(bundle || {}, 'snapshot_complete');
   const snapshotComplete = pagedSnapshot && bundle?.snapshot_complete === true;
   const snapshotManifestKey = `${towerPgSyncCursorKey(store)}:snapshot_manifest`;
+  const fallbackAuthority = bundle.local_record_fallback;
+  const fallbackCursorKey = fallbackAuthority
+    ? (await import('./pg-record-delta.js')).recordDeltaCursorKey(store)
+    : null;
 
   await (deps.runWorkspaceSyncTransaction || runWorkspaceSyncTransaction)(async () => {
+    if (fallbackAuthority) {
+      const authority = await (deps.getSyncState || getSyncState)(fallbackCursorKey);
+      if (authority?.resetting || Number(authority?.localGeneration || 0) !== fallbackAuthority.expectedGeneration
+        || (authority?.cursor || null) !== fallbackAuthority.expectedCursor) {
+        throw new Error('Record-delta authority changed before legacy fallback commit');
+      }
+    }
     const previousManifest = pagedSnapshot
       ? (await (deps.getSyncState || getSyncState)(snapshotManifestKey) || {})
       : {};
@@ -1742,17 +1753,18 @@ async function syncTowerPgRecordWorkspace(store, options, deps) {
   let directoryReady = Boolean(cursor);
   let viewBaselineInitialized = Boolean(state?.viewBaselineInitialized);
   const materialize = deps.hydrateTowerPgSyncBundle || hydrateTowerPgSyncBundle;
-  if (options.forceSnapshot && state?.cursor) {
-    const reset = await materialize(store, { protocol_version: 1, reset_authority: true }, deps);
-    localGeneration = reset.localGeneration; cursor = null; directoryReady = false;
-  }
+  // forceSnapshot is a legacy refresh hint. V1 resumes its server-owned cursor;
+  // only an explicit authority/reset response may discard its cached generation.
+  // In particular, probing a rolled-back server must never purge the cache.
   for (let pages = 1; pages <= (options.maxPages || 1000); pages++) {
     options.onProgress?.({ stage: 'receiving', page: pages, applied, cursorPresent: Boolean(cursor) });
     let page;
     try {
       page = await read(context.workspaceId, { baseUrl: context.baseUrl, appNpub: context.appNpub, cursor, limit: options.limit || 200, timeoutMs: options.timeoutMs || 30000 });
     } catch (error) {
-      if (!state && !cursor && [404, 406, 501].includes(error.status)) return null;
+      if (!state?.resetting && resets === 0 && [404, 406, 501].includes(error.status)) {
+        return { unsupported: true, fallbackAuthority: { expectedCursor: cursor, expectedGeneration: localGeneration } };
+      }
       if (error.status === 403 || (error.status === 409 && String(error.responseText || error.message).includes('reset_required'))) {
         const reset = await materialize(store, { protocol_version: 1, reset_authority: true }, deps);
         localGeneration = reset.localGeneration;
@@ -1808,12 +1820,18 @@ export async function syncTowerPgWorkspace(store, options = {}, deps = {}) {
   if (!context.workspaceId || !context.baseUrl) return { applied: 0, cursor: null };
   // Existing injected legacy ports remain legacy-only. Production negotiates the
   // versioned endpoint once per service sync, never reuses the legacy cursor.
+  let fallbackAuthority = null;
   if (!deps.getTowerPgWorkspaceSync || deps.getTowerPgRecordSync) {
     const result = await syncTowerPgRecordWorkspace(store, options, deps);
-    if (result) return result;
+    if (!result.unsupported) return result;
+    fallbackAuthority = result.fallbackAuthority;
   }
   const readSync = deps.getTowerPgWorkspaceSync || getTowerPgWorkspaceSync;
-  let cursor = options.forceSnapshot
+  // Rollback resumes only the persisted legacy cursor, regardless of caller
+  // hints. Never reinterpret a v1 cursor or force a destructive legacy snapshot.
+  let cursor = fallbackAuthority
+    ? (await (deps.getSyncState || getSyncState)(towerPgSyncCursorKey(store)) || null)
+    : options.forceSnapshot
     ? null
     : (options.cursor || await (deps.getSyncState || getSyncState)(towerPgSyncCursorKey(store)) || null);
   let totalApplied = 0;
@@ -1846,7 +1864,7 @@ export async function syncTowerPgWorkspace(store, options = {}, deps = {}) {
       applied: totalApplied,
     });
     const materializeBundle = deps.hydrateTowerPgSyncBundle || hydrateTowerPgSyncBundle;
-    const applied = await materializeBundle(store, bundle, deps);
+    const applied = await materializeBundle(store, { ...bundle, local_record_fallback: fallbackAuthority }, deps);
     totalApplied += applied.applied;
     pageCount += 1;
     cursor = applied.cursor;
