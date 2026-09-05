@@ -395,8 +395,9 @@ export function readDeterministicBuildVersion(environment = process.env) {
 }
 
 export default defineConfig({
-  // Both worker entry points are module workers; delta materialisers load in chunks.
-  worker: { format: 'es' },
+  // Keep dynamic materializers in the worker entry: a split child can import
+  // that entry again in WebKit, duplicating the DB singleton and listeners.
+  worker: { format: 'es', rollupOptions: { output: { inlineDynamicImports: true } } },
   root: '.',
   plugins: [flightDeckIdentityPlugin(), buildVersionPlugin(), missingDistAssetGuardPlugin()],
   server: {

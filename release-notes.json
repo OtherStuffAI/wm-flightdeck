@@ -1105,6 +1105,13 @@
       "notes": [
         "Resume compatible sync after a Tower protocol rollback while retaining cached records, pending edits and separate recovery cursors."
       ]
+    },
+    {
+      "buildNumber": 1875,
+      "label": "Restore channel sync in native browsers",
+      "notes": [
+        "Fix WebKit worker startup so channels and other workspace records sync without clearing cached data or pending edits."
+      ]
     }
   ]
 }
