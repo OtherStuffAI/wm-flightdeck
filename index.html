@@ -1964,7 +1964,7 @@
                   </div>
                 </template>
               </div>
-              <p class="settings-field-help inbox-no-results" x-show="$store.chat.filteredAutopilotOverviewInbox.length === 0" role="status" x-text="$store.chat.inboxActivityLoading ? 'Loading activity…' : ($store.chat.deckInboxSearchQuery.trim() ? 'No Inbox cards match your search.' : 'No matching activity.')"></p>
+              <p class="settings-field-help inbox-no-results" x-show="$store.chat.filteredAutopilotOverviewInbox.length === 0" role="status" x-text="$store.chat.inboxActivityLoading ? 'Loading activity…' : ($store.chat.hasMoreAutopilotOverviewInbox ? 'No matches in this page. Load older activity to keep looking.' : ($store.chat.deckInboxSearchQuery.trim() ? 'No Inbox cards match your search.' : 'No matching activity.'))"></p>
               <button type="button" class="inbox-load-more" :disabled="$store.chat.inboxActivityLoading" x-show="$store.chat.hasMoreAutopilotOverviewInbox" x-cloak @click="$store.chat.revealMoreDeckInbox()" aria-label="Load 50 more Inbox cards or older activity">Load older activity</button>
             </section>
 

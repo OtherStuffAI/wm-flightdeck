@@ -144,6 +144,8 @@ function messageIndexFields(row) {
   return {
     cache_parent: String(row.parent_message_id ? (row.pg_thread_id || row.parent_message_id) : '').trim(),
     cache_active: row.record_state === 'deleted' ? 0 : 1,
+    cache_has_files: String(row.body || '').includes('storage://') ? 1 : 0,
+    cache_recent: row.pg_record_type !== 'thread' && !['deleted', 'archived'].includes(row.record_state) ? 1 : 0,
     cache_time: String(row.updated_at || row.created_at || ''),
   };
 }
@@ -160,6 +162,23 @@ const WORKSPACE_STORES_V25 = {
   pg_resource_attention: '&record_id, channel_id, resource_type, unread',
   pg_attention_counts: '&key',
   comments: WORKSPACE_STORES_V24.comments + ', pg_client_record_id, [target_record_id+cache_active+cache_time+record_id], [parent_comment_id+cache_active+cache_time+record_id], [owner_npub+cache_active+cache_time+record_id]',
+};
+
+function activityIndexFields(row) {
+  return {
+    cache_active: row.record_state === 'deleted' ? 0 : 1,
+    cache_time: String(row.updated_at || row.created_at || ''),
+    cache_scope: String(row.scope_id || row.pg_scope_id || row.scope_l5_id || row.scope_l4_id || row.scope_l3_id || row.scope_l2_id || row.scope_l1_id || ''),
+    cache_has_files: String(row.content || row.body || '').includes('storage://') ? 1 : 0,
+    cache_kind: row.target_record_family_hash || (row.pg_record_type === 'file' || row.pg_storage_object_id ? 'file' : 'document'),
+  };
+}
+
+const WORKSPACE_STORES_V26 = {
+  ...WORKSPACE_STORES_V25,
+  chat_messages: WORKSPACE_STORES_V25.chat_messages + ', [channel_id+cache_recent+cache_time+record_id], [cache_parent+cache_recent+cache_time+record_id], [channel_id+cache_has_files+cache_active+cache_time+record_id]',
+  ...Object.fromEntries(['documents', 'comments'].map(table => [table, WORKSPACE_STORES_V25[table]
+    + ', [cache_scope+cache_active+cache_time+record_id], [cache_scope+cache_kind+cache_active+cache_time+record_id], [owner_npub+cache_kind+cache_active+cache_time+record_id], [cache_scope+cache_has_files+cache_active+cache_time+record_id], [owner_npub+cache_has_files+cache_active+cache_time+record_id]'])),
 };
 
 function createWorkspaceDb(workspaceDbKey) {
@@ -252,7 +271,15 @@ function createWorkspaceDb(workspaceDbKey) {
     await tx.table('documents').toCollection().modify((row) => Object.assign(row, { cache_active: row.record_state === 'deleted' ? 0 : 1, cache_time: String(row.updated_at || row.created_at || '') }));
     await tx.table('comments').toCollection().modify((row) => Object.assign(row, { cache_active: row.record_state === 'deleted' ? 0 : 1, cache_time: String(row.updated_at || row.created_at || '') }));
   });
-  const commentFields = row => ({ cache_active: row.record_state === 'deleted' ? 0 : 1, cache_time: String(row.updated_at || row.created_at || '') });
+  db.version(26).stores(WORKSPACE_STORES_V26).upgrade(async tx => {
+    // Additive derived-index repair only; retain all rows, pending writes,
+    // canonical generations and cursors. Dexie owns the atomic upgrade.
+    await tx.table('chat_messages').toCollection().modify(row => Object.assign(row, messageIndexFields(row)));
+    for (const table of ['documents', 'comments']) {
+      await tx.table(table).toCollection().modify(row => Object.assign(row, activityIndexFields(row)));
+    }
+  });
+  const commentFields = activityIndexFields;
   db.documents.hook('creating', (_key, row) => { Object.assign(row, commentFields(row)); });
   db.documents.hook('updating', (changes, _key, row) => commentFields({ ...row, ...changes }));
   db.comments.hook('creating', (_key, row) => { Object.assign(row, commentFields(row)); });
@@ -1005,7 +1032,7 @@ export async function replacePgMessagesForChannel(channelId, messages = [], opti
 export async function getMessageById(recordId) {
   const row = await wsDb().chat_messages.get(recordId);
   if (!row) return row;
-  const { cache_active, cache_parent, cache_time, ...message } = row;
+  const { cache_active, cache_parent, cache_time, cache_recent, cache_has_files, ...message } = row;
   return message;
 }
 
@@ -1631,22 +1658,41 @@ export async function getOwnerActivityWindow(tableName, ownerNpub, options = {})
   }
   if (tableName === 'tasks') {
     if (options.matches) {
+      const field = options.channelId ? 'channel' : options.scopeIds ? 'scope' : 'owner';
+      const values = options.channelId ? [options.channelId] : options.scopeIds || [ownerNpub];
       const states = ['new', 'ready', 'in_progress', 'blocked', 'review', 'done'];
-      const pages = await Promise.all(states.map(state => wsDb().tasks.where('cache_board_keys')
-        .between([`owner:${ownerNpub}`, 1, state, 'modified_desc', Dexie.minKey],
-          [`owner:${ownerNpub}`, 1, state, 'modified_desc', Dexie.maxKey])
-        .filter(options.matches).limit(limit + 1).toArray()));
-      const rows = pages.flat().sort((a, b) => compareIndexedTasks(a, b, 'modified_desc'));
-      return { rows: rows.slice(0, limit).map(taskWithoutIndexFields), hasMore: rows.length > limit };
+      if (options.search && !options.scopeIds && !options.channelId) {
+        const token = options.search.slice(0, 3);
+        const candidates = await wsDb().tasks.where('cache_search_tokens').equals(token).limit(limit + 1).toArray();
+        const scoped = candidates.slice(0, limit).filter(row => row.owner_npub === ownerNpub && row.cache_active === 1
+          && (!options.scopeIds || options.scopeIds.includes(row.cache_scope))
+          && (!options.channelId || row.pg_channel_id === options.channelId) && options.matches(row));
+        return { rows: scoped.sort((a, b) => compareIndexedTasks(a, b, 'modified_desc')).map(taskWithoutIndexFields), hasMore: candidates.length > limit };
+      }
+      const pages = await Promise.all(values.flatMap(value => states.map(state => wsDb().tasks.where('cache_board_keys')
+        .between([`${field}:${value}`, 1, state, 'modified_desc', Dexie.minKey],
+          [`${field}:${value}`, 1, state, 'modified_desc', Dexie.maxKey])
+        .limit(limit + 1).toArray())));
+      const rows = pages.flatMap(page => page.slice(0, limit)).filter(options.matches)
+        .sort((a, b) => compareIndexedTasks(a, b, 'modified_desc'));
+      return { rows: rows.slice(0, limit).map(taskWithoutIndexFields), hasMore: rows.length > limit || pages.some(page => page.length > limit) };
     }
     const page = await getTaskBoardWindow({ ownerNpub, limit, sortMode: 'modified_desc' });
     return { rows: page.rows, hasMore: page.hasMore };
   }
-  if (!['chat_messages', 'comments', 'documents'].includes(tableName)) throw new Error('Unsupported activity family');
-  const rows = await wsDb().table(tableName).where('[owner_npub+cache_active+cache_time+record_id]')
-    .between([ownerNpub, 1, Dexie.minKey, Dexie.minKey], [ownerNpub, 1, '\uffff', Dexie.maxKey])
-    .reverse().filter(options.matches || (() => true)).limit(limit + 1).toArray();
-  return { rows: rows.slice(0, limit), hasMore: rows.length > limit };
+  if (!['comments', 'documents'].includes(tableName)) throw new Error('Unsupported activity family');
+  const field = options.scopeIds ? 'cache_scope' : 'owner_npub';
+  const values = options.scopeIds || [ownerNpub];
+  const index = `[${field}+${options.filesOnly ? 'cache_has_files+' : options.kind ? 'cache_kind+' : ''}cache_active+cache_time+record_id]`;
+  const pages = await Promise.all(values.map(value => {
+    const prefix = options.filesOnly ? [value, 1, 1] : options.kind ? [value, options.kind, 1] : [value, 1];
+    return wsDb().table(tableName).where(index)
+      .between([...prefix, Dexie.minKey, Dexie.minKey], [...prefix, '\uffff', Dexie.maxKey])
+      .reverse().limit(limit + 1).toArray();
+  }));
+  const rows = pages.flatMap(page => page.slice(0, limit)).filter(options.matches || (() => true))
+    .sort((a, b) => String(b.cache_time).localeCompare(String(a.cache_time)) || String(b.record_id).localeCompare(String(a.record_id)));
+  return { rows: rows.slice(0, limit), hasMore: rows.length > limit || pages.some(page => page.length > limit) };
 }
 
 // Channel indexes existed before owner-indexed activity. Reading these also
@@ -1655,38 +1701,67 @@ export async function getOwnerActivityWindow(tableName, ownerNpub, options = {})
 export async function getChannelActivityWindow(channelIds, options = {}) {
   const db = wsDb();
   const limit = Math.max(1, Number(options.limit) || 100);
+  let hasMore = false;
   const pages = await Promise.all([...new Set(channelIds)].map(async channelId => {
-    const seen = new Set();
-    return db.chat_messages.where('[channel_id+cache_active+cache_time+record_id]')
-      .between([channelId, 1, Dexie.minKey, Dexie.minKey], [channelId, 1, '\uffff', Dexie.maxKey])
-      .reverse().filter(row => {
-        if (row.record_state === 'archived' || (options.messagesOnly && row.pg_record_type === 'thread')) return false;
-        if (options.matches && !options.matches(row)) return false;
-        if (!options.groupThreads) return true;
-        const id = row.pg_thread_id || row.parent_message_id || row.record_id;
-        if (seen.has(id)) return false;
-        seen.add(id);
-        return true;
-      }).limit(limit + 1).toArray();
+    const prefix = options.filesOnly ? [channelId, 1, 1] : [channelId, 1];
+    const recent = await db.chat_messages.where(options.filesOnly ? '[channel_id+cache_has_files+cache_active+cache_time+record_id]' : '[channel_id+cache_recent+cache_time+record_id]')
+      .between([...prefix, Dexie.minKey, Dexie.minKey], [...prefix, '\uffff', Dexie.maxKey])
+      .reverse().limit(limit + 1).toArray();
+    let candidates = options.groupThreads ? recent : recent.slice(0, limit);
+    if (!options.groupThreads) hasMore ||= recent.length > limit;
+    if (options.groupThreads) {
+      // A huge busy thread must not hide the next roots or make deduplication
+      // walk its entire reply history. Both root and message prefixes are
+      // explicitly bounded; latest replies use one indexed lookup per root.
+      const roots = await db.chat_messages.where('[channel_id+cache_active+cache_parent+cache_time+record_id]')
+        .between([channelId, 1, '', Dexie.minKey, Dexie.minKey], [channelId, 1, '', '\uffff', Dexie.maxKey])
+        .reverse().limit(limit + 1).toArray();
+      hasMore ||= roots.length > limit || (roots.length === 0 && recent.length > limit);
+      candidates.push(...roots);
+    }
+    const matched = candidates.filter(row => row.record_state !== 'archived' && (!options.matches || options.matches(row)));
+    if (!options.groupThreads) return matched;
+    const threadIds = [...new Set(matched.map(row => row.pg_thread_id || row.parent_message_id || row.record_id))];
+    const latest = await Promise.all(threadIds.map(id => db.chat_messages.where('[cache_parent+cache_recent+cache_time+record_id]')
+      .between([id, 1, Dexie.minKey, Dexie.minKey], [id, 1, '\uffff', Dexie.maxKey]).reverse().first()));
+    return [...matched, ...latest.filter(Boolean)];
   }));
-  const ordered = pages.flat().sort((a, b) => String(b.cache_time).localeCompare(String(a.cache_time))
-    || String(b.record_id).localeCompare(String(a.record_id)));
-  const rows = ordered.slice(0, limit);
+  const ordered = [...new Map(pages.flat().map(row => [row.record_id, row])).values()]
+    .sort((a, b) => String(b.cache_time).localeCompare(String(a.cache_time)) || String(b.record_id).localeCompare(String(a.record_id)));
+  const seen = new Set();
+  const selected = ordered.filter(row => {
+    const id = options.groupThreads ? row.pg_thread_id || row.parent_message_id || row.record_id : row.record_id;
+    if (seen.has(id)) return false;
+    seen.add(id); return true;
+  });
+  hasMore ||= selected.length > limit;
+  const rows = selected.slice(0, limit);
   if (options.groupThreads) {
-    const roots = await db.chat_messages.bulkGet([...new Set(rows.flatMap(row =>
-      [row.pg_thread_id, row.parent_message_id]).filter(Boolean))]);
-    rows.push(...roots.filter(row => row && row.record_state !== 'deleted' && row.record_state !== 'archived'
-      && !rows.some(item => item.record_id === row.record_id)));
+    const roots = await db.chat_messages.bulkGet([...new Set(rows.flatMap(row => [row.pg_thread_id, row.parent_message_id]).filter(Boolean))]);
+    const selectedIds = new Set(rows.map(row => row.pg_thread_id || row.parent_message_id || row.record_id));
+    const latestContent = new Set();
+    const matchingContent = new Set();
+    for (const row of ordered) {
+      const id = row.pg_thread_id || row.parent_message_id || row.record_id;
+      if (!selectedIds.has(id)) continue;
+      if (row.pg_record_type !== 'thread' && !latestContent.has(id)) { latestContent.add(id); rows.push(row); }
+      if (options.search && !matchingContent.has(id) && options.matches?.(row)) { matchingContent.add(id); rows.push(row); }
+    }
+    rows.push(...roots.filter(row => row && !['deleted', 'archived'].includes(row.record_state)));
   }
-  return { rows, hasMore: ordered.length > limit };
+  return { rows: [...new Map(rows.map(row => [row.record_id, row])).values()], hasMore };
 }
 
 export async function getRecentChannelActivity(ownerNpub) {
+  const db = wsDb();
   const channels = await getChannelsByOwner(ownerNpub);
-  // One actual latest message per authorized channel; no history or Inbox cap.
-  const pages = await Promise.all(channels.filter(row => row.record_state !== 'archived')
-    .map(row => getChannelActivityWindow([row.record_id], { limit: 1, messagesOnly: true })));
-  return pages.flatMap(page => page.rows);
+  // Eligibility is indexed, so any number of archived/metadata rows cannot
+  // force a history scan or conceal the actual latest channel message.
+  const rows = await Promise.all(channels.filter(row => row.record_state !== 'archived').map(row =>
+    db.chat_messages.where('[channel_id+cache_recent+cache_time+record_id]')
+      .between([row.record_id, 1, Dexie.minKey, Dexie.minKey], [row.record_id, 1, '\uffff', Dexie.maxKey])
+      .reverse().first()));
+  return rows.filter(Boolean);
 }
 
 export async function getActivityThreadAttention(messages) {
@@ -1927,7 +2002,7 @@ export async function replacePgCommentsForTarget(targetRecordId, comments = [], 
       .map((comment) => comment.record_id);
     const byId = new Map(existing.map((row) => [row.record_id, row]));
     const changed = reconciledRows.filter((row) => !protectedIds.has(row.record_id) && Number(byId.get(row.record_id)?.version || 0) <= Number(row.version || 0)
-      && !sameLogicalValue(byId.get(row.record_id), { ...row, cache_active: row.record_state === 'deleted' ? 0 : 1, cache_time: String(row.updated_at || row.created_at || '') }));
+      && !sameLogicalValue(byId.get(row.record_id), { ...row, ...activityIndexFields(row) }));
     if (pgCommentIds.length > 0) await db.comments.bulkDelete(pgCommentIds);
     if (changed.length > 0) await db.comments.bulkPut(changed);
     return changed.length + pgCommentIds.length;

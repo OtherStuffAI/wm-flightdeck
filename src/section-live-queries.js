@@ -63,6 +63,11 @@ export async function queryInboxSource(store, ownerNpub, tableName) {
   const options = { selectedScopeId: context.scopeId, selectedChannelId: context.channelId,
     scopesMap: new Map(scopes.map(row => [row.record_id, row])) };
   const type = store.deckInboxType || 'all';
+  const scoped = context.scopeId && !['all', '__all__'].includes(context.scopeId);
+  const scopeIds = scoped ? (context.scopeId === '__unscoped__' ? [''] : scopes
+    .filter(row => scopeMatches(row.record_id, context.scopeId, options.scopesMap)).map(row => row.record_id)) : undefined;
+  const sourceOptions = { scopeIds, search: type === 'file' ? 'storage://' : normalizeInboxSearchText(store.deckInboxSearchQuery), filesOnly: type === 'file', channelId: context.channelId && context.channelId !== 'all' ? context.channelId : undefined };
+
   if ((type === 'chat' && tableName !== 'chat_messages')
     || (type === 'task' && !['tasks', 'comments'].includes(tableName))
     || (type === 'document' && !['documents', 'comments'].includes(tableName))) return { rows: [], hasMore: false };
@@ -84,24 +89,25 @@ export async function queryInboxSource(store, ownerNpub, tableName) {
     const pages = await Promise.all(parents.flatMap(page => page.rows).map(row => getCommentsByTarget(row.record_id, { limit: 100 })));
     if (type === 'all' || type === 'file') {
       const attachments = await getOwnerActivityWindow('comments', ownerNpub, {
-        limit: store.inboxActivityVisibleCount || 100, matches,
+        limit: store.inboxActivityVisibleCount || 100, matches, ...sourceOptions, filesOnly: true,
       });
       return { rows: [...new Map([...pages.flat(), ...attachments.rows].map(row => [row.record_id, row])).values()], hasMore: attachments.hasMore };
     }
     return { rows: pages.flat(), hasMore: false };
   }
   const page = await getOwnerActivityWindow(tableName, ownerNpub, {
-    limit: store.inboxActivityVisibleCount || 100, matches,
+    limit: store.inboxActivityVisibleCount || 100, matches, ...sourceOptions,
     channels: channels.filter(row => scopeMatches(row.scope_id, context.scopeId, options.scopesMap)
       && (!context.channelId || context.channelId === 'all' || row.record_id === context.channelId)),
     groupThreads: tableName === 'chat_messages' && type !== 'file',
+    kind: tableName === 'documents' && ['file', 'document'].includes(type) ? type : undefined,
   });
   if (['tasks', 'documents'].includes(tableName) && type !== 'file') {
     const family = recordFamilyHash(tableName === 'tasks' ? 'task' : 'document');
     const needle = normalizeInboxSearchText(store.deckInboxSearchQuery);
     const seen = new Set();
     const activity = await getOwnerActivityWindow('comments', ownerNpub, {
-      limit: store.inboxActivityVisibleCount || 100,
+      limit: store.inboxActivityVisibleCount || 100, ...sourceOptions, kind: family,
       matches: row => {
         if (row.target_record_family_hash !== family || seen.has(row.target_record_id)) return false;
         if (!scopeMatches(row.pg_scope_id, context.scopeId, options.scopesMap)) return false;

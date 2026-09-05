@@ -111,14 +111,20 @@ footer and source window.
 
 Chat activity uses the existing channel/active/time index, including PG rows
 cached before ownership was populated by the canonical mappers. This read-time
-compatibility path requires no rewrite, migration, resync or cache reset. Chat
-candidates are grouped by thread before limiting and their indexed root identities
-are loaded separately. Tasks/documents retain comment activity and file
-classification. Search may examine many index candidates, but does not load an
-unbounded history array. Returned activity prefixes remain bounded; this is not
-a constant-time arbitrary-substring search guarantee.
+compatibility path requires no ownership rewrite, resync or cache reset. The
+additive v26 index upgrade below populates its new derived eligibility fields. Chat candidates use bounded message and root prefixes plus one indexed latest
+reply per candidate thread. Deduplication never scans a whole busy thread. Tasks/documents retain comment activity and file
+classification. Native scope/channel task keys, scoped document/comment chronology, and file
+presence indexes narrow candidates before reading their values. Every source
+reads at most its requested prefix plus one lookahead per indexed scope/state or
+channel. Arbitrary content matching happens after that bound; global task text
+uses a bounded n-gram candidate prefix. A sparse content search can therefore
+require explicit Load older progress. No query automatically drains history to
+fill a matching card count. The retained source-prefix count is the progress
+marker and grows by 50 per requested expansion; live queries reread that explicit
+prefix to retain live updates and deletions, rather than using stale offset caches.
 
-Recent Channels independently reads one actual latest message per authorized
+Recent Channels independently reads one indexed eligible latest message per authorized
 channel, then applies the Deck scope and ten-channel display limit. Empty channels
 and thread-only metadata do not become recent activity. Displayed thread attention
 is read by primary key alongside Inbox and Recent rows, so their unread state does
@@ -141,6 +147,14 @@ snapshot handover. Local read watermarks are monotonic and clear attention/count
 atomically before network acknowledgement. Latest channel activity is separate
 from viewer-specific read state. Backfill equivalence is tested against the
 existing unread projection, including self-authored activity and comments.
+
+Dexie v26 adds local activity eligibility, file-presence and scope/type chronology
+indexes. Its atomic additive upgrade derives fields on existing messages,
+documents and comments without deleting rows, pending commands, drafts or cursors.
+The v25 upgrade regression opens that prior schema and checks these preserved
+values; the production-worker browser replay also upgrades a real ownerless mapped
+message, queued command and draft before replay. The one-time upgrade cost is
+separate from the measured steady-state read bounds.
 
 Dexie v25 adds indexes/tables and backfills derived fields without deleting cached
 rows, cursors or pending commands. The upgrade test opens an old-schema tab,

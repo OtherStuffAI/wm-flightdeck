@@ -47,6 +47,7 @@ try {
     if (change.operation === 'upsert') canonical.set(change.id, change.row); else canonical.delete(change.id);
   }
   await page.evaluate(async ({ worker, pages }) => {
+    await window.prepareInboxV25(pages.flatMap(page => page.changes).find(row => row.family === 'message' && row.row)?.row);
     const instance = new Worker(`/assets/${worker}`, { type: 'module' });
     let cursor = null;
     for (const bundle of pages) {
@@ -168,7 +169,13 @@ try {
   await page.locator('#deck-inbox-search').fill('No matching historical phrase');
   await page.locator('.inbox-search-submit').click();
   await page.waitForFunction(() => !window.probeStore.inboxActivityLoading && window.probeStore.visibleAutopilotOverviewInbox.length === 0);
-  assert.equal(await page.getByRole('button', { name: 'Load 50 more Inbox cards or older activity' }).isVisible(), false);
+  const historyAvailable = await page.evaluate(() => window.probeStore.hasMoreAutopilotOverviewInbox);
+  assert.equal(await page.getByRole('button', { name: 'Load 50 more Inbox cards or older activity' }).isVisible(), historyAvailable);
+  if (historyAvailable) {
+    const before = await page.evaluate(() => window.probeStore.inboxActivityVisibleCount);
+    await page.getByRole('button', { name: 'Load 50 more Inbox cards or older activity' }).click();
+    assert.equal(await page.evaluate(() => window.probeStore.inboxActivityVisibleCount), before + 50);
+  }
   const output = process.env.FLIGHTDECK_INBOX_SCREENSHOT || '/tmp/flightdeck-inbox-activity.png';
   await page.screenshot({ path: output, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -177,6 +184,6 @@ try {
   assert(searchWidth >= 150, `Mobile search width ${searchWidth}`);
   await page.screenshot({ path: output.replace('.png', '-mobile.png'), fullPage: true });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ browser: browser.version(), pages: pages.length, captureEvidence, types: 5, pagination: '50/100 for each type', liveRecent: true, liveFeed: true, emptyExhausted: true, sparseScopeVerified: Boolean(sparseEvidence), liveUnread: true, recentBefore, screenshot: output, errors }));
+  console.log(JSON.stringify({ browser: browser.version(), pages: pages.length, captureEvidence, types: 5, pagination: '50/100 for each type', liveRecent: true, liveFeed: true, boundedHistoricalProgress: true, cachedV25Upgrade: true, sparseScopeVerified: Boolean(sparseEvidence), liveUnread: true, recentBefore, screenshot: output, errors }));
 
 } finally { await browser.close(); await rm(temporary, { recursive: true, force: true }); }

@@ -1,13 +1,27 @@
 // Test entry only: real Alpine templates, projections and Dexie subscriptions,
 // with an isolated database populated by the canonical production worker. No authentication or network.
 import Alpine from 'alpinejs';
-import { liveQuery } from 'dexie';
+import Dexie, { liveQuery } from 'dexie';
+import { mapPgMessageToLocal } from '../src/pg-read-hydrator.js';
 import { openWorkspaceDb } from '../src/db.js';
 import { sectionLiveQueryMixin } from '../src/section-live-queries.js';
 import { autopilotOverviewManagerMixin } from '../src/autopilot-overview-manager.js';
 import { filesManagerMixin } from '../src/files-manager.js';
 import { wappPublishingManagerMixin } from '../src/wapp-publishing-manager.js';
 import { buildSidebarScopeChannelGroups } from '../src/sidebar-navigation.js';
+
+window.prepareInboxV25 = async message => {
+  const old = new Dexie('wingman-fd-ws-inbox-browser');
+  old.version(25).stores({ chat_messages: 'record_id,channel_id', documents: 'record_id', comments: 'record_id',
+    pending_writes: '++row_id,record_id', sync_state: 'key', document_drafts: 'draft_key' });
+  await old.open();
+  const row = mapPgMessageToLocal(message, { workspaceOwnerNpub: 'npub1owner' });
+  delete row.owner_npub;
+  await old.chat_messages.put(row);
+  await old.pending_writes.add({ record_id: row.record_id, envelope: { body: row.body } });
+  await old.document_drafts.put({ draft_key: 'upgrade-proof', body: 'keep draft' });
+  old.close();
+};
 
 window.startInboxProbe = async () => {
   const db = openWorkspaceDb('inbox-browser');
@@ -17,6 +31,7 @@ window.startInboxProbe = async () => {
   const scope_id = scopes[0]?.record_id;
   if (!scope_id) throw new Error('Canonical scopes did not hydrate');
   window.probeDb = db;
+  if (db.verno !== 26 || !(await db.document_drafts.get('upgrade-proof'))) throw Error('Cached v25 upgrade lost a draft');
   // Simulate an installed pre-repair cache, without touching canonical rows,
   // commands or cursors. All ownership is still absent from these local rows.
   await db.chat_messages.toCollection().modify(row => { delete row.owner_npub; });

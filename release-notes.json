@@ -1128,6 +1128,14 @@
         "Restored cached chats in Inbox and kept Recent Channels current independently of Inbox history.",
         "Filter Inbox by All, Chat, Task, Docs or Files, with scope and search applied before paging."
       ]
+    },
+    {
+      "buildNumber": 1878,
+      "label": "Bounded Inbox history and cached upgrade",
+      "notes": [
+        "Keep Inbox and Recent Channels responsive in large histories, with scoped activity indexes and explicit progress through older search candidates.",
+        "Preserve cached conversations, pending changes and drafts when upgrading activity indexes."
+      ]
     }
   ]
 }
