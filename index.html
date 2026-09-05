@@ -1541,7 +1541,6 @@
         <div class="content-scroll-area">
         <template x-if="$store.chat.navSection === 'status'">
           <div class="status-section">
-          <button type="button" class="inbox-load-more" x-show="Object.values($store.chat.activityPageHasMore).some(Boolean)" @click="$store.chat.activityVisibleCount += 100; $store.chat.startWorkspaceLiveQueries()">Load older cached activity</button>
           <div class="pg-work-context-bar" x-show="false" x-cloak>
             <div class="chat-channel-header">
               <div class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels">
@@ -1907,7 +1906,7 @@
             </section>
 
             <div class="deck-columns-track" x-show="$store.chat.deckInboxEnabled" x-cloak data-deck-columns-track data-testid="deck-columns-track" x-init="$store.chat.initMobileDeck($el)" @scroll.passive="$store.chat.handleDeckColumnsScroll($event)">
-            <section class="flightdeck-summary-panel flightdeck-summary-panel-inbox deck-column" data-deck-column="inbox" data-testid="flightdeck-summary-inbox" @scroll.passive="$store.chat.handleDeckInboxScroll($event)" x-effect="$store.chat.syncDeckInboxContext($store.chat.deckInboxCurrentContextKey, $store.chat.autopilotOverviewContext.scopeId)">
+            <section class="flightdeck-summary-panel flightdeck-summary-panel-inbox deck-column" data-deck-column="inbox" data-testid="flightdeck-summary-inbox" x-effect="$store.chat.syncDeckInboxContext($store.chat.deckInboxCurrentContextKey, $store.chat.autopilotOverviewContext.scopeId)">
               <div class="autopilot-panel-heading inbox-panel-heading" data-deck-mobile-sticky-heading>
                 <h3>Inbox</h3>
                 <form class="inbox-search-form" role="search" @submit.prevent="$store.chat.applyDeckInboxSearch()">
@@ -1959,7 +1958,7 @@
                 </template>
               </div>
               <p class="settings-field-help inbox-no-results" x-show="$store.chat.filteredAutopilotOverviewInbox.length === 0" role="status" x-text="$store.chat.deckInboxSearchQuery.trim() ? 'No Inbox cards match your search.' : 'No matching activity.'"></p>
-              <button type="button" class="inbox-load-more" x-show="$store.chat.hasMoreAutopilotOverviewInbox" x-cloak @click="$store.chat.revealMoreDeckInbox()" :aria-label="`Load 50 more Inbox cards (${ $store.chat.filteredAutopilotOverviewInbox.length - $store.chat.visibleAutopilotOverviewInbox.length } remaining)`">Load 50 more</button>
+              <button type="button" class="inbox-load-more" x-show="$store.chat.hasMoreAutopilotOverviewInbox" x-cloak @click="$store.chat.revealMoreDeckInbox()" aria-label="Load 50 more Inbox cards or older activity">Load older activity</button>
             </section>
 
             <div class="deck-right-stack" data-testid="deck-right-stack">
@@ -5990,7 +5989,6 @@
 
         <template x-if="$store.chat.navSection === 'files'">
           <section class="files-section" x-init="$store.chat.scheduleStorageImageHydration()" x-effect="$store.chat.filteredFileBrowserRows.length; $nextTick(() => $store.chat.scheduleStorageImageHydration())">
-            <button type="button" class="inbox-load-more" x-show="Object.values($store.chat.activityPageHasMore).some(Boolean)" @click="$store.chat.activityVisibleCount += 100; $store.chat.startWorkspaceLiveQueries()">Load older cached activity</button>
             <div class="pg-work-context-bar files-work-context-bar" x-show="false" x-cloak>
               <div class="chat-channel-header">
                 <div class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels">
@@ -6364,6 +6362,8 @@
               <h2 x-text="$store.chat.currentFileFolderId === '__archived__' ? 'Archived' : 'Files'"></h2>
               <p x-text="$store.chat.currentFileFolderId === '__archived__' ? 'No archived documents or files.' : 'No files found.'"></p>
             </div>
+
+            <button type="button" class="inbox-load-more" x-show="Object.values($store.chat.filesActivityPageHasMore).some(Boolean)" x-cloak @click="$store.chat.filesActivityVisibleCount += 50; $store.chat.startWorkspaceLiveQueries()">Load older files</button>
 
             <div
               class="doc-modal-backdrop file-edit-modal-backdrop"

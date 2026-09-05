@@ -1280,20 +1280,19 @@ export const autopilotOverviewManagerMixin = {
   },
 
   revealMoreDeckInbox() {
-    this.deckInboxVisibleCount = nextDeckInboxVisibleCount(
-      this.deckInboxVisibleCount,
-      this.filteredAutopilotOverviewInbox.length
-    );
+    // One explicit click reveals up to 50 cards. When filters/grouping exhaust
+    // the loaded cards, expand each bounded source prefix once, never auto-drain.
+    const target = Math.max(DECK_INBOX_PAGE_SIZE,
+      this.visibleAutopilotOverviewInbox.length + DECK_INBOX_PAGE_SIZE);
+    const sourceHasMore = Object.values(this.inboxActivityPageHasMore || {}).some(Boolean);
+    this.deckInboxVisibleCount = sourceHasMore
+      ? target : Math.min(target, this.filteredAutopilotOverviewInbox.length);
+    if (sourceHasMore && target > this.filteredAutopilotOverviewInbox.length) {
+      this.inboxActivityVisibleCount = (this.inboxActivityVisibleCount || 100) + DECK_INBOX_PAGE_SIZE;
+      this.startWorkspaceLiveQueries?.();
+    }
   },
 
-  handleDeckInboxScroll(event) {
-    const column = event?.currentTarget;
-    if (!column || !this.hasMoreAutopilotOverviewInbox) return;
-    const remaining = Number(column.scrollHeight || 0)
-      - Number(column.scrollTop || 0)
-      - Number(column.clientHeight || 0);
-    if (remaining <= 240) this.revealMoreDeckInbox();
-  },
   get autopilotOverviewDailyScopeDateKey() {
     return this.dailyScopeSelectedDate || this.getTodayDateKey?.() || new Date().toISOString().slice(0, 10);
   },
@@ -1594,7 +1593,8 @@ export const autopilotOverviewManagerMixin = {
   },
 
   get hasMoreAutopilotOverviewInbox() {
-    return this.visibleAutopilotOverviewInbox.length < this.filteredAutopilotOverviewInbox.length;
+    return this.visibleAutopilotOverviewInbox.length < this.filteredAutopilotOverviewInbox.length
+      || Object.values(this.inboxActivityPageHasMore || {}).some(Boolean);
   },
 
   get autopilotOverviewDailyNote() {

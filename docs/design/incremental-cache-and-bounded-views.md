@@ -82,7 +82,7 @@ indexed prefix while existing chat scroll anchoring remains in place.
 | Task board | All owner tasks, in-memory sort/filter | Multi-entry board identity + active + state + sort tuple | L+1 per state/scope; separate native indexed counts |
 | Task search/filter | Whole owner tasks | substring n-gram, assignee, tag or recent-time candidate index | Candidate PKs; rows in batches of 200; exact matching; bounded visible top-L per state |
 | Comment details | Entire target, deleted filter before limit | target + active + time + ID; parent + active + time + ID | L comments plus referenced parents/focused reply page |
-| Overview/files sources | All messages/comments/tasks/docs | owner + active + time + ID; indexed task activity pages | 100-source prefix, explicit older-activity control |
+| Overview/files sources | All messages/comments/tasks/docs | owner + active + time + ID; indexed task activity pages | 100-source prefix, explicit footer control adds 50 |
 | Unread/navigation | Recompute large record collections | Small counts and per-resource attention; visible-ID bulkGet | Section/channel summaries plus visible resource identities |
 | Deleted channel latest | Recompute channel history | channel + active + time + ID, reverse first | One predecessor value |
 
@@ -102,9 +102,13 @@ metadata/index storage and write cost of 14–28 board keys per task plus unique
 text can generate many tokens. Native count operations can walk matching index
 entries internally even though they return no record values.
 
-Overview/files filters operate on the loaded activity prefix. The visible
-“Load older cached activity” control expands source history even when the current
-filter produces no matching cards/files. Related metadata families, documents'
+Overview/files filters operate on the loaded activity prefix. Inbox initially renders 50 mixed cards. Its footer “Load older activity” button
+reveals up to 50 more; when loaded matches run short, the click expands each
+source prefix by 50 once. It stays available when source pages remain even if a
+filter matches nothing. Scrolling does not drain pages. Files has its own footer,
+source limit and has-more state. Neither prefix has a finite history cap.
+Channel metadata is an independent, unwindowed workspace subscription and never
+requires Inbox paging, recent messages or a nonempty history. Related metadata families, documents'
 existing explicit history views, workrooms and unadvertised protocol families
 keep their established APIs; this is not a complete-workspace replacement claim.
 

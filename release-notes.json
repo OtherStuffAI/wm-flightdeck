@@ -1112,6 +1112,14 @@
       "notes": [
         "Fix WebKit worker startup so channels and other workspace records sync without clearing cached data or pending edits."
       ]
+    },
+    {
+      "buildNumber": 1876,
+      "label": "Inbox paging within the Inbox",
+      "notes": [
+        "Start with 50 Inbox cards and load older activity from one button at the bottom, including older search results.",
+        "Keep Files paging in its own footer and channel navigation independent of activity paging."
+      ]
     }
   ]
 }

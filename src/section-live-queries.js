@@ -319,18 +319,18 @@ function buildWorkspaceSpecs(store) {
     case 'status':
       sectionSpecs = [
         {
-          key: `status:messages:${store.activityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('chat_messages', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          key: `status:messages:${store.inboxActivityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('chat_messages', ownerNpub, { limit: store.inboxActivityVisibleCount || 100 }),
           onNext: (page) => {
-            store.activityPageHasMore = { ...store.activityPageHasMore, messages: page.hasMore };
+            store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, messages: page.hasMore };
             return store.applyFileMessages(page.rows);
           },
         },
         {
-          key: `status:comments:${store.activityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('comments', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          key: `status:comments:${store.inboxActivityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('comments', ownerNpub, { limit: store.inboxActivityVisibleCount || 100 }),
           onNext: (page) => {
-            store.activityPageHasMore = { ...store.activityPageHasMore, comments: page.hasMore };
+            store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, comments: page.hasMore };
             return store.applyFileComments(page.rows);
           },
         },
@@ -340,18 +340,18 @@ function buildWorkspaceSpecs(store) {
           onNext: (directories) => store.applyDirectories(directories),
         },
         {
-          key: `status:documents:${store.activityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('documents', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          key: `status:documents:${store.inboxActivityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('documents', ownerNpub, { limit: store.inboxActivityVisibleCount || 100 }),
           onNext: (page) => {
-            store.activityPageHasMore = { ...store.activityPageHasMore, documents: page.hasMore };
+            store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, documents: page.hasMore };
             return store.applyDocuments(page.rows);
           },
         },
         {
-          key: `status:tasks:${store.activityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('tasks', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          key: `status:tasks:${store.inboxActivityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('tasks', ownerNpub, { limit: store.inboxActivityVisibleCount || 100 }),
           onNext: (page) => {
-            store.activityPageHasMore = { ...store.activityPageHasMore, tasks: page.hasMore };
+            store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, tasks: page.hasMore };
             return store.applyTasks(page.rows);
           },
         },
@@ -377,18 +377,18 @@ function buildWorkspaceSpecs(store) {
     case 'files':
       sectionSpecs = [
         {
-          key: `files:messages:${store.activityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('chat_messages', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          key: `files:messages:${store.filesActivityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('chat_messages', ownerNpub, { limit: store.filesActivityVisibleCount || 100 }),
           onNext: (page) => {
-            store.activityPageHasMore = { ...store.activityPageHasMore, messages: page.hasMore };
+            store.filesActivityPageHasMore = { ...store.filesActivityPageHasMore, messages: page.hasMore };
             return store.applyFileMessages(page.rows);
           },
         },
         {
-          key: `files:comments:${store.activityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('comments', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          key: `files:comments:${store.filesActivityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('comments', ownerNpub, { limit: store.filesActivityVisibleCount || 100 }),
           onNext: (page) => {
-            store.activityPageHasMore = { ...store.activityPageHasMore, comments: page.hasMore };
+            store.filesActivityPageHasMore = { ...store.filesActivityPageHasMore, comments: page.hasMore };
             return store.applyFileComments(page.rows);
           },
         },
@@ -403,10 +403,10 @@ function buildWorkspaceSpecs(store) {
           onNext: (directories) => store.applyDirectories(directories),
         },
         {
-          key: `files:documents:${store.activityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('documents', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          key: `files:documents:${store.filesActivityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('documents', ownerNpub, { limit: store.filesActivityVisibleCount || 100 }),
           onNext: (page) => {
-            store.activityPageHasMore = { ...store.activityPageHasMore, documents: page.hasMore };
+            store.filesActivityPageHasMore = { ...store.filesActivityPageHasMore, documents: page.hasMore };
             return store.applyDocuments(page.rows);
           },
         },
@@ -416,10 +416,10 @@ function buildWorkspaceSpecs(store) {
           onNext: (folders) => store.applyFileFolders(folders),
         },
         {
-          key: `files:tasks:${store.activityVisibleCount || 100}`,
-          query: () => getOwnerActivityWindow('tasks', ownerNpub, { limit: store.activityVisibleCount || 100 }),
+          key: `files:tasks:${store.filesActivityVisibleCount || 100}`,
+          query: () => getOwnerActivityWindow('tasks', ownerNpub, { limit: store.filesActivityVisibleCount || 100 }),
           onNext: (page) => {
-            store.activityPageHasMore = { ...store.activityPageHasMore, tasks: page.hasMore };
+            store.filesActivityPageHasMore = { ...store.filesActivityPageHasMore, tasks: page.hasMore };
             return store.applyTasks(page.rows);
           },
         },
@@ -881,6 +881,11 @@ export const sectionLiveQueryMixin = {
       stopBucket(this, state.detail);
       state.workspaceKey = workspaceKey;
       state.workspaceOwnerNpub = ownerNpub;
+      this.inboxActivityVisibleCount = 100;
+      this.inboxActivityPageHasMore = {};
+      this.filesActivityVisibleCount = 100;
+      this.filesActivityPageHasMore = {};
+      this.deckInboxVisibleCount = 50;
       this.hasBootstrappedUnreadTracking = false;
       this.resetWappActivityProjection?.();
     }

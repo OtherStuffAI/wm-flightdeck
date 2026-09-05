@@ -174,12 +174,12 @@ describe('flight deck summary template', () => {
     expect(heading).toContain('@input="$store.chat.setDeckInboxSearchDraft($event.target.value)"');
     expect(heading).toMatch(/<button type="submit" class="inbox-search-submit" title="Search Inbox" aria-label="Search Inbox">\s*<svg[^>]*aria-hidden="true">/);
     expect(heading).toMatch(/<\/form>\s*<button type="button" class="deck-new-thread-button" title="New thread" aria-label="New thread"[^>]*><span aria-hidden="true">\+<\/span><\/button>\s*<div class="doc-actions-menu inbox-read-menu"/);
-    expect(inbox).toContain('@scroll.passive="$store.chat.handleDeckInboxScroll($event)"');
+    expect(inbox).not.toContain('@scroll.passive="$store.chat.handleDeckInboxScroll($event)"');
     expect(inbox).toContain('x-effect="$store.chat.syncDeckInboxContext($store.chat.deckInboxCurrentContextKey, $store.chat.autopilotOverviewContext.scopeId)"');
     expect(inbox).toContain('item in $store.chat.visibleAutopilotOverviewInbox');
     expect(inbox).toContain('No Inbox cards match your search.');
     expect(inbox).toContain('@click="$store.chat.revealMoreDeckInbox()"');
-    expect(inbox).toContain('Load 50 more');
+    expect(inbox).toContain('Load older activity');
     expect(styles).toMatch(/\.inbox-search-form input:focus-visible\s*\{[^}]*outline:/s);
     expect(styles).toMatch(/\.inbox-search-submit:focus-visible\s*\{[^}]*outline:/s);
     expect(styles).toMatch(/\.inbox-load-more:focus-visible\s*\{[^}]*outline:/s);

@@ -445,6 +445,7 @@ describe('autopilot overview manager', () => {
       deckInboxContextKey: 'all:all:all',
       deckInboxScopeId: 'all',
       filteredAutopilotOverviewInbox: Array.from({ length: 200 }),
+      get visibleAutopilotOverviewInbox() { return this.filteredAutopilotOverviewInbox.slice(0, this.deckInboxVisibleCount); },
       hasMoreAutopilotOverviewInbox: true,
       towerRequest,
       revealMoreDeckInbox() {
@@ -491,6 +492,7 @@ describe('autopilot overview manager', () => {
       deckInboxContextKey: 'scope:scope-a:chan-a',
       deckInboxScopeId: 'scope-a',
       filteredAutopilotOverviewInbox: Array.from({ length: 200 }),
+      get visibleAutopilotOverviewInbox() { return this.filteredAutopilotOverviewInbox.slice(0, this.deckInboxVisibleCount); },
       hasMoreAutopilotOverviewInbox: true,
       towerRequest,
       revealMoreDeckInbox() {
@@ -514,9 +516,7 @@ describe('autopilot overview manager', () => {
     store.deckInboxVisibleCount = 50;
     autopilotOverviewManagerMixin.revealMoreDeckInbox.call(store);
     expect(store.deckInboxVisibleCount).toBe(100);
-    autopilotOverviewManagerMixin.handleDeckInboxScroll.call(store, {
-      currentTarget: { scrollHeight: 1000, scrollTop: 760, clientHeight: 200 },
-    });
+    autopilotOverviewManagerMixin.revealMoreDeckInbox.call(store);
     expect(store.deckInboxVisibleCount).toBe(150);
     expect(towerRequest).not.toHaveBeenCalled();
   });
