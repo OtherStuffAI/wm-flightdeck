@@ -728,6 +728,7 @@ describe('Tower PG API helpers', () => {
     api.setBaseUrl('https://tower.example');
 
     await api.createTowerPgAdminWorkspace({
+      creator_npub: 'npub1personalcreator',
       workspace_name: 'Operator A docs',
       workspace_description: 'PG workspace',
       app_npub: 'flightdeck_pg',
@@ -742,6 +743,7 @@ describe('Tower PG API helpers', () => {
           'x-flightdeck-pg-app-npub': 'flightdeck_pg',
         }),
         body: JSON.stringify({
+          creator_npub: 'npub1personalcreator',
           workspace_name: 'Operator A docs',
           workspace_description: 'PG workspace',
           app_npub: 'flightdeck_pg',

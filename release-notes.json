@@ -1179,6 +1179,13 @@
       "notes": [
         "Keep your saved workspace and cached content when connection or signer verification fails, with an error explaining how to retry."
       ]
+    },
+    {
+      "buildNumber": 1885,
+      "label": "Owner workspace creation",
+      "notes": [
+        "Fix new owner workspace creation by sending your signed-in personal identity as the workspace creator."
+      ]
     }
   ]
 }

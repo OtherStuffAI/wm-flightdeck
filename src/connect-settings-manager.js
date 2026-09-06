@@ -1092,8 +1092,9 @@ export const connectSettingsManagerMixin = {
 
   async connectCreateWorkspace() {
     if (isTowerPgBackendMode()) {
-      const memberNpub = this.session?.npub;
-      if (!memberNpub) { this.connectWorkspacesError = 'Sign in first'; return; }
+      // The personal login is the creator; workspace/service signing keys are not.
+      const creatorNpub = trimText(this.session?.npub);
+      if (!creatorNpub) { this.connectWorkspacesError = 'Sign in first'; return; }
       const name = String(this.connectNewWorkspaceName || '').trim();
       if (!name) { this.connectWorkspacesError = 'Workspace name is required'; return; }
       const baseUrl = normalizeBackendUrl(this.connectHostUrl || this.backendUrl);
@@ -1113,6 +1114,7 @@ export const connectSettingsManagerMixin = {
       });
       try {
         const result = await createTowerPgAdminWorkspace(this, {
+          creator_npub: creatorNpub,
           workspace_name: name,
           workspace_description: String(this.connectNewWorkspaceDescription || '').trim(),
           app_npub: FLIGHT_DECK_PG_APP_NPUB,

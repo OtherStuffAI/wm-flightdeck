@@ -10,6 +10,8 @@ vi.mock('../src/backend-mode.js', () => ({
 vi.mock('../src/api.js', () => ({
   setBaseUrl: vi.fn(),
   createTowerPgAdminWorkspace: vi.fn(),
+  createTowerPgWorkspaceScope: vi.fn(),
+  createTowerPgScopeChannel: vi.fn(),
   createWorkspace: vi.fn(),
   getWorkspaces: vi.fn(),
   getTowerPgService: vi.fn(),
@@ -233,10 +235,20 @@ describe('PG connect settings manager', () => {
   it('creates PG workspaces through Tower admin setup and connects with the returned descriptor', async () => {
     const api = await import('../src/api.js');
     api.createTowerPgAdminWorkspace.mockResolvedValue({ descriptor });
+    api.createTowerPgWorkspaceScope.mockResolvedValue({ scope: { id: 'scope-1' } });
+    api.createTowerPgScopeChannel.mockResolvedValue({ channel: { id: 'channel-1' } });
     api.getTowerPgWorkspaceDescriptor.mockResolvedValue(descriptor);
     api.getTowerPgWorkspaceMe.mockResolvedValue({ actor: { npub: 'npub1user' }, membership: { role: 'owner' } });
     const { connectSettingsManagerMixin } = await import('../src/connect-settings-manager.js');
     const store = createStore({
+      ownerNpub: 'npub1previousowner',
+      currentWorkspaceOwnerNpub: 'npub1previousworkspace',
+      signingNpub: 'npub1workspacekey',
+      connectPgBootstrapTemplateId: 'test',
+      connectPgBootstrapTemplates: [{ id: 'test', scopes: [{
+        name: 'Projects', description: 'Current work', selected: true,
+        channels: [{ name: 'General', selected: true }],
+      }] }],
       connectHostUrl: 'https://tower.example',
       backendUrl: 'https://tower.example',
       connectNewWorkspaceName: 'Operator A docs',
@@ -248,6 +260,7 @@ describe('PG connect settings manager', () => {
     await store.connectCreateWorkspace();
 
     expect(api.createTowerPgAdminWorkspace).toHaveBeenCalledWith({
+      creator_npub: 'npub1user',
       workspace_name: 'Operator A docs',
       workspace_description: 'PG workspace',
       app_npub: DEFAULT_BUILD_PG_APP_NPUB,
@@ -256,6 +269,18 @@ describe('PG connect settings manager', () => {
       appNpub: DEFAULT_BUILD_PG_APP_NPUB,
     });
     expect(api.createWorkspace).not.toHaveBeenCalled();
+    expect(api.createTowerPgWorkspaceScope).toHaveBeenCalledWith('workspace-1', {
+      client_record_id: expect.any(String),
+      name: 'Projects', description: 'Current work', kind: 'project',
+    }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
+    expect(api.createTowerPgScopeChannel).toHaveBeenCalledWith('workspace-1', 'scope-1', {
+      client_record_id: expect.any(String),
+      name: 'General', description: undefined, kind: 'channel',
+    }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
+    expect(api.createTowerPgAdminWorkspace.mock.invocationCallOrder[0])
+      .toBeLessThan(api.createTowerPgWorkspaceScope.mock.invocationCallOrder[0]);
+    expect(api.createTowerPgScopeChannel.mock.invocationCallOrder[0])
+      .toBeLessThan(api.getTowerPgWorkspaceDescriptor.mock.invocationCallOrder[0]);
     expect(store.knownWorkspaces[0]).toMatchObject({
       pgBackendMode: true,
       workspaceOwnerNpub: 'npub1owner',
@@ -265,6 +290,34 @@ describe('PG connect settings manager', () => {
       { pgVerified: true, openWorkspaceHome: true },
     );
     expect(store.showConnectModal).toBe(false);
+    expect(store.connectCreatingWorkspace).toBe(false);
+    expect(store.connectWorkspacesError).toBeNull();
+    expect(store.connectNewWorkspaceName).toBe('');
+  });
+
+  it.each([null, {}, { npub: '' }, { npub: '   ' }])('requires a personal identity before creating a workspace: %j', async (session) => {
+    const api = await import('../src/api.js');
+    const { connectSettingsManagerMixin } = await import('../src/connect-settings-manager.js');
+    const store = createStore({
+      session,
+      ownerNpub: 'npub1owner',
+      currentWorkspaceOwnerNpub: 'npub1workspace',
+      signingNpub: 'npub1workspacekey',
+      connectHostUrl: 'https://tower.example',
+      connectNewWorkspaceName: 'New workspace',
+      connectCreatingWorkspace: false,
+    });
+    Object.defineProperties(store, Object.getOwnPropertyDescriptors(connectSettingsManagerMixin));
+
+    await store.connectCreateWorkspace();
+
+    expect(store.connectWorkspacesError).toBe('Sign in first');
+    expect(store.connectCreatingWorkspace).toBe(false);
+    expect(api.createTowerPgAdminWorkspace).not.toHaveBeenCalled();
+    expect(api.createTowerPgWorkspaceScope).not.toHaveBeenCalled();
+    expect(api.createTowerPgScopeChannel).not.toHaveBeenCalled();
+    expect(api.getTowerPgWorkspaceDescriptor).not.toHaveBeenCalled();
+    expect(store.selectWorkspace).not.toHaveBeenCalled();
   });
 
   it('adds custom bootstrap scopes and channels before creating a PG workspace', async () => {
