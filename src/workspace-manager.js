@@ -5,6 +5,9 @@
  * (the Alpine store) and should be spread into the store definition via applyMixins.
  */
 
+import { legacyWorkspaceRecoveryMessage } from './legacy-workspace-recovery.js';
+import { checkLegacyWorkspaceRecovery } from './legacy-workspace-recovery-client.js';
+
 import {
   getSettings,
   saveSettings,
@@ -243,6 +246,14 @@ function writePersonalHarnessSettings(store, settings) {
 export const workspaceManagerMixin = {
 
   workspaceSelectionError: '',
+  legacyWorkspaceRecoveryNotice: '',
+
+  async refreshLegacyWorkspaceRecovery(workspace) {
+    const generation = this._workspaceSelectionGeneration;
+    const result = await checkLegacyWorkspaceRecovery(workspace);
+    if (generation !== this._workspaceSelectionGeneration || this.currentWorkspaceKey !== workspace.workspaceKey) return;
+    this.legacyWorkspaceRecoveryNotice = legacyWorkspaceRecoveryMessage(result);
+  },
 
   // --- computed getters ---
 
@@ -1392,6 +1403,8 @@ export const workspaceManagerMixin = {
       this.stopWorkspaceLiveQueries();
       this.currentWorkspaceOwnerNpub = workspace.workspaceOwnerNpub;
       openWorkspaceDb(workspace.workspaceKey || workspace.workspaceOwnerNpub);
+      this.legacyWorkspaceRecoveryNotice = '';
+      void this.refreshLegacyWorkspaceRecovery(workspace);
       this.showWorkspaceBootstrapModal = false;
       this.superbasedTokenInput = workspace.connectionToken || this.superbasedTokenInput;
       this.backendUrl = normalizeBackendUrl(workspace.directHttpsUrl || this.backendUrl || guessDefaultBackendUrl());

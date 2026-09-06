@@ -1042,3 +1042,35 @@ describe('PG workspace manager mode', () => {
     expect(store.appManagementCleanupMessage).toContain('Removed 1 unavailable workspace');
   });
 });
+
+describe('legacy recovery notice activation', () => {
+  it('checks each startup/selection and rejects late checks from earlier activations', async () => {
+    const workers = [];
+    vi.stubGlobal('Worker', class {
+      constructor() { workers.push(this); }
+      postMessage() {}
+      terminate() {}
+    });
+    try {
+      const { normalizeWorkspaceEntry } = await import('../src/workspaces.js');
+      const alpha = normalizeWorkspaceEntry({ workspaceId: 'alpha', workspaceOwnerNpub: 'owner', workspaceServiceNpub: 'service', towerServiceNpub: 'tower', pgSessionNpub: 'npub1user', pgBackendMode: true });
+      const beta = normalizeWorkspaceEntry({ ...alpha, workspaceId: 'beta' });
+      const store = await buildStore({ knownWorkspaces: [alpha, beta] });
+      store.syncWorkspaceProfileDraft = vi.fn();
+      await store.selectWorkspace(alpha.workspaceKey, { pgVerified: true });
+      workers[0].onmessage({ data: { status: 'required' } });
+      await Promise.resolve();
+      expect(store.legacyWorkspaceRecoveryNotice).toContain('unsynced edits');
+      await store.selectWorkspace(beta.workspaceKey, { pgVerified: true });
+      expect(store.legacyWorkspaceRecoveryNotice).toBe('');
+      await store.selectWorkspace(alpha.workspaceKey, { pgVerified: true });
+      workers[2].onmessage({ data: { status: 'clear' } });
+      workers[1].onmessage({ data: { status: 'required' } });
+      await Promise.resolve();
+      expect(store.legacyWorkspaceRecoveryNotice).toBe('');
+      expect(workers).toHaveLength(3);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

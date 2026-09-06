@@ -234,6 +234,12 @@
       <p class="sync-error-text" x-show="$store.chat.scopeRepairSession.error" x-text="$store.chat.scopeRepairSession.error"></p>
     </div>
   </div>
+  <aside class="legacy-workspace-recovery-notice" role="alert" x-show="$store.chat.legacyWorkspaceRecoveryNotice" x-cloak>
+    <details>
+      <summary>Local edit recovery required — show recovery steps</summary>
+      <p x-text="$store.chat.legacyWorkspaceRecoveryNotice"></p>
+    </details>
+  </aside>
   <main class="app-shell">
     <template x-if="$store.chat.identityCardProfile">
       <div

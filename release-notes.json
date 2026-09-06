@@ -1200,6 +1200,13 @@
       "notes": [
         "Reset the previous workspace member directory immediately during workspace activation."
       ]
+    },
+    {
+      "buildNumber": 1888,
+      "label": "Legacy local edit recovery",
+      "notes": [
+        "Warn when an older workspace cache contains unsynced edits or saved drafts. Preserve the originals for manual recovery without copying or sending edits to an uncertain workspace."
+      ]
     }
   ]
 }
