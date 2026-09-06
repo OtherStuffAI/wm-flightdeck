@@ -242,6 +242,8 @@ function writePersonalHarnessSettings(store, settings) {
 
 export const workspaceManagerMixin = {
 
+  workspaceSelectionError: '',
+
   // --- computed getters ---
 
   get currentWorkspaceKey() {
@@ -1327,23 +1329,29 @@ export const workspaceManagerMixin = {
       try {
         workspace = await this.ensurePgWorkspaceAvailable(workspace);
       } catch (error) {
-        const message = error?.message || 'Workspace access verification failed';
+        const detail = error?.message || 'Workspace access verification failed';
+        const message = `Could not verify workspace access: ${detail}. Check your connection and signer, then select the workspace again to retry.`;
         this.superbasedError = message;
         this.connectWorkspacesError = message;
-        this.selectedWorkspaceKey = '';
-        this.currentWorkspaceOwnerNpub = '';
-        if (isTowerPgBackendMode()) {
+        this.workspaceSelectionError = message;
+        // A failed request is not evidence that the saved workspace is missing.
+        // Return before activation, cache resets, or persisting a new selection.
+        // Retain the existing rejection of a saved selection from another signer.
+        const current = this.currentWorkspace;
+        const sessionNpub = String(this.session?.npub || '').trim();
+        if (current?.pgSessionNpub && sessionNpub && current.pgSessionNpub !== sessionNpub) {
+          this.selectedWorkspaceKey = '';
+          this.currentWorkspaceOwnerNpub = '';
           this.showWorkspaceBootstrapModal = false;
-          this.showConnectModal = Boolean(this.session?.npub);
-        } else {
-          this.showWorkspaceBootstrapModal = Boolean(this.session?.npub);
+          this.showConnectModal = true;
+          await this.persistWorkspaceSettings?.();
         }
-        await this.persistWorkspaceSettings?.();
         return;
       }
       if (!workspace) return;
     }
 
+    this.workspaceSelectionError = '';
     const previousWorkspaceKey = this.currentWorkspaceKey;
     const nextWorkspaceKey = workspace.workspaceKey || workspace.workspaceOwnerNpub;
     const shouldOpenWorkspaceHome = Boolean(options.openWorkspaceHome);

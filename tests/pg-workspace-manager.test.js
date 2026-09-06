@@ -548,7 +548,13 @@ describe('PG workspace manager mode', () => {
       }),
     });
 
+    store.verifyPgDescriptor.mockRejectedValueOnce(new TypeError('Failed to fetch'));
     await store.selectWorkspace(workspace.workspaceKey);
+    expect(store.workspaceSelectionError).toContain('Failed to fetch');
+    expect(store.rememberVerifiedPgWorkspace).not.toHaveBeenCalled();
+
+    await store.selectWorkspace(workspace.workspaceKey);
+    expect(store.workspaceSelectionError).toBe('');
 
     expect(store.verifyPgDescriptor).toHaveBeenCalledWith(descriptor, {
       baseUrl: 'https://tower.example',
@@ -749,6 +755,70 @@ describe('PG workspace manager mode', () => {
     );
   });
 
+  describe.each([
+    ['network', new TypeError('Failed to fetch')],
+    ['native signer', new Error('FormatException: secret key must be 32-byte hex or nsec')],
+    ['unauthorized', Object.assign(new Error('Unauthorized'), { status: 401 })],
+    ['forbidden', Object.assign(new Error('Forbidden'), { status: 403 })],
+  ])('%s verification recovery', (_label, failure) => {
+    it.each(['same selection', 'startup refresh', 'different selection', 'no selection'])(
+      'preserves saved state and refuses activation during %s', async (scenario) => {
+        const db = await import('../src/db.js');
+        const keys = await import('../src/crypto/workspace-keys.js');
+        const saved = {
+          workspaceKey: 'pg:saved', workspaceOwnerNpub: 'npub1owner',
+          workspaceServiceNpub: 'npub1saved', workspaceId: 'saved',
+          directHttpsUrl: 'https://tower.example', pgSessionNpub: 'npub1user', pgBackendMode: true,
+        };
+        const other = { ...saved, workspaceKey: 'pg:other', workspaceServiceNpub: 'npub1other', workspaceId: 'other' };
+        const selected = scenario === 'no selection' ? '' : saved.workspaceKey;
+        const owner = selected ? saved.workspaceOwnerNpub : '';
+        const messages = [{ record_id: 'cached-message' }];
+        const tasks = [{ record_id: 'cached-task', sync_status: 'pending' }];
+        const store = await buildStore({
+          knownWorkspaces: [saved, other], selectedWorkspaceKey: selected,
+          currentWorkspaceOwnerNpub: owner, messages, tasks,
+          selectedChannelId: 'cached-channel', activeThreadId: 'cached-thread',
+          localWorkspaceCoreLoadedForKey: selected,
+          showConnectModal: false, showWorkspaceBootstrapModal: false,
+          verifyPgDescriptor: vi.fn().mockRejectedValue(failure),
+          rememberVerifiedPgWorkspace: vi.fn(),
+          publishPgWorkspaceSelfIndexTombstone: vi.fn(),
+          disposeTowerSyncService: vi.fn(),
+        });
+
+        await store.selectWorkspace(scenario === 'different selection' ? other.workspaceKey : saved.workspaceKey,
+          scenario === 'startup refresh' ? { refresh: false } : {});
+        store.updateWorkspaceBootstrapPrompt();
+
+        expect(store.selectedWorkspaceKey).toBe(selected);
+        expect(store.currentWorkspaceOwnerNpub).toBe(owner);
+        expect(store.knownWorkspaces).toEqual([saved, other]);
+        expect(store.messages).toBe(messages);
+        expect(store.tasks).toBe(tasks);
+        expect(store.selectedChannelId).toBe('cached-channel');
+        expect(store.activeThreadId).toBe('cached-thread');
+        expect(store.localWorkspaceCoreLoadedForKey).toBe(selected);
+        expect(store.showConnectModal).toBe(false);
+        expect(store.showWorkspaceBootstrapModal).toBe(false);
+        expect(store.workspaceSelectionError).toContain(failure.message);
+        expect(store.workspaceSelectionError).toContain('select the workspace again to retry');
+        expect(store.persistWorkspaceSettings).not.toHaveBeenCalled();
+        expect(store.rememberVerifiedPgWorkspace).not.toHaveBeenCalled();
+        expect(store.ensureWorkspaceSessionKey).not.toHaveBeenCalled();
+        expect(store.startWorkspaceLiveQueries).not.toHaveBeenCalled();
+        expect(store.stopWorkspaceLiveQueries).not.toHaveBeenCalled();
+        expect(store.disposeTowerSyncService).not.toHaveBeenCalled();
+        expect(store.publishPgWorkspaceSelfIndexTombstone).not.toHaveBeenCalled();
+        expect(db.openWorkspaceDb).not.toHaveBeenCalled();
+        expect(db.clearRuntimeData).not.toHaveBeenCalled();
+        expect(db.deleteWorkspaceDb).not.toHaveBeenCalled();
+        expect(keys.clearActiveWorkspaceKey).not.toHaveBeenCalled();
+        expect(keys.removeCachedWorkspaceKeyBlob).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   it('rejects a cached PG workspace scoped to a different signer before Tower calls', async () => {
     const workspace = {
       workspaceKey: 'pg:npub1other::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
@@ -814,7 +884,7 @@ describe('PG workspace manager mode', () => {
       }),
     });
 
-    await expect(store.ensurePgWorkspaceAvailable(stale)).resolves.toBeNull();
+    await store.selectWorkspace(stale.workspaceKey);
     await expect(store.ensurePgWorkspaceAvailable(stale)).resolves.toBeNull();
 
     expect(store.verifyPgDescriptor).toHaveBeenCalledTimes(2);

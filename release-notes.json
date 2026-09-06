@@ -1172,6 +1172,13 @@
       "notes": [
         "Keep known inherited conversation history visible when reopening or refreshing a partial page, and preserve forward paging progress."
       ]
+    },
+    {
+      "buildNumber": 1884,
+      "label": "Workspace connection recovery",
+      "notes": [
+        "Keep your saved workspace and cached content when connection or signer verification fails, with an error explaining how to retry."
+      ]
     }
   ]
 }

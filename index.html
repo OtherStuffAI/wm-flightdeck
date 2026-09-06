@@ -1539,6 +1539,7 @@
           </div>
 
         <div class="content-scroll-area">
+        <p class="auth-error" role="alert" x-show="$store.chat.workspaceSelectionError" x-text="$store.chat.workspaceSelectionError" x-cloak></p>
         <template x-if="$store.chat.navSection === 'status'">
           <div class="status-section">
           <div class="pg-work-context-bar" x-show="false" x-cloak>
