@@ -44,7 +44,7 @@ const descriptor = {
 };
 
 const workspace = {
-  workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+  workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
   workspaceOwnerNpub: 'npub1owner',
   name: 'Wingers',
   directHttpsUrl: 'https://tower.example',

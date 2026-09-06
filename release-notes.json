@@ -1186,6 +1186,20 @@
       "notes": [
         "Fix new owner workspace creation by sending your signed-in personal identity as the workspace creator."
       ]
+    },
+    {
+      "buildNumber": 1886,
+      "label": "Workspace isolation",
+      "notes": [
+        "Keep separate workspace caches for workspaces with the same owner, preserve cached data when switching, and ignore delayed results from a previous workspace."
+      ]
+    },
+    {
+      "buildNumber": 1887,
+      "label": "Workspace member reset",
+      "notes": [
+        "Reset the previous workspace member directory immediately during workspace activation."
+      ]
     }
   ]
 }

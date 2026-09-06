@@ -71,7 +71,7 @@ describe('PG workspace descriptors', () => {
     }));
 
     expect(entry).toMatchObject({
-      workspaceKey: 'pg:npub1operator-a::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg',
+      workspaceKey: 'pg:npub1operator-a::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg::id:workspace-1',
       workspaceOwnerNpub: 'npub1owner',
       name: 'Wingmen',
       directHttpsUrl: 'https://tower.example.com',
@@ -107,15 +107,15 @@ describe('PG workspace descriptors', () => {
 
     expect(merged).toHaveLength(2);
     expect(merged.map((entry) => entry.workspaceKey).sort()).toEqual([
-      'pg:tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg',
-      'pg:tower:npub1tower::workspace:npub1workspace_service_2::app:flightdeck_pg',
+      'pg:tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg::id:workspace-1',
+      'pg:tower:npub1tower::workspace:npub1workspace_service_2::app:flightdeck_pg::id:workspace-2',
     ]);
   });
 
   it('merges legacy and session-scoped PG cache entries for the same verified signer', () => {
     const legacy = {
       ...pgWorkspaceEntryFromDescriptor(descriptor()),
-      workspaceKey: 'pg:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg',
+      workspaceKey: 'pg:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg::id:workspace-1',
       pgMe: { actor: { npub: 'npub1operator-a' } },
     };
     const scoped = pgWorkspaceEntryFromDescriptor(descriptor(), {
@@ -125,7 +125,7 @@ describe('PG workspace descriptors', () => {
     const merged = mergeWorkspaceEntries([legacy], [scoped]);
 
     expect(merged).toHaveLength(1);
-    expect(merged[0].workspaceKey).toBe('pg:npub1operator-a::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg');
+    expect(merged[0].workspaceKey).toBe('pg:npub1operator-a::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg::id:workspace-1');
   });
 
   it('uses the PG identity as the durable selection key', () => {
@@ -133,7 +133,7 @@ describe('PG workspace descriptors', () => {
       ...parsePgWorkspaceDescriptor(descriptor()),
       pgSessionNpub: 'npub1operator-a',
     })).toBe(
-      'pg:npub1operator-a::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg',
+      'pg:npub1operator-a::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg::id:workspace-1',
     );
   });
 });

@@ -125,7 +125,7 @@ export function parsePgWorkspaceDescriptor(input) {
 }
 
 export function pgWorkspaceIdentityKey(descriptor) {
-  const normalized = descriptor?.towerServiceNpub
+  const normalized = descriptor && Object.prototype.hasOwnProperty.call(descriptor, 'towerServiceNpub')
     ? descriptor
     : parsePgWorkspaceDescriptor(descriptor);
   const session = trimText(normalized.pgSessionNpub || normalized.sessionNpub);
@@ -133,7 +133,8 @@ export function pgWorkspaceIdentityKey(descriptor) {
   const workspace = trimText(normalized.workspaceServiceNpub);
   const app = trimText(normalized.appNpub || FLIGHT_DECK_PG_APP_NPUB);
   if (!tower || !workspace || !app) return '';
-  const identity = `tower:${tower}::workspace:${workspace}::app:${app}`;
+  const workspaceId = trimText(normalized.workspaceId);
+  const identity = `tower:${tower}::workspace:${workspace}::app:${app}${workspaceId ? `::id:${workspaceId}` : ''}`;
   return session ? `pg:${session}::${identity}` : `pg:${identity}`;
 }
 

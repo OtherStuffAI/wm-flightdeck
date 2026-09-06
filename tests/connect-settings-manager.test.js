@@ -328,7 +328,7 @@ describe('connect modal', () => {
     const workspace = await fn(descriptor, { actor: { npub: 'npub1user' }, membership: { role: 'owner' } });
 
     expect(workspace).toMatchObject({
-      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg',
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg::id:workspace-1',
       workspaceOwnerNpub: 'npub1owner',
       name: 'Wingmen',
       directHttpsUrl: 'https://tower.example.com',
@@ -347,7 +347,7 @@ describe('connect modal', () => {
 
   it('does not let PG descriptor verification clear an existing workspace avatar', async () => {
     const existingWorkspace = {
-      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg',
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace_service::app:flightdeck_pg::id:workspace-1',
       workspaceOwnerNpub: 'npub1owner',
       name: 'Wingmen',
       avatarUrl: 'storage://workspace-avatar-1',

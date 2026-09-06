@@ -94,7 +94,7 @@ describe('PG connect settings manager', () => {
       path: '/api/v4/flightdeck-pg/workspaces/workspace-1/me',
     });
     expect(store.knownWorkspaces[0]).toMatchObject({
-      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
       workspaceOwnerNpub: 'npub1owner',
       directHttpsUrl: 'https://tower.example',
       pgSessionNpub: 'npub1user',
@@ -102,9 +102,9 @@ describe('PG connect settings manager', () => {
       pgDescriptor: descriptor,
       pgMe: { actor: { npub: 'npub1user' }, membership: { role: 'member' } },
     });
-    expect(store.selectedWorkspaceKey).toBe('pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg');
+    expect(store.selectedWorkspaceKey).toBe('pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1');
     expect(store.selectWorkspace).toHaveBeenCalledWith(
-      'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
       { pgVerified: true },
     );
   });
@@ -122,7 +122,7 @@ describe('PG connect settings manager', () => {
     await Promise.resolve();
 
     expect(publishPgWorkspaceSelfIndex).toHaveBeenCalledWith(expect.objectContaining({
-      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
       pgBackendMode: true,
     }));
     expect(store.knownWorkspaces[0]).toMatchObject({
@@ -142,7 +142,7 @@ describe('PG connect settings manager', () => {
       publishPgWorkspaceSelfIndex,
       shouldQueuePgWorkspaceSelfIndexPublish,
       knownWorkspaces: [{
-        workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+        workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
         workspaceOwnerNpub: 'npub1owner',
         directHttpsUrl: 'https://tower.example',
         towerServiceNpub: 'npub1tower',
@@ -192,7 +192,7 @@ describe('PG connect settings manager', () => {
     const workspace = await store.connectWithPgDescriptor(JSON.stringify(descriptor));
 
     expect(workspace).toMatchObject({
-      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
       pgSelfIndexStatus: 'pending',
     });
     expect(store.knownWorkspaces[0]).toMatchObject({
@@ -201,7 +201,7 @@ describe('PG connect settings manager', () => {
     });
     expect(store.showConnectModal).toBe(false);
     expect(store.selectWorkspace).toHaveBeenCalledWith(
-      'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
       { pgVerified: true },
     );
 
@@ -286,7 +286,7 @@ describe('PG connect settings manager', () => {
       workspaceOwnerNpub: 'npub1owner',
     });
     expect(store.selectWorkspace).toHaveBeenCalledWith(
-      'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
       { pgVerified: true, openWorkspaceHome: true },
     );
     expect(store.showConnectModal).toBe(false);

@@ -261,7 +261,7 @@ export const workspaceManagerMixin = {
 
   get currentWorkspace() {
     return findWorkspaceByKey(this.knownWorkspaces, this.selectedWorkspaceKey)
-      || this.knownWorkspaces.find((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub)
+      || (!this.selectedWorkspaceKey ? this.getWorkspaceByOwner(this.currentWorkspaceOwnerNpub) : null)
       || null;
   },
 
@@ -468,7 +468,8 @@ export const workspaceManagerMixin = {
 
   getWorkspaceByOwner(workspaceOwnerNpub) {
     if (!workspaceOwnerNpub) return null;
-    return this.knownWorkspaces.find((entry) => entry.workspaceOwnerNpub === workspaceOwnerNpub) || null;
+    const matches = this.knownWorkspaces.filter((entry) => entry.workspaceOwnerNpub === workspaceOwnerNpub);
+    return matches.length === 1 ? matches[0] : null;
   },
 
   getWorkspaceByKey(workspaceKey) {
@@ -791,6 +792,9 @@ export const workspaceManagerMixin = {
   },
 
   async refreshWorkspaceSettings(options = {}) {
+    const workspaceKey = this.currentWorkspaceKey;
+    const generation = this._workspaceSelectionGeneration;
+    const isCurrent = () => this.currentWorkspaceKey === workspaceKey && this._workspaceSelectionGeneration === generation;
     const workspaceOwnerNpub = this.workspaceOwnerNpub;
     if (!workspaceOwnerNpub) {
       this.applyWorkspaceSettingsRow(null);
@@ -805,10 +809,10 @@ export const workspaceManagerMixin = {
         })
       : Promise.resolve(null);
     const row = await getWorkspaceSettings(workspaceOwnerNpub);
-    this.applyWorkspaceSettingsRow(row, options);
+    if (isCurrent()) this.applyWorkspaceSettingsRow(row, options);
     if (options.deferPersonalResponse === true) {
       personalRequest.then((personalResponse) => {
-        if (personalResponse && this.workspaceOwnerNpub === workspaceOwnerNpub) {
+        if (personalResponse && isCurrent()) {
           this.applyPersonalAgentSettings(personalResponse.settings, options);
         }
       }).catch((error) => {
@@ -820,7 +824,7 @@ export const workspaceManagerMixin = {
       return row;
     }
     const personalResponse = await personalRequest;
-    if (personalResponse) this.applyPersonalAgentSettings(personalResponse.settings, options);
+    if (personalResponse && isCurrent()) this.applyPersonalAgentSettings(personalResponse.settings, options);
     return row;
   },
 
@@ -1323,12 +1327,15 @@ export const workspaceManagerMixin = {
   // --- workspace CRUD ---
 
   async selectWorkspace(workspaceKeyOrOwner, options = {}) {
+    const selectionGeneration = (this._workspaceSelectionRequest || 0) + 1;
+    this._workspaceSelectionRequest = selectionGeneration;
     let workspace = this.getWorkspaceByKey(workspaceKeyOrOwner) || this.getWorkspaceByOwner(workspaceKeyOrOwner);
     if (!workspace) return;
     if (isTowerPgBackendMode() && workspace.pgBackendMode && !options.pgVerified && !options.skipPgVerification) {
       try {
         workspace = await this.ensurePgWorkspaceAvailable(workspace);
       } catch (error) {
+        if (this._workspaceSelectionRequest !== selectionGeneration) return;
         const detail = error?.message || 'Workspace access verification failed';
         const message = `Could not verify workspace access: ${detail}. Check your connection and signer, then select the workspace again to retry.`;
         this.superbasedError = message;
@@ -1351,6 +1358,7 @@ export const workspaceManagerMixin = {
       if (!workspace) return;
     }
 
+    if (this._workspaceSelectionRequest !== selectionGeneration) return;
     this.workspaceSelectionError = '';
     const previousWorkspaceKey = this.currentWorkspaceKey;
     const nextWorkspaceKey = workspace.workspaceKey || workspace.workspaceOwnerNpub;
@@ -1374,6 +1382,7 @@ export const workspaceManagerMixin = {
     if (previousWorkspaceKey && previousWorkspaceKey !== nextWorkspaceKey) {
       this.disposeTowerSyncService?.('workspace-switch');
     }
+    this._workspaceSelectionGeneration = (this._workspaceSelectionGeneration || 0) + 1;
     this.selectedWorkspaceKey = workspace.workspaceKey || '';
     this.workspaceSwitchPendingNpub = workspace.workspaceOwnerNpub;
     this.workspaceSwitchPendingKey = workspace.workspaceKey || '';
@@ -1416,9 +1425,28 @@ export const workspaceManagerMixin = {
 
       if (shouldResetRuntimeData) {
         this.chatPresentationCache?.clear?.();
-        await clearRuntimeData();
+        // Switching changes the active partition; retain its rows, outbox and cursors.
         evictStorageImageCache().catch(() => {});
         this.revokeStorageImageObjectUrls();
+        this.scopes = [];
+        this.reports = [];
+        this.wapps = [];
+        this.fileFolders = [];
+        this.fileMessages = [];
+        this.fileComments = [];
+        this.docComments = [];
+        this.statusRecentChanges = [];
+        this.workspaceHarnessAgents = [];
+        this.dailyNotes = [];
+        this.pgWorkspaceMembers = [];
+        this.recentChannelMessages = [];
+        this.resetWappActivityProjection?.();
+        this.selectedDocId = null;
+        this.selectedDocType = null;
+        this.currentFolderId = null;
+        this.selectedReportId = null;
+        this.activeOpportunityId = null;
+        this.closeTaskDetail?.({ syncRoute: false });
         this.chatProfiles = {};
         this.channels = [];
         this.messages = [];
@@ -1448,9 +1476,11 @@ export const workspaceManagerMixin = {
       if (isTowerPgBackendMode() && typeof this.ensureWorkspaceSessionKey === 'function') {
         await this.ensureWorkspaceSessionKey();
       }
+      if (this._workspaceSelectionRequest !== selectionGeneration) return;
 
       if (this.localWorkspaceCoreLoadedForKey !== nextWorkspaceKey) {
         await this.loadLocalWorkspaceCoreData?.({ syncRoute: false });
+        if (this._workspaceSelectionRequest !== selectionGeneration) return;
         this.localWorkspaceCoreLoadedForKey = nextWorkspaceKey;
       }
       this.startWorkspaceLiveQueries();
@@ -2138,7 +2168,7 @@ export const workspaceManagerMixin = {
           if (!workspace?.pgBackendMode) return true;
           if (workspace.pgSessionNpub && workspace.pgSessionNpub !== this.session.npub) return true;
           if (normalizeBackendUrl(workspace.directHttpsUrl || '') !== activeBackendUrl) return true;
-          const retained = remoteKeys.has(workspace.workspaceKey || workspace.workspaceOwnerNpub);
+          const retained = remoteKeys.has(normalizeWorkspaceEntry(workspace)?.workspaceKey || workspace.workspaceOwnerNpub);
           if (!retained) removedWorkspaces.push(workspace);
           return retained;
         });
@@ -2147,7 +2177,7 @@ export const workspaceManagerMixin = {
         }
         this.mergeKnownWorkspaces(workspaces);
         const selectedStillExists = this.selectedWorkspaceKey
-          ? this.knownWorkspaces.some((workspace) => workspace.workspaceKey === this.selectedWorkspaceKey)
+          ? Boolean(this.getWorkspaceByKey(this.selectedWorkspaceKey))
           : (this.currentWorkspaceOwnerNpub
             ? this.knownWorkspaces.some((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub)
             : true);

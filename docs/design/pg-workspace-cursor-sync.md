@@ -25,3 +25,23 @@ The browser no longer performs a full synchronization by walking scopes,
 channels, threads, messages, tasks, comments, documents, and media through
 separately signed requests. Those list endpoints remain available for explicit
 navigation and targeted reads.
+
+## Workspace isolation
+
+PG selection and Dexie keys include the verified Tower service, workspace
+service, app, signer and workspace UUID. Owner identity and display labels do
+not distinguish workspaces. Restoring an older key is allowed only when one
+saved workspace matches it; ambiguous owner-only selections must not choose a
+workspace implicitly.
+
+Switching opens the destination partition and resets rendered collections; it
+must not clear records, pending writes or cursors. Reads retain a workspace and
+activation-generation snapshot and reject persistence after a switch. Live
+subscriptions likewise ignore callbacks from an earlier activation. Existing
+materialization-worker disposal remains the physical boundary for bundled sync.
+
+Old keys without UUIDs are not trusted as data partitions: their databases are
+retained untouched and the UUID-qualified partition starts a fresh Tower sync.
+This avoids copying potentially mixed records to another workspace. Unsynced
+rows in an old ambiguous partition require explicit attribution before recovery;
+the client does not automatically copy or delete them.

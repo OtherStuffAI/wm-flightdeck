@@ -806,9 +806,12 @@ export const scopesManagerMixin = {
   },
 
   async loadLocalScopes() {
+    const generation = this._workspaceSelectionGeneration;
+    const workspaceKey = this.currentWorkspaceKey;
     const ownerNpub = this.workspaceOwnerNpub;
     if (!ownerNpub) return [];
     const scopes = await getScopesByOwner(ownerNpub);
+    if (this.currentWorkspaceKey !== workspaceKey || this._workspaceSelectionGeneration !== generation) return [];
     await this.applyScopes(scopes);
     return scopes;
   },

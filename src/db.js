@@ -408,6 +408,8 @@ function sanitizeForStorage(value) {
 
 /** Shorthand — workspace db, throws if none open. */
 function wsDb() {
+  // A transaction must retain its original partition across workspace switches.
+  if (Dexie.currentTransaction?.db?.name?.startsWith('wingman-fd-ws-')) return Dexie.currentTransaction.db;
   if (!_currentWorkspaceDb) throw new Error('No workspace database open — call openWorkspaceDb(workspaceDbKey) first');
   return _currentWorkspaceDb;
 }

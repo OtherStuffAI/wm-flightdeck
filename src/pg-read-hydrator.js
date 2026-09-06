@@ -429,6 +429,7 @@ async function resolveActorNpubByActorIdWithFallback(store = {}, deps = {}, cont
         .filter(Boolean),
     );
     const memberRows = members.map((member) => mapPgWorkspaceMemberToLocal(member, context)).filter(Boolean);
+    assertTowerPgWorkspaceCurrent(store, context);
     if (memberRows.length > 0) await (deps.replaceWorkspaceMembers || replaceWorkspaceMembers)(context.workspaceId, memberRows);
     if (refreshed.size > 0) return new Map([...actorNpubByActorId, ...refreshed]);
   } catch {
@@ -446,6 +447,15 @@ function descriptorLinks(workspace = {}) {
     ? workspace.pgDescriptor
     : {};
   return descriptor.links && typeof descriptor.links === 'object' ? descriptor.links : {};
+}
+
+function assertTowerPgWorkspaceCurrent(store, context) {
+  const current = resolveTowerPgWorkspaceContext(store);
+  if (current.workspaceId !== context.workspaceId || current.baseUrl !== context.baseUrl
+    || current.appNpub !== context.appNpub || current.sessionNpub !== context.sessionNpub
+    || current.generation !== context.generation) {
+    throw new Error('Workspace changed while loading Tower data');
+  }
 }
 
 export function resolveTowerPgWorkspaceContext(store = {}) {
@@ -467,6 +477,8 @@ export function resolveTowerPgWorkspaceContext(store = {}) {
   const appNpub = trimText(workspace.appNpub || identity.app_npub || identity.appNpub || FLIGHT_DECK_PG_APP_NPUB);
   return {
     workspace,
+    generation: store._workspaceSelectionGeneration || 0,
+    sessionNpub: store.session?.npub || '',
     workspaceId,
     workspaceOwnerNpub,
     baseUrl,
@@ -1634,6 +1646,7 @@ export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
     ? (await import('./pg-record-delta.js')).recordDeltaCursorKey(store)
     : null;
 
+  assertTowerPgWorkspaceCurrent(store, context);
   await (deps.runWorkspaceSyncTransaction || runWorkspaceSyncTransaction)(async () => {
     if (fallbackAuthority) {
       const authority = await (deps.getSyncState || getSyncState)(fallbackCursorKey);
@@ -1746,8 +1759,9 @@ export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
 }
 
 async function syncTowerPgRecordWorkspace(store, options, deps) {
-  const { recordDeltaCursorKey } = await import('./pg-record-delta.js');
   const context = resolveTowerPgWorkspaceContext(store);
+  const { recordDeltaCursorKey } = await import('./pg-record-delta.js');
+  assertTowerPgWorkspaceCurrent(store, context);
   const read = deps.getTowerPgRecordSync || getTowerPgRecordSync;
   const state = await (deps.getSyncState || getSyncState)(recordDeltaCursorKey(store));
   let cursor = state?.cursor || null;
@@ -1770,6 +1784,7 @@ async function syncTowerPgRecordWorkspace(store, options, deps) {
         return { unsupported: true, fallbackAuthority: { expectedCursor: cursor, expectedGeneration: localGeneration } };
       }
       if (error.status === 403 || (error.status === 409 && String(error.responseText || error.message).includes('reset_required'))) {
+        assertTowerPgWorkspaceCurrent(store, context);
         const reset = await materialize(store, { protocol_version: 1, reset_authority: true }, deps);
         localGeneration = reset.localGeneration;
         if (error.status === 403 || ++resets > 2) throw error;
@@ -1799,17 +1814,20 @@ async function syncTowerPgRecordWorkspace(store, options, deps) {
       catch (error) { if (error.status !== 403) throw error; }
       const memberRows = members.members || [], groupRows = groups.groups || [];
       for (let offset = 0; offset < Math.max(memberRows.length, groupRows.length); offset += 200) {
+        assertTowerPgWorkspaceCurrent(store, context);
         await materialize(store, { protocol_version: 1, reference_directory: true, members: memberRows.slice(offset, offset + 200), groups: groupRows.slice(offset, offset + 200) }, deps);
         await new Promise(resolve => setTimeout(resolve, 0));
       }
       directoryReady = true;
     }
     options.onProgress?.({ stage: 'applying', page: pages, applied });
+    assertTowerPgWorkspaceCurrent(store, context);
     const result = await materialize(store, { ...page, local_apply_options: { expectedCursor: cursor, expectedGeneration: localGeneration, viewBaselineInitialized } }, deps);
     applied += result.applied;
     if (page.has_more && page.next_cursor === cursor) throw new Error('Tower record sync repeated its cursor');
     cursor = result.cursor;
     if (!result.hasMore) {
+      assertTowerPgWorkspaceCurrent(store, context);
       if (result.needsSummaryBackfill) await materialize(store, { protocol_version: 1, rebuild_summaries: true }, deps);
       options.onProgress?.({ stage: 'complete', page: pages, applied });
       return { ...result, applied, pages };
@@ -1828,6 +1846,7 @@ export async function syncTowerPgWorkspace(store, options = {}, deps = {}) {
   if (!deps.getTowerPgWorkspaceSync || deps.getTowerPgRecordSync) {
     const result = await syncTowerPgRecordWorkspace(store, options, deps);
     if (!result.unsupported) return result;
+    assertTowerPgWorkspaceCurrent(store, context);
     fallbackAuthority = result.fallbackAuthority;
   }
   const readSync = deps.getTowerPgWorkspaceSync || getTowerPgWorkspaceSync;
@@ -1868,6 +1887,7 @@ export async function syncTowerPgWorkspace(store, options = {}, deps = {}) {
       applied: totalApplied,
     });
     const materializeBundle = deps.hydrateTowerPgSyncBundle || hydrateTowerPgSyncBundle;
+    assertTowerPgWorkspaceCurrent(store, context);
     const applied = await materializeBundle(store, { ...bundle, local_record_fallback: fallbackAuthority }, deps);
     totalApplied += applied.applied;
     pageCount += 1;
@@ -1904,6 +1924,7 @@ export async function hydrateTowerPgScopes(store, deps = {}) {
   const scopes = (Array.isArray(result?.scopes) ? result.scopes : [])
     .map((scope) => mapPgScopeToLocal(scope, { workspaceOwnerNpub: context.workspaceOwnerNpub }))
     .filter((scope) => scope.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceScopes(context.workspaceOwnerNpub, scopes);
   return scopes;
 }
@@ -1932,6 +1953,7 @@ export async function hydrateTowerPgChannels(store, deps = {}) {
     channels.push(...mapped);
   }
 
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceChannels(context.workspaceOwnerNpub, channels);
   return channels;
 }
@@ -1994,6 +2016,7 @@ export async function hydrateTowerPgChannelMessages(store, channelId, deps = {})
       : message
   ));
   const rows = mergePgMessageRowsWithFallbackThreads(normalizedMessageRows, fallbackThreads, sourceMessageIds);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceMessages(targetChannelId, rows);
   const tracedMessageIds = rows
     .map((row) => row.record_id)
@@ -2091,6 +2114,7 @@ async function materializeThreadHistoryPage(store, page) {
     if (page.cursor && !priorCoverage) throw new Error('Conversation history lineage changed; reopen to retry');
     const advances = !priorCoverage || (page.cursor && page.cursor === priorCoverage.nextCursor);
     const nextCursor = advances ? page.nextCursor : priorCoverage.nextCursor;
+    assertTowerPgWorkspaceCurrent(store, context);
     await replacePgMessagesForChannel(page.channelId, [...current, { ...thread, pg_effective_message_ids: ids }]);
     await db.sync_state.put({ key, value: { lineage, version: thread.version, nextCursor, messageIds: ids } });
     return { nextCursor, count: rows.length };
@@ -2147,9 +2171,11 @@ export async function hydrateTowerPgThreadMessages(store, channelId, threadId, d
       threadById,
     }))
     .filter((message) => message.record_id && message.channel_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await Promise.all(rows.map((row) => persistMessage(row)));
   const rawThread = rawThreads.find((thread) => trimText(thread?.id) === targetThreadId);
   if (rawThread) {
+    assertTowerPgWorkspaceCurrent(store, context);
     await persistMessage({
       ...mapPgThreadToLocal(rawThread, {
         workspaceOwnerNpub: context.workspaceOwnerNpub,
@@ -2205,6 +2231,7 @@ export async function hydrateTowerPgChannelAgentActivities(store, channelId, dep
       && pagination.partial !== true
     ))
   );
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceActivities(targetChannelId, activities, {
     authoritative,
     requestSnapshot,
@@ -2220,6 +2247,7 @@ export async function hydrateTowerPgChannelAgentActivities(store, channelId, dep
       }))
       .filter(Boolean);
   });
+  assertTowerPgWorkspaceCurrent(store, context);
   await mergeCommentary(commentary);
   return activities;
 }
@@ -2239,6 +2267,7 @@ export async function hydrateTowerPgChannelResponseActivities(store, channelId, 
   const activities = (Array.isArray(result?.response_activities) ? result.response_activities : [])
     .map((activity) => mapPgResponseActivity(activity))
     .filter((activity) => activity?.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceActivities(targetChannelId, activities);
   return activities;
 }
@@ -2260,6 +2289,7 @@ export async function hydrateTowerPgResponseActivitiesForTarget(store, targetTyp
   const activities = (Array.isArray(result?.response_activities) ? result.response_activities : [])
     .map((activity) => mapPgResponseActivity(activity))
     .filter((activity) => activity?.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceActivities(resolvedTargetType, resolvedTargetId, activities);
   return activities;
 }
@@ -2279,6 +2309,7 @@ export async function hydrateTowerPgChannelTasks(store, channelId, deps = {}) {
   const tasks = (Array.isArray(result?.tasks) ? result.tasks : [])
     .map((task) => mapPgTaskToLocal(task, { workspaceOwnerNpub: context.workspaceOwnerNpub, actorNpubByActorId }))
     .filter((task) => task.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceTasks(targetChannelId, tasks);
   return tasks;
 }
@@ -2299,6 +2330,7 @@ export async function hydrateTowerPgTask(store, taskId, deps = {}) {
   const task = mapPgTaskToLocal(sourceTask, { workspaceOwnerNpub: context.workspaceOwnerNpub, actorNpubByActorId });
   if (!task.record_id) return null;
 
+  assertTowerPgWorkspaceCurrent(store, context);
   await writeTask(task);
   return task;
 }
@@ -2340,7 +2372,9 @@ export async function hydrateTowerPgChannelDocumentsAndFiles(store, channelId, d
   const folders = (Array.isArray(foldersResult?.folders) ? foldersResult.folders : [])
     .map(mapPgFileFolderToLocal)
     .filter((folder) => folder.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceDocuments(targetChannelId, documents);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceFolders(targetChannelId, folders);
   return documents;
 }
@@ -2382,6 +2416,7 @@ export async function hydrateTowerPgDoc(store, docId, deps = {}) {
     hydrated.pg_canonical_body_sha256_hex = hydrated.content_sha256_hex;
   }
 
+  assertTowerPgWorkspaceCurrent(store, context);
   await (deps.upsertDocument || upsertDocument)(hydrated);
   return hydrated;
 }
@@ -2405,6 +2440,7 @@ export async function hydrateTowerPgChannelAudioNotes(store, channelId, deps = {
       actorNpubByActorId,
     }))
     .filter((audioNote) => audioNote.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceAudioNotes(targetChannelId, audioNotes);
   return audioNotes;
 }
@@ -2428,6 +2464,7 @@ export async function hydrateTowerPgDailyNoteTarget(store, ownerActorId, noteDat
   const dailyNotes = (Array.isArray(result?.daily_notes) ? result.daily_notes : [])
     .map((note) => mapPgDailyNoteToLocal(note, { workspaceOwnerNpub: context.workspaceOwnerNpub }))
     .filter((note) => note.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceDailyNotes(targetOwnerActorId, targetNoteDate, dailyNotes);
   return dailyNotes;
 }
@@ -2451,6 +2488,7 @@ export async function hydrateTowerPgReactionTarget(store, targetType, targetId, 
     });
   } catch (error) {
     if (isMissingPgReactionTargetError(error)) {
+      assertTowerPgWorkspaceCurrent(store, context);
       await replaceReactions(targetFamilyHash, resolvedTargetId, []);
       return [];
     }
@@ -2463,6 +2501,7 @@ export async function hydrateTowerPgReactionTarget(store, targetType, targetId, 
       targetId: resolvedTargetId,
     }))
     .filter((reaction) => reaction.record_id && reaction.target_record_family_hash && reaction.target_record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceReactions(targetFamilyHash, resolvedTargetId, reactions);
   return reactions;
 }
@@ -2485,6 +2524,7 @@ export async function hydrateTowerPgWorkrooms(store, deps = {}) {
   const workrooms = (Array.isArray(result?.workrooms) ? result.workrooms : [])
     .map(mapPgWorkroomToLocal)
     .filter((workroom) => workroom.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   if (channelId) await replaceChannel(channelId, workrooms);
   else await replaceWorkspace(context.workspaceId, workrooms);
   return workrooms;
@@ -2506,6 +2546,7 @@ export async function hydrateTowerPgWorkroomApprovals(store, workroomId, deps = 
   const approvals = (Array.isArray(result?.approvals) ? result.approvals : [])
     .map(mapPgWorkroomApprovalToLocal)
     .filter((approval) => approval.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceApprovals(targetWorkroomId, approvals);
   return approvals;
 }
@@ -2523,6 +2564,7 @@ export async function hydrateTowerPgWorkroomParticipants(store, workroomId, deps
   const participants = (Array.isArray(result?.participants) ? result.participants : [])
     .map(mapPgWorkroomParticipantToLocal)
     .filter((participant) => participant.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceParticipants(targetWorkroomId, participants);
   return participants;
 }
@@ -2541,6 +2583,7 @@ export async function hydrateTowerPgWorkroomEvents(store, workroomId, deps = {})
   const events = (Array.isArray(result?.events) ? result.events : [])
     .map(mapPgWorkroomEventToLocal)
     .filter((event) => event.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceEvents(targetWorkroomId, events);
   return events;
 }
@@ -2559,6 +2602,7 @@ export async function hydrateTowerPgWorkroomLinks(store, workroomId, deps = {}) 
   const links = (Array.isArray(result?.links) ? result.links : [])
     .map(mapPgWorkroomLinkToLocal)
     .filter((link) => link.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceLinks(targetWorkroomId, links);
   return links;
 }
@@ -2591,6 +2635,7 @@ export async function hydrateTowerPgWorkroom(store, workroomId, deps = {}) {
     .map(mapPgWorkroomLinkToLocal)
     .filter((link) => link.record_id);
 
+  assertTowerPgWorkspaceCurrent(store, context);
   await Promise.all([
     writeWorkroom(workroom),
     replaceParticipants(targetWorkroomId, participants),
@@ -2821,6 +2866,7 @@ export async function hydrateTowerPgTasks(store, deps = {}) {
   }
 
   const tasks = mergePgHydratedTasksWithLocal([...taskById.values()], store.tasks);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceTasks(context.workspaceOwnerNpub, tasks);
   return tasks;
 }
@@ -2851,6 +2897,7 @@ export async function hydrateTowerPgTaskComments(store, taskId, deps = {}) {
   ) {
     return comments;
   }
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceComments(recordId, comments);
   return comments;
 }
@@ -2883,6 +2930,7 @@ export async function hydrateTowerPgDocComments(store, docId, deps = {}) {
   ) {
     return comments;
   }
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceComments(recordId, comments);
   return comments;
 }
@@ -2901,6 +2949,7 @@ export async function hydrateTowerPgDailyNotes(store, deps = {}) {
   const dailyNotes = (Array.isArray(result?.daily_notes) ? result.daily_notes : [])
     .map((note) => mapPgDailyNoteToLocal(note, { workspaceOwnerNpub: context.workspaceOwnerNpub }))
     .filter((note) => note.record_id);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceDailyNotes(context.workspaceOwnerNpub, dailyNotes);
   return dailyNotes;
 }
@@ -2922,6 +2971,7 @@ export async function hydrateTowerPgPersonalWapps(store, deps = {}) {
     .map((wapp) => mapPgPersonalWappToLocal(wapp, { workspaceOwnerNpub: context.workspaceOwnerNpub }))
     .filter((wapp) => wapp.record_id && wapp.launch_url);
   if (targetOwnerActorId) {
+    assertTowerPgWorkspaceCurrent(store, context);
     await replacePersonalWapps(targetOwnerActorId, personalWapps);
   }
   return personalWapps;
@@ -2939,6 +2989,7 @@ export async function hydrateTowerPgWappPublishingGrants(store, deps = {}) {
   const grants = sourceRows.map(mapPgWappPublishingGrantToLocal).filter((grant) => grant.wapp_installation_id);
   const currentContext = resolveTowerPgWorkspaceContext(store);
   if (currentContext.workspaceId !== context.workspaceId || currentContext.baseUrl !== context.baseUrl) return grants;
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceGrants(grants);
   return grants;
 }
@@ -2968,6 +3019,7 @@ export async function hydrateTowerPgWappActivity(store, deps = {}) {
   if (currentContext.workspaceId !== context.workspaceId || currentContext.baseUrl !== context.baseUrl) {
     return { items, counts, mutes };
   }
+  assertTowerPgWorkspaceCurrent(store, context);
   await Promise.all([replaceItems(items, { authoritative: true }), replaceMutes(mutes)]);
   return { items, counts, mutes };
 }
@@ -3010,7 +3062,9 @@ export async function hydrateTowerPgDocumentsAndFiles(store, deps = {}) {
     );
   }
 
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceDocuments(context.workspaceOwnerNpub, documents);
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceFolders(context.workspaceId, fileFolders);
   return documents;
 }
@@ -3044,6 +3098,7 @@ export async function hydrateTowerPgAudioNotes(store, deps = {}) {
     );
   }
 
+  assertTowerPgWorkspaceCurrent(store, context);
   await replaceAudioNotes(context.workspaceOwnerNpub, audioNotes);
   return audioNotes;
 }

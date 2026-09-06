@@ -1,3 +1,4 @@
+import { pgWorkspaceIdentityKey } from './pg-workspace-descriptor.js';
 import { APP_NPUB, FLIGHT_DECK_PG_APP_NPUB } from './app-identity.js';
 import { isPgWorkspacesOnlyMode } from './backend-mode.js';
 import { buildSuperBasedConnectionToken, parseSuperBasedToken } from './superbased-token.js';
@@ -38,21 +39,6 @@ function normalizeUrlForIdentity(value) {
   return String(value || '').trim().replace(/\/+$/, '');
 }
 
-function buildPgWorkspaceKey({
-  sessionNpub = '',
-  towerServiceNpub = '',
-  workspaceServiceNpub = '',
-  appNpub = '',
-} = {}) {
-  const session = String(sessionNpub || '').trim();
-  const tower = String(towerServiceNpub || '').trim();
-  const workspace = String(workspaceServiceNpub || '').trim();
-  const app = String(appNpub || FLIGHT_DECK_PG_APP_NPUB).trim();
-  if (!tower || !workspace || !app) return '';
-  const identity = `tower:${tower}::workspace:${workspace}::app:${app}`;
-  return session ? `pg:${session}::${identity}` : `pg:${identity}`;
-}
-
 function pgSessionNpubFromEntry(raw = {}) {
   return String(
     raw.pgSessionNpub
@@ -90,6 +76,7 @@ function sameWorkspaceIdentity(left = {}, right = {}) {
   if (!leftOwner || !rightOwner || leftOwner !== rightOwner) return false;
 
   if (left.pgBackendMode || right.pgBackendMode) {
+    if (left.workspaceId !== right.workspaceId) return false;
     const leftKey = String(left.workspaceKey || '').trim();
     const rightKey = String(right.workspaceKey || '').trim();
     if (leftKey && rightKey && leftKey === rightKey) return true;
@@ -216,9 +203,12 @@ export function normalizeWorkspaceEntry(raw = {}) {
     }));
 
   const slug = String(raw.slug || '').trim() || slugify(name);
-  const workspaceKey = String(raw.workspaceKey || raw.workspace_key || '').trim()
-    || (pgBackendMode
-      ? buildPgWorkspaceKey({ sessionNpub: pgSessionNpub, towerServiceNpub, workspaceServiceNpub, appNpub })
+  const workspaceId = String(raw.workspaceId || raw.workspace_id || '').trim() || null;
+  const savedKey = String(raw.workspaceKey || raw.workspace_key || '').trim();
+  const workspaceKey = pgBackendMode && workspaceId
+    ? pgWorkspaceIdentityKey({ pgSessionNpub, towerServiceNpub, workspaceServiceNpub, appNpub, workspaceId })
+    : savedKey || (pgBackendMode
+      ? pgWorkspaceIdentityKey({ pgSessionNpub, towerServiceNpub, workspaceServiceNpub, appNpub })
       : buildWorkspaceKey({ workspaceOwnerNpub, serviceNpub, directHttpsUrl }));
 
   return {
@@ -234,7 +224,7 @@ export function normalizeWorkspaceEntry(raw = {}) {
     serviceNpub,
     towerServiceNpub,
     workspaceServiceNpub,
-    workspaceId: String(raw.workspaceId || raw.workspace_id || '').trim() || null,
+    workspaceId,
     pgSessionNpub,
     pgBackendMode,
     pgDescriptor: raw.pgDescriptor || raw.pg_descriptor || null,
@@ -378,7 +368,12 @@ export function filterWorkspacesForSession(workspaces = [], sessionNpub = '') {
 
 export function findWorkspaceByKey(workspaces, workspaceKey) {
   if (!workspaceKey || !Array.isArray(workspaces)) return null;
-  return workspaces.find((w) => w.workspaceKey === workspaceKey) || null;
+  const exact = workspaces.find((w) => w.workspaceKey === workspaceKey);
+  if (exact) return exact;
+  // Restore an old key only when it identifies one saved workspace unambiguously.
+  const legacy = workspaces.filter((w) => w.pgBackendMode && w.workspaceId
+    && w.workspaceKey === `${workspaceKey}::id:${w.workspaceId}`);
+  return legacy.length === 1 ? legacy[0] : null;
 }
 
 export function findWorkspaceBySlug(workspaces, slug) {

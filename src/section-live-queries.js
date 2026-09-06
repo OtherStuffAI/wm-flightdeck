@@ -159,7 +159,14 @@ function syncBucket(store, bucket, specs) {
     if (!spec?.key) continue;
     desiredKeys.add(spec.key);
     if (bucket.has(spec.key)) continue;
-    const subscription = store.createLiveSubscription(spec.query, spec.onNext, {
+    const workspaceKey = store.currentWorkspaceKey;
+    const generation = store._workspaceSelectionGeneration;
+    const subscription = store.createLiveSubscription(spec.query, (...args) => {
+      if (spec.key !== 'address-book') {
+        if (store.currentWorkspaceKey !== workspaceKey || store._workspaceSelectionGeneration !== generation) return;
+      }
+      return spec.onNext(...args);
+    }, {
       equals: spec.equals,
     });
     bucket.set(spec.key, subscription);

@@ -168,7 +168,7 @@ describe('PG workspace manager mode', () => {
     });
     expect(api.getWorkspaces).not.toHaveBeenCalled();
     expect(store.knownWorkspaces[0]).toMatchObject({
-      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
       workspaceOwnerNpub: 'npub1owner',
       workspaceServiceNpub: 'npub1workspace',
       workspaceId: 'workspace-1',
@@ -442,6 +442,40 @@ describe('PG workspace manager mode', () => {
     expect(refreshGroups).not.toHaveBeenCalled();
     expect(api.registerWorkspaceApp).not.toHaveBeenCalled();
     expect(api.publishWorkspaceAppSchema).not.toHaveBeenCalled();
+  });
+
+  it('ignores verification that finishes after a newer workspace selection', async () => {
+    const first = { workspaceKey: 'pg:alpha', workspaceId: 'alpha', workspaceOwnerNpub: 'npub1owner', pgBackendMode: true };
+    const next = { ...first, workspaceKey: 'pg:beta', workspaceId: 'beta' };
+    let resolve;
+    const store = await buildStore({ knownWorkspaces: [first, next],
+      ensurePgWorkspaceAvailable: () => new Promise(r => { resolve = r; }),
+    });
+    const delayed = store.selectWorkspace(first.workspaceKey);
+    await store.selectWorkspace(next.workspaceKey, { pgVerified: true });
+    resolve(first);
+    await delayed;
+    expect(store.currentWorkspace.workspaceId).toBe('beta');
+  });
+
+  it('switches same-owner workspaces without clearing either persisted partition', async () => {
+    const db = await import('../src/db.js');
+    const first = { workspaceKey: 'pg:alpha', workspaceId: 'alpha', workspaceOwnerNpub: 'npub1owner', pgBackendMode: true };
+    const next = { ...first, workspaceKey: 'pg:beta', workspaceId: 'beta' };
+    const store = await buildStore({ knownWorkspaces: [first, next], selectedWorkspaceKey: first.workspaceKey,
+      localWorkspaceCoreLoadedForKey: first.workspaceKey, scopes: [{ record_id: 'old' }],
+      reports: [{ record_id: 'old' }], wapps: [{ record_id: 'old' }],
+      addressBookPeople: [{ npub: 'global-user' }],
+    });
+    await store.selectWorkspace(next.workspaceKey, { pgVerified: true });
+    expect(store.currentWorkspace.workspaceId).toBe('beta');
+    expect(store.scopes).toEqual([]);
+    expect(store.reports).toEqual([]);
+    expect(store.wapps).toEqual([]);
+    expect(store.addressBookPeople).toEqual([{ npub: 'global-user' }]);
+    await store.selectWorkspace(first.workspaceKey, { pgVerified: true });
+    expect(db.clearRuntimeData).not.toHaveBeenCalled();
+    expect(db.openWorkspaceDb).toHaveBeenLastCalledWith(first.workspaceKey);
   });
 
   it('opens newly created PG workspaces on the home route with all scopes selected', async () => {

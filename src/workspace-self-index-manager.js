@@ -8,7 +8,7 @@ import {
   queryWorkspaceSelfIndexCandidates,
   workspaceSelfIndexRelayUrls,
 } from './nostr-workspace-self-index.js';
-import { mergeWorkspaceEntries } from './workspaces.js';
+import { mergeWorkspaceEntries, normalizeWorkspaceEntry, findWorkspaceByKey } from './workspaces.js';
 
 function errorMessage(error) {
   return error?.message || String(error || 'Workspace self-index failed');
@@ -49,9 +49,9 @@ export const workspaceSelfIndexManagerMixin = {
   },
 
   applyWorkspaceSelfIndexPatch(workspace, patch = {}) {
-    const workspaceKey = workspace?.workspaceKey || patch.workspaceKey || '';
+    const workspaceKey = normalizeWorkspaceEntry(workspace)?.workspaceKey || patch.workspaceKey || '';
     const current = workspaceKey
-      ? this.knownWorkspaces.find((entry) => entry.workspaceKey === workspaceKey)
+      ? findWorkspaceByKey(this.knownWorkspaces, workspaceKey)
       : null;
     const next = mergeWorkspaceEntries(this.knownWorkspaces, [{
       ...(current || workspace || {}),
@@ -59,7 +59,7 @@ export const workspaceSelfIndexManagerMixin = {
     }]);
     this.knownWorkspaces = next;
     return workspaceKey
-      ? this.knownWorkspaces.find((entry) => entry.workspaceKey === workspaceKey) || null
+      ? findWorkspaceByKey(this.knownWorkspaces, workspaceKey) || null
       : null;
   },
 

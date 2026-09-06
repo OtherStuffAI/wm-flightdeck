@@ -910,9 +910,12 @@ export const channelsManagerMixin = {
   },
 
   async loadLocalChannels(options = {}) {
+    const generation = this._workspaceSelectionGeneration;
+    const workspaceKey = this.currentWorkspaceKey;
     const ownerNpub = this.workspaceOwnerNpub;
     if (!ownerNpub) return [];
     const channels = await getChannelsByOwner(ownerNpub);
+    if (this.currentWorkspaceKey !== workspaceKey || this._workspaceSelectionGeneration !== generation) return [];
     await this.applyChannels(channels, options);
     return channels;
   },
