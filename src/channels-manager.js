@@ -1519,6 +1519,7 @@ export const channelsManagerMixin = {
       this.channelSettingsNotice = result.empty
         ? 'This channel has no active threads to mark as read.'
         : `Marked ${result.count} ${result.count === 1 ? 'thread' : 'threads'} as read.`;
+      if (result.skipped) this.channelSettingsNotice += ` Skipped ${result.skipped} unavailable ${result.skipped === 1 ? 'thread' : 'threads'}.`;
     } catch (error) {
       this.channelSettingsError = error?.message || 'Failed to mark channel threads as read.';
     } finally {

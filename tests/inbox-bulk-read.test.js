@@ -189,3 +189,105 @@ describe('Inbox bulk read', () => {
     expect(styles).toMatch(/--unread-pastel-red:\s*rgba\(254, 226, 226, 0\.62\)/);
   });
 });
+
+function missingResource(resources, index = 0) {
+  return Object.assign(new Error('A requested view-state resource was not found'), {
+    status: 404, code: 'resource_not_found',
+    payload: { index, resource_type: resources[index].resource_type, resource_id: resources[index].resource_id },
+  });
+}
+
+describe('bulk read failure isolation', () => {
+  it('uses canonical view-state IDs despite virtual/rendered message IDs and retries only the missing entry', async () => {
+    const { store } = towerStore([state('thread', 'stale'), state('thread', 'canonical')]);
+    store.messages = [{ record_id: 'message-root', pg_thread_id: 'canonical' }, { record_id: 'virtual-row' }];
+    const mark = store.markTowerPgResourcesViewed.getMockImplementation();
+    store.markTowerPgResourcesViewed.mockImplementationOnce(async (_workspace, resources) => {
+      expect(resources.map((row) => row.resource_id)).toEqual(['stale', 'canonical']);
+      expect(store._unreadThreadItems).toEqual({ stale: true, canonical: true });
+      expect(store.upsertResourceViewState).not.toHaveBeenCalled();
+      throw missingResource(resources);
+    }).mockImplementation(mark);
+    const result = await unreadStoreMixin.runInboxReadAction.call(store, ['thread'], 'chats');
+    expect(result).toEqual({ ok: true, count: 1, skipped: 1 });
+    expect(store.markTowerPgResourcesViewed.mock.calls[1][1].map((row) => row.resource_id)).toEqual(['canonical']);
+    expect(store._unreadThreadItems).toEqual({ stale: true });
+    expect(store.inboxReadNotice).toContain('Skipped 1 unavailable item.');
+    expect((await store.getResourceViewStates()).find((row) => row.resource_id === 'stale')).toMatchObject({ viewed_activity_version: 0, sync_status: 'synced' });
+  });
+
+  it('terminates when every stale/deleted candidate is missing without marking any read', async () => {
+    const { store } = towerStore([state('thread', 'deleted-1'), state('thread', 'deleted-2')]);
+    store.markTowerPgResourcesViewed.mockImplementation(async (_workspace, resources) => { throw missingResource(resources); });
+    expect(await store.markInboxResourcesRead(['thread'])).toEqual({ ok: true, count: 0, skipped: 2 });
+    expect(store.markTowerPgResourcesViewed).toHaveBeenCalledTimes(2);
+    expect(store.upsertResourceViewState).not.toHaveBeenCalled();
+    expect(store._unreadChat).toBe(true);
+  });
+
+  it.each([
+    { status: 403, code: 'thread_participation_required' },
+    { status: 403, code: 'access_denied' },
+    { status: 404, code: 'workspace_not_found' },
+    { status: 500, code: 'server_error' },
+    { status: 404, code: 'resource_not_found', payload: { index: 0, resource_type: 'task', resource_id: 'canonical' } },
+    { status: 404, code: 'resource_not_found', payload: { index: 9, resource_type: 'thread', resource_id: 'canonical' } },
+    { status: 404, code: 'resource_not_found', payload: { index: 0, resource_type: 'thread', resource_id: 'different' } },
+    { status: 404, code: 'resource_not_found' },
+  ])('surfaces genuine or ambiguous errors without optimistic writes: $code', async (fields) => {
+    const { store } = towerStore([state('thread', 'canonical')]);
+    store.markTowerPgResourcesViewed.mockRejectedValue(Object.assign(new Error('Tower rejected request'), fields));
+    expect(await store.markInboxResourcesRead(['thread'])).toEqual({ ok: false, count: 0, error: 'Tower rejected request' });
+    expect(store.markTowerPgResourcesViewed).toHaveBeenCalledOnce();
+    expect(store.upsertResourceViewState).not.toHaveBeenCalled();
+    expect(store.refreshTowerPgResourceViewStates).not.toHaveBeenCalled();
+    expect(store._unreadThreadItems.canonical).toBe(true);
+  });
+
+  it('preserves confirmed earlier chunks when a later chunk fails', async () => {
+    const { store } = towerStore(Array.from({ length: 501 }, (_, index) => state('thread', `thread-${index}`)));
+    const mark = store.markTowerPgResourcesViewed.getMockImplementation();
+    store.markTowerPgResourcesViewed.mockImplementationOnce(mark).mockRejectedValue(new Error('offline'));
+    expect(await store.markInboxResourcesRead(['thread'])).toEqual({ ok: false, count: 500, error: 'offline' });
+    expect(store._unreadThreadItems).toEqual({ 'thread-500': true });
+  });
+
+  it.each(['workspace', 'generation', 'backend', 'signer'])('rejects a late response after switching %s', async (change) => {
+    const { store } = towerStore([state('thread', 'canonical')]);
+    const mark = store.markTowerPgResourcesViewed.getMockImplementation();
+    store.markTowerPgResourcesViewed.mockImplementation(async (...args) => {
+      if (change === 'workspace') store.currentWorkspace.workspaceId = 'unrelated';
+      if (change === 'generation') store._workspaceSelectionGeneration = 2;
+      if (change === 'backend') store.currentWorkspace.directHttpsUrl = 'http://other.test';
+      if (change === 'signer') store.session = { npub: 'different' };
+      return mark(...args);
+    });
+    expect(await store.markInboxResourcesRead(['thread'])).toMatchObject({ ok: false, count: 0, error: 'Workspace changed while marking items as read.' });
+    expect(store.upsertResourceViewState).not.toHaveBeenCalled();
+    expect(store.markTowerPgResourcesViewed).toHaveBeenCalledOnce();
+  });
+
+  it('does not send after a workspace switch during candidate loading', async () => {
+    const { store } = towerStore([state('thread', 'canonical')]);
+    store.getResourceViewStates.mockImplementationOnce(async () => {
+      store._workspaceSelectionGeneration = 1;
+      return [state('thread', 'canonical')];
+    });
+    expect(await store.markInboxResourcesRead(['thread'])).toMatchObject({ ok: false, count: 0 });
+    expect(store.markTowerPgResourcesViewed).not.toHaveBeenCalled();
+  });
+
+  it('rejects incomplete acknowledgements without falsely clearing read indicators', async () => {
+    const { store } = towerStore([state('thread', 'canonical')]);
+    store.markTowerPgResourcesViewed.mockResolvedValue({ states: [] });
+    expect(await store.markInboxResourcesRead(['thread'])).toMatchObject({ ok: false, count: 0 });
+    expect(store._unreadThreadItems.canonical).toBe(true);
+  });
+
+  it('applies the same missing-entry recovery to channel actions without touching another channel', async () => {
+    const { store } = towerStore([state('thread', 'stale'), state('thread', 'canonical'), state('thread', 'other', 2, 0, 'channel-2')]);
+    store.markTowerPgResourcesViewed.mockImplementationOnce(async (_workspace, resources) => { throw missingResource(resources); });
+    expect(await unreadStoreMixin.markAllChannelThreadsRead.call(store, 'channel-1')).toEqual({ ok: true, count: 1, skipped: 1 });
+    expect(store._unreadThreadItems).toEqual({ stale: true, other: true });
+  });
+});

@@ -1235,6 +1235,13 @@
       "label": "Combined workspace validation",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1893,
+      "label": "Reliable bulk chat read",
+      "notes": [
+        "Mark chats as read continues past unavailable threads and updates read indicators only after Tower confirms each batch. Failed requests preserve unread indicators."
+      ]
     }
   ]
 }

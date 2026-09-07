@@ -220,3 +220,25 @@ describe('resource view-state Dexie materialization', () => {
     expect(refreshUnreadFlags).toHaveBeenCalledOnce();
   });
 });
+
+describe('bulk read confirmed Dexie persistence', () => {
+  it('keeps a rejected thread unread across a cache reload, then persists a successful retry', async () => {
+    const row = state({ record_id: 'thread:thread-canonical', resource_type: 'thread', resource_id: 'thread-canonical' });
+    await upsertResourceViewState(row);
+    const store = {
+      isTowerPgMode: true,
+      currentWorkspaceKey: 'resource-view-state-db-workspace',
+      currentWorkspace: { pgBackendMode: true, workspaceId: 'workspace-1', directHttpsUrl: 'https://tower.example' },
+      applyTowerPgResourceViewStates: unreadStoreMixin.applyTowerPgResourceViewStates,
+      markTowerPgResourcesViewed: vi.fn().mockRejectedValueOnce(new Error('offline'))
+        .mockResolvedValueOnce({ states: [{ ...row, viewed_activity_version: 4 }] }),
+    };
+    expect(await unreadStoreMixin.markInboxResourcesRead.call(store, ['thread'])).toMatchObject({ ok: false, count: 0 });
+    expect(await getResourceViewState('thread', 'thread-canonical')).toMatchObject({ viewed_activity_version: 2, sync_status: 'synced' });
+    store.applyTowerPgResourceViewStates(await getResourceViewStates());
+    expect(store._unreadThreadItems['thread-canonical']).toBe(true);
+    expect(await unreadStoreMixin.markInboxResourcesRead.call(store, ['thread'])).toEqual({ ok: true, count: 1 });
+    expect(await getResourceViewState('thread', 'thread-canonical')).toMatchObject({ viewed_activity_version: 4, sync_status: 'synced' });
+    expect(store._unreadThreadItems).toEqual({});
+  });
+});

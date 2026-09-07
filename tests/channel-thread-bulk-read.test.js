@@ -40,7 +40,7 @@ describe('channel thread bulk read', () => {
     expect(TOWER_RESOURCE_VIEW_STATE_BULK_LIMIT).toBe(500);
   });
 
-  it('optimistically clears only the channel aggregate and persists after refresh', async () => {
+  it('clears only confirmed reads from the channel aggregate and persists after refresh', async () => {
     let rows = [state('thread-a', 'channel-a', 3), state('thread-b', 'channel-a', 5), state('thread-c', 'channel-b', 6)];
     const calls = [];
     const store = {
@@ -65,7 +65,7 @@ describe('channel thread bulk read', () => {
     expect(calls[0].map((resource) => resource.resource_id)).toEqual(['thread-a', 'thread-b']);
     expect(store._unreadChannels).toEqual({ 'channel-b': true });
     expect(store._unreadChat).toBe(true);
-    expect(store.refreshTowerPgResourceViewStates).toHaveBeenCalledOnce();
+    expect(store.refreshTowerPgResourceViewStates).not.toHaveBeenCalled();
   });
 
   it('handles an empty channel without a Tower write', async () => {
@@ -79,7 +79,7 @@ describe('channel thread bulk read', () => {
     expect(await unreadStoreMixin.markAllChannelThreadsRead.call(store, 'channel-empty')).toEqual({ ok: true, count: 0, empty: true });
     expect(store.markTowerPgResourcesViewed).not.toHaveBeenCalled();
     expect(store.applyTowerPgResourceViewStates).toHaveBeenCalledOnce();
-    expect(store.refreshTowerPgResourceViewStates).toHaveBeenCalledOnce();
+    expect(store.refreshTowerPgResourceViewStates).not.toHaveBeenCalled();
   });
 
   it('reports Tower failures without claiming success', async () => {
@@ -92,8 +92,8 @@ describe('channel thread bulk read', () => {
       refreshTowerPgResourceViewStates: vi.fn(),
     };
     const result = await unreadStoreMixin.markAllChannelThreadsRead.call(store, 'channel-a');
-    expect(result).toEqual({ ok: false, count: 1, error: 'Tower unavailable' });
-    expect(store.refreshTowerPgResourceViewStates).toHaveBeenCalledOnce();
+    expect(result).toEqual({ ok: false, count: 0, error: 'Tower unavailable' });
+    expect(store.refreshTowerPgResourceViewStates).not.toHaveBeenCalled();
   });
 
   it('anchors the action to the channel whose ellipsis was opened', async () => {

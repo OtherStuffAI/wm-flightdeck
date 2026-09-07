@@ -138,6 +138,86 @@ export function collectUnreadViewResources(states = [], resourceTypes = []) {
     }));
 }
 
+// Bulk writes are confirmed-only: a failed atomic Tower batch must not leave
+// monotonic pending rows that the refresh path would later replay individually.
+async function markBulkViewResources(store, context, resources, assertCurrent) {
+  const readStates = store.getResourceViewStates || getResourceViewStates;
+  const writeState = store.upsertResourceViewState || upsertResourceViewState;
+  const markResources = store.markTowerPgResourcesViewed || markTowerPgResourcesViewed;
+  let count = 0;
+  let skipped = 0;
+  try {
+    for (const chunk of chunkResourceViewStateWrites(resources)) {
+      let remaining = chunk.map((resource) => ({
+        resource_type: resource.resource_type,
+        resource_id: resource.resource_id,
+        viewed_activity_version: resource.activity_version,
+      }));
+      while (remaining.length) {
+        assertCurrent();
+        let result;
+        try {
+          result = await markResources(context.workspaceId, remaining, {
+            baseUrl: context.baseUrl, appNpub: context.appNpub,
+          });
+        } catch (error) {
+          assertCurrent();
+          const missing = error?.payload;
+          const candidate = Number.isInteger(missing?.index) ? remaining[missing.index] : null;
+          // Tower validates every item before its transaction. Only this exact
+          // indexed missing-resource response permits retrying the remainder.
+          if (error?.status !== 404 || error?.code !== 'resource_not_found'
+            || !candidate || candidate.resource_type !== missing.resource_type
+            || candidate.resource_id !== missing.resource_id) throw error;
+          remaining = remaining.filter((_, index) => index !== missing.index);
+          skipped += 1;
+          continue;
+        }
+        assertCurrent();
+        const rows = (Array.isArray(result?.states) ? result.states : []).map(mapTowerResourceViewState);
+        if (rows.length !== remaining.length || rows.some((row) => !row)
+          || new Set(rows.map((row) => row.record_id)).size !== remaining.length
+          || remaining.some((resource) => !rows.some((row) => row.resource_type === resource.resource_type
+            && row.resource_id === resource.resource_id))) {
+          throw new Error('Tower returned an incomplete bulk read acknowledgement.');
+        }
+        for (const row of rows) {
+          assertCurrent();
+          await writeState(row);
+          count += 1;
+        }
+        break;
+      }
+    }
+    assertCurrent();
+    const states = await readStates();
+    assertCurrent();
+    store.applyTowerPgResourceViewStates(states);
+    return { ok: true, count, ...(skipped ? { skipped } : {}) };
+  } catch (error) {
+    // Keep confirmed earlier chunks visible, but never touch a new activation.
+    try {
+      assertCurrent();
+      const states = await readStates();
+      assertCurrent();
+      store.applyTowerPgResourceViewStates(states);
+    } catch { /* The original error remains the actionable failure. */ }
+    return { ok: false, count, ...(skipped ? { skipped } : {}), error: error?.message || 'Failed to mark items as read.' };
+  }
+}
+
+function bulkViewWorkspaceGuard(store, context) {
+  const key = store.currentWorkspaceKey;
+  return () => {
+    const current = resolveTowerPgWorkspaceContext(store);
+    if (key !== store.currentWorkspaceKey
+      || ['workspaceId', 'baseUrl', 'appNpub', 'sessionNpub', 'generation'].some((field) => current[field] !== context[field])
+      || (!store.getResourceViewStates && !isWorkspaceDbOpenForKey(key))) {
+      throw new Error('Workspace changed while marking items as read.');
+    }
+  };
+}
+
 function recordScopeId(row = {}) {
   return String(
     row?.scope_id
@@ -747,59 +827,15 @@ export const unreadStoreMixin = {
       return { ok: false, count: 0, error: 'Tower channel view state is unavailable.' };
     }
 
-    const readStates = this.getResourceViewStates || getResourceViewStates;
-    const writeState = this.upsertResourceViewState || upsertResourceViewState;
-    const readAllStates = this.refreshTowerPgResourceViewStates?.bind(this);
-    const markResources = this.markTowerPgResourcesViewed || markTowerPgResourcesViewed;
-    const states = await readStates();
+    const assertCurrent = bulkViewWorkspaceGuard(this, context);
+    const states = await (this.getResourceViewStates || getResourceViewStates)();
+    try { assertCurrent(); } catch (error) { return { ok: false, count: 0, error: error.message }; }
     const resources = collectChannelThreadViewResources(states, targetChannelId);
     if (resources.length === 0) {
       this.applyTowerPgResourceViewStates(states);
-      if (readAllStates) await readAllStates();
       return { ok: true, count: 0, empty: true };
     }
-
-    const now = new Date().toISOString();
-    for (const resource of resources) {
-      const current = states.find((state) => (
-        state.resource_type === 'thread' && state.resource_id === resource.resource_id
-      ));
-      await writeState({
-        ...current,
-        record_id: resourceViewStateId('thread', resource.resource_id),
-        resource_type: 'thread',
-        resource_id: resource.resource_id,
-        channel_id: targetChannelId,
-        activity_version: Math.max(Number(current?.activity_version || 0), resource.activity_version),
-        viewed_activity_version: Math.max(Number(current?.viewed_activity_version || 0), resource.activity_version),
-        sync_status: 'pending',
-        updated_at: now,
-      });
-    }
-    this.applyTowerPgResourceViewStates(await readStates());
-
-    try {
-      for (const chunk of chunkResourceViewStateWrites(resources)) {
-        const result = await markResources(context.workspaceId, chunk.map((resource) => ({
-          resource_type: 'thread',
-          resource_id: resource.resource_id,
-          viewed_activity_version: resource.activity_version,
-        })), {
-          baseUrl: context.baseUrl,
-          appNpub: context.appNpub,
-        });
-        for (const state of Array.isArray(result?.states) ? result.states : []) {
-          const row = mapTowerResourceViewState(state);
-          if (row) await writeState(row);
-        }
-      }
-      if (readAllStates) await readAllStates();
-      else this.applyTowerPgResourceViewStates(await readStates());
-      return { ok: true, count: resources.length };
-    } catch (error) {
-      if (readAllStates) await readAllStates();
-      return { ok: false, count: resources.length, error: error?.message || 'Failed to mark channel threads as read.' };
-    }
+    return markBulkViewResources(this, context, resources, assertCurrent);
   },
 
   async markInboxResourcesRead(resourceTypes = []) {
@@ -820,11 +856,9 @@ export const unreadStoreMixin = {
 
     const context = resolveTowerPgWorkspaceContext(this);
     if (!context.workspaceId || !context.baseUrl) return { ok: false, count: 0, error: 'Tower Inbox view state is unavailable.' };
-    const readStates = this.getResourceViewStates || getResourceViewStates;
-    const writeState = this.upsertResourceViewState || upsertResourceViewState;
-    const markResources = this.markTowerPgResourcesViewed || markTowerPgResourcesViewed;
-    const refreshStates = this.refreshTowerPgResourceViewStates?.bind(this);
-    const states = await readStates();
+    const assertCurrent = bulkViewWorkspaceGuard(this, context);
+    const states = await (this.getResourceViewStates || getResourceViewStates)();
+    try { assertCurrent(); } catch (error) { return { ok: false, count: 0, error: error.message }; }
     const resources = collectScopeUnreadViewResources(states, types, {
       selectedScopeId: this.pgContextScopeId,
       scopesMap: this.scopesMap,
@@ -838,41 +872,7 @@ export const unreadStoreMixin = {
       return { ok: true, count: 0, empty: true };
     }
 
-    const now = new Date().toISOString();
-    for (const resource of resources) {
-      const current = states.find((state) => state.resource_type === resource.resource_type && state.resource_id === resource.resource_id);
-      await writeState({
-        ...current,
-        record_id: resourceViewStateId(resource.resource_type, resource.resource_id),
-        resource_type: resource.resource_type,
-        resource_id: resource.resource_id,
-        activity_version: resource.activity_version,
-        viewed_activity_version: Math.max(Number(current?.viewed_activity_version || 0), resource.activity_version),
-        sync_status: 'pending',
-        updated_at: now,
-      });
-    }
-    this.applyTowerPgResourceViewStates(await readStates());
-
-    try {
-      for (const chunk of chunkResourceViewStateWrites(resources)) {
-        const result = await markResources(context.workspaceId, chunk.map((resource) => ({
-          resource_type: resource.resource_type,
-          resource_id: resource.resource_id,
-          viewed_activity_version: resource.activity_version,
-        })), { baseUrl: context.baseUrl, appNpub: context.appNpub });
-        for (const state of Array.isArray(result?.states) ? result.states : []) {
-          const row = mapTowerResourceViewState(state);
-          if (row) await writeState(row);
-        }
-      }
-      if (refreshStates) await refreshStates();
-      else this.applyTowerPgResourceViewStates(await readStates());
-      return { ok: true, count: resources.length };
-    } catch (error) {
-      if (refreshStates) await refreshStates();
-      return { ok: false, count: resources.length, error: error?.message || 'Failed to mark Inbox items as read.' };
-    }
+    return markBulkViewResources(this, context, resources, assertCurrent);
   },
 
   async runInboxReadAction(resourceTypes, label = 'items') {
@@ -890,6 +890,7 @@ export const unreadStoreMixin = {
       } else {
         this.inboxReadNotice = `Marked ${result.count} ${result.count === 1 ? 'item' : 'items'} as read.`;
       }
+      if (result?.skipped) this.inboxReadNotice += ` Skipped ${result.skipped} unavailable ${result.skipped === 1 ? 'item' : 'items'}.`;
       return result;
     } finally {
       this.inboxReadBusy = false;
