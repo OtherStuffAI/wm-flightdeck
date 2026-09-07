@@ -57,6 +57,7 @@ import { autopilotOverviewManagerMixin } from './autopilot-overview-manager.js';
 import { resolveDeckInboxEnabled } from './deck-inbox-preference.js';
 import { resolveMyFocusEnabled } from './my-focus-preference.js';
 import { notificationsManagerMixin } from './notifications-manager.js';
+import { wappImageManagerMixin } from './wapp-image-manager.js';
 import { wappPublishingManagerMixin } from './wapp-publishing-manager.js';
 import { wappManagementManagerMixin } from './wapp-management-manager.js';
 import { taskDetailManagerMixin } from './task-detail-manager.js';
@@ -3637,6 +3638,8 @@ export function initApp() {
     },
 
     openPersonalWappEditor(wapp = null) {
+      if (this.personalWappEditorSaving) return;
+      this.resetPersonalWappImage();
       this.closePersonalWappsOverlay();
       this.personalWappEditorError = '';
       this.personalWappEditingId = wapp?.record_id || '';
@@ -3648,12 +3651,19 @@ export function initApp() {
     },
 
     closePersonalWappEditor() {
+      if (this.personalWappEditorSaving) return;
+      this.resetPersonalWappImage();
       this.personalWappEditorOpen = false;
       this.personalWappEditorSaving = false;
       this.personalWappEditorError = '';
     },
 
     async savePersonalWappEditor() {
+      if (this.personalWappEditorSaving || this.personalWappImageBusy) return;
+      if (this.personalWappImagePending) {
+        this.personalWappEditorError = 'Upload or clear the selected image before saving.';
+        return;
+      }
       if (!isTowerPgBackendMode()) return;
       const context = resolveTowerPgWorkspaceContext(this);
       if (!context.workspaceId || !context.baseUrl) {
@@ -3696,6 +3706,7 @@ export function initApp() {
             row,
           ];
         }
+        this.personalWappEditorSaving = false;
         this.closePersonalWappEditor();
       } catch (error) {
         this.personalWappEditorError = error?.message || 'Failed to save WApp';
@@ -9789,6 +9800,7 @@ export function initApp() {
     autopilotOverviewManagerMixin,
     notificationsManagerMixin,
     wappPublishingManagerMixin,
+    wappImageManagerMixin,
     wappManagementManagerMixin,
     writeContextManagerMixin,
     sectionLiveQueryMixin,

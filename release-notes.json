@@ -1207,6 +1207,13 @@
       "notes": [
         "Warn when an older workspace cache contains unsynced edits or saved drafts. Preserve the originals for manual recovery without copying or sending edits to an uncertain workspace."
       ]
+    },
+    {
+      "buildNumber": 1889,
+      "label": "WApp image uploads",
+      "notes": [
+        "Choose and preview an icon image in Add or Edit WApp, upload it publicly to Primal Blossom, and save its URL with your launcher. Upload errors can be retried without losing the form."
+      ]
     }
   ]
 }

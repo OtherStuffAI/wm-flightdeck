@@ -10226,13 +10226,28 @@
             </label>
             <label class="daily-note-field">
               <span>Icon URL</span>
-              <input type="url" x-model="$store.chat.personalWappFormIconUrl" placeholder="https://..." />
+              <input type="url" x-model="$store.chat.personalWappFormIconUrl" @input="$store.chat.resetPersonalWappImage()" :disabled="$store.chat.personalWappEditorSaving" placeholder="https://..." />
             </label>
             <p class="settings-field-help">Leave blank to use the app manifest icon or favicon.</p>
+            <div class="daily-note-field">
+              <label for="personal-wapp-image">Upload icon image</label>
+              <input id="personal-wapp-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp" @change="$store.chat.selectPersonalWappImage($event)" :disabled="$store.chat.personalWappEditorSaving" />
+              <small>PNG, JPEG, GIF or WebP, up to 5 MiB. Uploaded images are public on Primal Blossom, even if you cancel this form.</small>
+              <template x-if="$store.chat.personalWappImagePreview">
+                <img :src="$store.chat.personalWappImagePreview" alt="Selected WApp icon preview" width="72" height="72" style="object-fit: contain" />
+              </template>
+              <span x-text="$store.chat.personalWappImageName"></span>
+              <div class="modal-actions" x-show="$store.chat.personalWappImagePreview">
+                <button type="button" class="btn-secondary" @click="$store.chat.uploadPersonalWappImage()" :disabled="$store.chat.personalWappImageBusy || $store.chat.personalWappEditorSaving || !$store.chat.personalWappImagePending">Upload image</button>
+                <button type="button" class="btn-secondary" @click="$store.chat.resetPersonalWappImage()" :disabled="$store.chat.personalWappEditorSaving">Clear selection / cancel upload</button>
+              </div>
+              <p role="status" x-text="$store.chat.personalWappImageStatus"></p>
+              <p class="error-text" role="alert" x-text="$store.chat.personalWappImageError"></p>
+            </div>
             <p class="error-text" x-show="$store.chat.personalWappEditorError" x-text="$store.chat.personalWappEditorError"></p>
             <div class="new-doc-modal-actions">
               <button type="button" class="btn-cancel" @click="$store.chat.closePersonalWappEditor()">Cancel</button>
-              <button type="button" class="btn-confirm" @click="$store.chat.savePersonalWappEditor()" :disabled="$store.chat.personalWappEditorSaving">
+              <button type="button" class="btn-confirm" @click="$store.chat.savePersonalWappEditor()" :disabled="$store.chat.personalWappEditorSaving || $store.chat.personalWappImageBusy || $store.chat.personalWappImagePending">
                 <span x-show="!$store.chat.personalWappEditorSaving">Save WApp</span>
                 <span x-show="$store.chat.personalWappEditorSaving">Saving...</span>
               </button>
