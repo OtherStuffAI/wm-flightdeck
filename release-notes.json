@@ -583,7 +583,7 @@
       "buildNumber": 1771,
       "label": "Delegated WApp management",
       "notes": [
-        "Grant a person or agent narrow, expiring WApp management authority from Setup → Permissions, preview its limits before signing, and revoke it immediately.",
+        "Grant a person or agent narrow, expiring WApp management authority from Setup \u2192 Permissions, preview its limits before signing, and revoke it immediately.",
         "Assign existing WApps through installation intents and inspect pending, active, failed, repairable, or revoked lifecycle state with reconcile and revoke controls."
       ]
     },
@@ -1227,8 +1227,14 @@
       "label": "Dismissible recovery controls",
       "notes": [
         "Review legacy local-edit recovery from the avatar menu and dismiss it on this device.",
-        "Choose Tower’s version to refresh the workspace and stop prompting about older drafts, while retaining the old cache as a fallback."
+        "Choose Tower\u2019s version to refresh the workspace and stop prompting about older drafts, while retaining the old cache as a fallback."
       ]
+    },
+    {
+      "buildNumber": 1892,
+      "label": "Combined workspace validation",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
