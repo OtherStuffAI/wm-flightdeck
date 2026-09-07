@@ -1542,7 +1542,10 @@ export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
       return { applied: (bundle.members?.length || 0) + (bundle.groups?.length || 0), cursor: null, hasMore: false };
     }
     if (bundle.reset_authority === true) { const reset = await resetPgRecordAuthority(store); return { applied: 0, cursor: null, hasMore: false, ...reset }; }
-    return applyPgRecordChanges(store, bundle, bundle.local_apply_options || {});
+    const result = await applyPgRecordChanges(store, bundle, bundle.local_apply_options || {});
+    // Also retire saved warnings when no new delta for that record arrives.
+    await reconcilePgRecordConflicts(store);
+    return result;
   }
   const context = resolveTowerPgWorkspaceContext(store);
   if (!context.workspaceId || !context.workspaceOwnerNpub) return { applied: 0, cursor: null };

@@ -1249,6 +1249,13 @@
       "notes": [
         "Unread chats and replies show their indicators again in All and Chat Inbox and Recent Channels. Reading a thread clears its indicator, and later incoming activity can make it unread again."
       ]
+    },
+    {
+      "buildNumber": 1896,
+      "label": "Automatic read-marker reconciliation",
+      "notes": [
+        "Read receipts now reconcile automatically without local-edit warnings. Existing read-marker warnings clear during sync, and missing shared text no longer appears as an access change."
+      ]
     }
   ]
 }

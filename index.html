@@ -1332,7 +1332,7 @@
               <p>Your edit: <span x-text="conflict.local?.body || conflict.local?.description || conflict.local?.title || '(saved locally)'"></span></p>
               <button type="button" class="btn btn-secondary" x-show="conflict.remote"
                 @click="$store.chat.acceptRecordSyncRemoteConflict(conflict.key)">Use shared version (keep a recovery copy)</button>
-              <p>Shared version: <span x-text="conflict.remote?.operation === 'delete' ? 'Deleted' : (conflict.remote?.row?.body || conflict.remote?.row?.description || conflict.remote?.row?.title || 'Access changed')"></span></p>
+              <p>Shared version: <span x-text="conflict.remote?.operation === 'delete' ? 'Deleted' : (conflict.remote?.row?.body || conflict.remote?.row?.description || conflict.remote?.row?.title || 'No text preview available')"></span></p>
             </div>
           </template>
         </details>

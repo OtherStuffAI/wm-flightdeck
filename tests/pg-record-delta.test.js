@@ -248,3 +248,50 @@ it('retains full effective membership for metadata deltas and invalidates change
   await applyPgRecordChanges(store, page([branched], 'three'), { expectedCursor: 'two' });
   expect((await db.chat_messages.get(original.id)).pg_effective_message_ids).toBeUndefined();
 });
+
+describe('read receipts reconcile without content conflicts', () => {
+  const change = fixture.canonical_upserts.changes.find(c => c.family === 'resource_view_state');
+  const recordId = `${change.row.resource_type}:${change.row.resource_id}`;
+  const receipt = (viewed, version = '100') => ({ ...change, version, row: { ...change.row, viewed_activity_version: viewed } });
+
+  it.each(['pending', 'failed', 'synced'])('retains an ahead %s watermark for reconnect and accepts its acknowledgement', async (syncStatus) => {
+    await db.resource_view_states.put({ record_id: recordId, ...change.row, viewed_activity_version: 8, sync_status: syncStatus });
+    await applyPgRecordChanges(store, page([receipt(6)], 'behind'));
+    expect(await db.resource_view_states.get(recordId)).toMatchObject({ viewed_activity_version: 8, sync_status: 'pending', pg_sync_conflict: false });
+    expect(await db.pg_record_conflicts.count()).toBe(0);
+    await applyPgRecordChanges(store, page([receipt(8, '101')], 'ack'));
+    expect(await db.resource_view_states.get(recordId)).toMatchObject({ viewed_activity_version: 8, sync_status: 'synced' });
+    expect(await db.pg_record_conflicts.count()).toBe(0);
+  });
+
+  it('accepts a further shared read position while a local read is pending', async () => {
+    await db.resource_view_states.put({ record_id: recordId, ...change.row, viewed_activity_version: 4, sync_status: 'pending' });
+    await applyPgRecordChanges(store, page([receipt(9)]));
+    expect(await db.resource_view_states.get(recordId)).toMatchObject({ viewed_activity_version: 9, sync_status: 'synced' });
+    expect(await db.pg_record_conflicts.count()).toBe(0);
+  });
+
+  it('clears an existing read warning on an empty sync without discarding an offline read or content conflict', async () => {
+    const shared = receipt(6);
+    const content = fixture.one_message_delta.changes[0];
+    await db.chat_messages.put({ record_id: content.id, body: 'unsent edit', sync_status: 'pending' });
+    await db.pending_writes.add({ record_id: content.id, envelope: { body: 'unsent edit' } });
+    await applyPgRecordChanges(store, page([shared, content], 'first'));
+    const local = { record_id: recordId, ...change.row, viewed_activity_version: 8, sync_status: 'pending', pg_sync_conflict: true };
+    await db.resource_view_states.put(local);
+    await db.pg_record_conflicts.put({ key: `resource_view_state:${change.id}`, family: 'resource_view_state', record_id: recordId, local, remote: shared, reason: 'unresolved_local_command' });
+    const { hydrateTowerPgSyncBundle } = await import('../src/pg-read-hydrator.js');
+    await hydrateTowerPgSyncBundle(store, page([], 'reconnect'));
+    expect(await db.resource_view_states.get(recordId)).toMatchObject({ viewed_activity_version: 8, sync_status: 'pending', pg_sync_conflict: false });
+    expect((await db.pg_record_conflicts.toArray()).map(c => c.family)).toEqual(['message']);
+    expect((await db.chat_messages.get(content.id)).body).toBe('unsent edit');
+    expect(await db.pending_writes.count()).toBe(1);
+  });
+
+  it('honors an explicit receipt tombstone without creating a review warning', async () => {
+    await db.resource_view_states.put({ record_id: recordId, ...change.row, viewed_activity_version: 8, sync_status: 'pending' });
+    await applyPgRecordChanges(store, page([{ ...change, version: '100', operation: 'delete', row: null }]));
+    expect(await db.resource_view_states.get(recordId)).toBeUndefined();
+    expect(await db.pg_record_conflicts.count()).toBe(0);
+  });
+});

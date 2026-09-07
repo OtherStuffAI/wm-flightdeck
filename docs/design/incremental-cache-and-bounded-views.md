@@ -62,6 +62,13 @@ explicit shared-version action which first keeps a durable recovery copy.
 Hydrated document bytes survive metadata-only updates while the incoming
 canonical version identity advances.
 
+Resource view states are monotonic read receipts, not content conflicts. Delta
+materialization keeps the greater local/shared viewed activity version, retaining
+an ahead local watermark as pending for reconnect and marking it synced once
+Tower catches up. Explicit receipt tombstones still remove local authority.
+Each successful sync page also reconciles saved conflicts, so old read-receipt
+warnings clear even on an empty delta without dropping offline read progress.
+
 ## Query and index inventory
 
 Chronology below is updated activity order, with created-at fallback for legacy

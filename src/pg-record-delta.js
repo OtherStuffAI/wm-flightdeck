@@ -181,6 +181,28 @@ export async function applyPgRecordChanges(store, page, options = {}) {
       if (raw.family === 'resource_view_state') localId = raw.row
         ? `${raw.row.resource_type}:${raw.row.resource_id}` : raw.id.split(':').slice(1).join(':');
       const prior = await table.get(localId);
+      // Read receipts are monotonic watermarks, not competing content edits.
+      // Keep an ahead local receipt pending so reconnect can still send it.
+      if (raw.family === 'resource_view_state') {
+        if (raw.operation === 'delete' || raw.row?.deleted_at) {
+          if (prior) { await table.delete(localId); applied++; }
+        } else {
+          const localViewed = Number(prior?.viewed_activity_version || 0);
+          const sharedViewed = Number(raw.row.viewed_activity_version || 0);
+          const mapped = {
+            ...prior, ...mapRow(raw.row),
+            scope_id: raw.row.scope_id || prior?.scope_id || null,
+            channel_id: raw.row.channel_id || prior?.channel_id || null,
+            viewed_activity_version: Math.max(localViewed, sharedViewed),
+            sync_status: localViewed > sharedViewed ? 'pending' : 'synced',
+            pg_reconciliation_pending: false, pg_sync_conflict: false,
+            pg_delta_generation: generation, pg_delta_family: raw.family,
+          };
+          if (!sameLogicalValue(prior, mapped)) { await table.put(mapped); applied++; }
+        }
+        await db.pg_record_conflicts.delete(raw.key);
+        return;
+      }
       const clientRecordId = raw.row?.metadata?.client_record_id;
       if (clientRecordId && clientRecordId !== localId) {
         const optimistic = await table.get(clientRecordId);
@@ -362,6 +384,10 @@ async function reconcileConflictBatch(store, { acceptRemoteKey = null, after = n
       const raw = await db.pg_record_rows.get(conflict.key);
       if (!raw || !FAMILY[raw.family]) continue;
       const table = db.table(FAMILY[raw.family][0]);
+      if (raw.family === 'resource_view_state') {
+        changes.push(raw);
+        continue;
+      }
       const local = await table.get(conflict.record_id) || await table.get(raw.id);
       const commands = await db.pending_writes.where('record_id').equals(conflict.record_id).toArray();
       if (acceptRemoteKey) {
