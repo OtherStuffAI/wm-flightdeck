@@ -1,8 +1,9 @@
-import { beforeEach, expect, it } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import { liveQuery } from 'dexie';
 import fixture from './fixtures/flightdeck-record-delta-v1.json';
-import { openWorkspaceDb, getOwnerActivityWindow, getRecentChannelActivity } from '../src/db.js';
+import { openWorkspaceDb, getOwnerActivityWindow, getRecentChannelActivity, getActivityThreadAttention, upsertResourceViewState } from '../src/db.js';
 import { applyPgRecordChanges } from '../src/pg-record-delta.js';
+import { chatMessageManagerMixin } from '../src/chat-message-manager.js';
 import { queryInboxSource, sectionLiveQueryMixin } from '../src/section-live-queries.js';
 import { buildAutopilotOverviewThreads, autopilotOverviewManagerMixin } from '../src/autopilot-overview-manager.js';
 
@@ -17,6 +18,111 @@ beforeEach(async () => {
 });
 const input = (type = 'all', scopeId = 'all') => ({ workspaceOwnerNpub: owner, deckInboxType: type,
   autopilotOverviewContext: { scopeId, channelId: 'all' }, inboxActivityVisibleCount: 100 });
+
+it.each(['all', 'chat'])('shows canonical numeric thread attention in %s Inbox without a selected Chat window', async (type) => {
+  const thread = fixture.canonical_upserts.changes.find(change => change.family === 'thread');
+  const source = fixture.canonical_upserts.changes.find(change => change.family === 'message');
+  await applyPgRecordChanges(transport, { ...fixture.one_message_delta, next_cursor: 'unread', changes: [
+    { ...thread, version: '100', row: { ...thread.row, source_message_id: source.id, activity_version: 1, row_version: 2 } },
+    { ...source, version: '101', row: { ...source.row, thread_id: thread.id, row_version: 2 } },
+  ] });
+  const attention = await db.pg_resource_attention.get(`thread:${thread.id}`);
+  expect(attention.unread).toBe(1);
+  const page = await queryInboxSource(input(type), owner, 'chat_messages');
+  const store = Object.defineProperties({}, Object.getOwnPropertyDescriptors(autopilotOverviewManagerMixin));
+  Object.assign(store, { navSection: 'status', isTowerPgMode: true, channels: await db.channels.toArray(),
+    fileMessages: page.rows, messages: [], inboxUnreadThreads: page.unreadThreads,
+    _unreadThreadItems: { [thread.id]: true } });
+  expect(store.autopilotOverviewThreads.find(row => row.id === thread.id)?.isUnread).toBe(true);
+});
+
+it('keeps root/reply attention live through reading, later activity, partial refresh, reload and scoped paging', async () => {
+  const thread = fixture.canonical_upserts.changes.find(change => change.family === 'thread');
+  const source = fixture.canonical_upserts.changes.find(change => change.family === 'message');
+  const receipt = fixture.canonical_upserts.changes.find(change => change.family === 'resource_view_state');
+  const viewerActorId = '20000000-0000-4000-8000-000000000002';
+  let version = 100;
+  const change = (original, patch, id = original.id) => ({ ...original, id, version: String(++version),
+    row: { ...original.row, ...patch, id, row_version: version } });
+  const apply = changes => applyPgRecordChanges({ ...transport, currentPgActorId: viewerActorId }, {
+    ...fixture.one_message_delta, changes, next_cursor: `attention-${version}`,
+    actors: [...fixture.one_message_delta.actors, { actor_id: viewerActorId, npub: transport.session.npub,
+      kind: 'human', display_name: 'Reader' }],
+  });
+  const threadChange = activity_version => change(thread, { source_message_id: source.id, activity_version });
+  const receiptChange = viewed_activity_version => change(receipt, {
+    resource_type: 'thread', resource_id: thread.id, viewed_activity_version, viewer_actor_id: viewerActorId,
+  }, `${viewerActorId}:thread:${thread.id}`);
+  const assertInbox = async expected => {
+    for (const type of ['all', 'chat']) {
+      const page = await queryInboxSource(input(type, thread.scope_id), owner, 'chat_messages');
+      const cards = buildAutopilotOverviewThreads({ channels: await db.channels.toArray(), messages: page.rows,
+        resourceViewStateMode: true, unreadThreadMap: page.unreadThreads });
+      expect(cards.find(row => row.id === thread.id)?.isUnread, type).toBe(expected);
+    }
+  };
+  await apply([threadChange(1), change(source, { thread_id: thread.id }), receiptChange(0)]);
+  await assertInbox(true);
+  // Both canonical thread metadata and the source-message presentation resolve
+  // the same attention key, as does a reply with a source-message parent ID.
+  expect(await getActivityThreadAttention([{ record_id: thread.id, pg_record_type: 'thread' }]))
+    .toEqual({ [thread.id]: true });
+  const root = await db.chat_messages.get(source.id);
+  const observations = [];
+  const queryStore = { ...sectionLiveQueryMixin, ...input('chat'), currentWorkspaceKey: 'inbox-recovery',
+    navSection: 'status', applyFileMessages() {},
+    createLiveSubscription(query, onNext) {
+      if (!query.toString().includes("'chat_messages'")) return { unsubscribe() {} };
+      return liveQuery(query).subscribe(page => { onNext(page); observations.push(this.inboxUnreadThreads[thread.id]); });
+    },
+    stopLiveSubscription(subscription) { subscription.unsubscribe(); },
+  };
+  queryStore.startWorkspaceLiveQueries();
+  await vi.waitFor(() => expect(observations.at(-1)).toBe(true));
+  let read;
+  const store = { messages: [root], navSection: 'status', deckThreadChannelId: thread.channel_id,
+    deckThreadTowerId: thread.id, THREAD_REPLY_PAGE_SIZE: 6,
+    loadDeckThreadHistoryPage() {}, scheduleThreadRepliesScrollToBottom() {}, syncRoute() {},
+    markTowerPgResourceViewed(type, id, activityVersion) {
+      expect([type, id]).toEqual(['thread', thread.id]);
+      read = upsertResourceViewState({ resource_type: type, resource_id: id,
+        viewed_activity_version: activityVersion, sync_status: 'pending' });
+    } };
+  chatMessageManagerMixin.openThread.call(store, source.id);
+  await read;
+  try { await vi.waitFor(() => expect(observations.at(-1)).toBe(false)); }
+  finally { queryStore.stopWorkspaceLiveQueries(); queryStore.stopSharedLiveQueries(); }
+  await assertInbox(false);
+  await upsertResourceViewState({ resource_type: 'thread', resource_id: thread.id,
+    viewed_activity_version: 1, sync_status: 'synced' }); // Read-command acknowledgement.
+  await apply([receiptChange(1)]); // Confirm the viewer's read with a canonical receipt.
+  await apply([threadChange(2), change(source, { thread_id: thread.id, body: 'Incoming reply',
+    created_at: '2026-09-07T00:00:00Z', updated_at: '2026-09-07T00:00:00Z' }, 'incoming-reply')]);
+  expect(await getActivityThreadAttention([await db.chat_messages.get('incoming-reply')])).toEqual({ [thread.id]: true });
+  await assertInbox(true);
+  // A metadata-only refresh and an older receipt cannot erase later activity.
+  await apply([threadChange(2), receiptChange(0)]);
+  db.close(); await db.open();
+  await assertInbox(true);
+  // Tower advances the author's own receipt alongside their message activity.
+  await apply([threadChange(3), receiptChange(3), change(source, { thread_id: thread.id,
+    body: 'Own reply', created_by_actor_id: viewerActorId, updated_by_actor_id: viewerActorId }, 'own-reply')]);
+  await assertInbox(false);
+  await apply([threadChange(4), change(source, { thread_id: thread.id, body: 'Later incoming reply' }, 'later-reply')]);
+  // Unrelated newer rows must not conceal this scope's unread thread.
+  await db.channels.put({ ...(await db.channels.get(thread.channel_id)), record_id: 'unrelated-channel', scope_id: 'elsewhere' });
+  await db.chat_messages.bulkPut(Array.from({ length: 110 }, (_, i) => ({ ...root, record_id: `unrelated-${i}`,
+    pg_thread_id: `unrelated-thread-${i}`, channel_id: 'unrelated-channel', updated_at: '2099-01-01T00:00:00Z' })));
+  await assertInbox(true);
+  for (const limit of [1, 50, 150]) {
+    const page = await queryInboxSource({ ...input('chat', thread.scope_id), inboxActivityVisibleCount: limit,
+      deckInboxSearchQuery: 'Incoming' }, owner, 'chat_messages');
+    expect(page.unreadThreads[thread.id]).toBe(true);
+  }
+  await apply([{ ...thread, operation: 'delete', row: null, version: String(++version) }]);
+  expect(await getActivityThreadAttention([{ record_id: thread.id }])).toEqual({ [thread.id]: false });
+  expect(await getActivityThreadAttention([{ record_id: 'unavailable-thread' }])).toEqual({});
+});
 
 it('materializes canonical chats into owner activity, and recovers rows from previous installed builds without writes', async () => {
   const mapped = await db.chat_messages.toArray();

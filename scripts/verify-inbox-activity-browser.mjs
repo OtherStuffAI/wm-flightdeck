@@ -147,11 +147,21 @@ try {
   await page.evaluate(async () => {
     const row = window.probeStore.recentChannelMessages.find(row => row.record_id === window.latestProbeId);
     window.probeAttentionId = row.pg_thread_id || row.record_id;
-    await window.probeDb.pg_resource_attention.put({ record_id: `thread:${window.probeAttentionId}`, resource_type: 'thread', resource_id: window.probeAttentionId, unread: true });
+    await window.probeDb.pg_resource_attention.put({ record_id: `thread:${window.probeAttentionId}`, resource_type: 'thread', resource_id: window.probeAttentionId, unread: 1 });
   });
   await page.waitForFunction(() => window.probeStore.deckRecentChannels.some(row => row.id === window.probeAttentionId && row.isUnread));
-  await page.evaluate(() => window.probeDb.pg_resource_attention.update(`thread:${window.probeAttentionId}`, { unread: false }));
+  for (const type of ['all', 'chat']) {
+    await select.selectOption(type);
+    await page.waitForFunction(() => !window.probeStore.inboxActivityLoading
+      && window.probeStore.deckInboxType === document.querySelector('[aria-label="Inbox type"]').value
+      && window.probeStore.autopilotOverviewThreads.some(row => row.id === window.probeAttentionId && row.isUnread));
+    await page.locator('.flightdeck-summary-card-chat.flightdeck-summary-card-inbox-unread').first().waitFor();
+  }
+  await page.evaluate(() => window.probeDb.pg_resource_attention.update(`thread:${window.probeAttentionId}`, { unread: 0 }));
   await page.waitForFunction(() => window.probeStore.deckRecentChannels.some(row => row.id === window.probeAttentionId && !row.isUnread));
+  await page.waitForFunction(() => window.probeStore.autopilotOverviewThreads.some(row => row.id === window.probeAttentionId && !row.isUnread));
+  await page.locator('.flightdeck-summary-card-chat.flightdeck-summary-card-inbox-unread').waitFor({ state: 'hidden' });
+  await select.selectOption('task');
   await page.getByText('Live Feed insert', { exact: true }).waitFor();
   await page.locator('.deck-recent-thread-preview').filter({ hasText: 'Live Recent edit' }).waitFor();
   await page.evaluate(async () => {

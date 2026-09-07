@@ -419,7 +419,8 @@ function buildWorkspaceSpecs(store) {
         },
         {
           key: `status:messages:${store.inboxActivityVisibleCount || 100}:${store.deckInboxType || "all"}:${store.deckInboxSearchQuery || ""}:${store.deckInboxCurrentContextKey || ""}:${store.inboxActivityQueryRevision || 0}`,
-          query: () => queryInboxSource(store, ownerNpub, 'chat_messages'),
+          // Dexie needs an async querier to track attention reads after awaits.
+          query: async () => await queryInboxSource(store, ownerNpub, 'chat_messages'),
           onNext: (page) => {
             if (!inboxGuard()) return;
             store.inboxActivityPageHasMore = { ...store.inboxActivityPageHasMore, messages: page.hasMore };

@@ -1242,6 +1242,13 @@
       "notes": [
         "Mark chats as read continues past unavailable threads and updates read indicators only after Tower confirms each batch. Failed requests preserve unread indicators."
       ]
+    },
+    {
+      "buildNumber": 1895,
+      "label": "Restored Inbox chat unread indicators",
+      "notes": [
+        "Unread chats and replies show their indicators again in All and Chat Inbox and Recent Channels. Reading a thread clears its indicator, and later incoming activity can make it unread again."
+      ]
     }
   ]
 }

@@ -1809,7 +1809,7 @@ export async function getRecentChannelActivity(ownerNpub) {
 export async function getActivityThreadAttention(messages) {
   const ids = [...new Set(messages.map(row => row.pg_thread_id || row.parent_message_id || row.record_id))];
   const rows = await wsDb().pg_resource_attention.bulkGet(ids.map(id => `thread:${id}`));
-  return Object.fromEntries(rows.filter(Boolean).map(row => [row.resource_id, row.unread === true]));
+  return Object.fromEntries(rows.filter(Boolean).map(row => [row.resource_id, Boolean(row.unread)]));
 }
 
 export async function getTasksByOwner(ownerNpub) {
