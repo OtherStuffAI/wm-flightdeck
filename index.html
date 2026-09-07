@@ -234,12 +234,6 @@
       <p class="sync-error-text" x-show="$store.chat.scopeRepairSession.error" x-text="$store.chat.scopeRepairSession.error"></p>
     </div>
   </div>
-  <aside class="legacy-workspace-recovery-notice" role="alert" x-show="$store.chat.legacyWorkspaceRecoveryNotice" x-cloak>
-    <details>
-      <summary>Local edit recovery required — show recovery steps</summary>
-      <p x-text="$store.chat.legacyWorkspaceRecoveryNotice"></p>
-    </details>
-  </aside>
   <main class="app-shell">
     <template x-if="$store.chat.identityCardProfile">
       <div
@@ -384,6 +378,16 @@
               <span class="sync-error-text" x-text="$store.chat.syncSession.error"></span>
             </template>
           </div>
+          <section class="avatar-menu-section legacy-recovery-menu" x-show="$store.chat.legacyWorkspaceRecoveryNotice" x-cloak>
+            <details :open="!$store.chat.legacyWorkspaceRecoveryDismissed">
+              <summary x-text="$store.chat.legacyWorkspaceRecoveryDismissed ? 'Local recovery (dismissed)' : 'Local edit recovery'"></summary>
+              <p x-text="$store.chat.legacyWorkspaceRecoveryNotice"></p>
+              <p>Use Tower’s version to refresh this workspace and ignore its older drafts on this device. The old cache stays available as a fallback; it will not be copied or sent.</p>
+              <button type="button" @click="$store.chat.dismissLegacyWorkspaceRecovery()">Dismiss</button>
+              <button type="button" :disabled="$store.chat.legacyWorkspaceRecoveryBusy || $store.chat.syncing" @click="$store.chat.useTowerForLegacyRecovery()" x-text="$store.chat.legacyWorkspaceRecoveryBusy ? 'Refreshing from Tower…' : 'Use Tower’s version'"></button>
+              <p role="status" x-show="$store.chat.legacyWorkspaceRecoveryError" x-text="$store.chat.legacyWorkspaceRecoveryError"></p>
+            </details>
+          </section>
           <button type="button" @click="$store.chat.showAgentConnect()">Agent Connect</button>
           <button type="button" @click="$store.chat.copyContext()">Copy Context</button>
           <button type="button" @click="$store.chat.copyId()">Copy ID</button>

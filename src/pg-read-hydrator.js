@@ -556,6 +556,8 @@ export function mapPgChannelToLocal(channel, { workspaceOwnerNpub } = {}) {
     pg_record_type: 'channel',
     pg_kind: trimText(channel?.kind),
     pg_workspace_id: trimText(channel?.workspace_id),
+    ...(typeof channel?.can_read === 'boolean' ? { can_read: channel.can_read } : {}),
+    ...(typeof channel?.readable === 'boolean' ? { readable: channel.readable } : {}),
   };
 }
 
@@ -1934,12 +1936,28 @@ export async function hydrateTowerPgChannels(store, deps = {}) {
   if (!context.workspaceId || !context.workspaceOwnerNpub || !context.baseUrl) return [];
   const readChannels = deps.getTowerPgScopeChannels || getTowerPgScopeChannels;
   const replaceChannels = deps.replaceChannelsForOwner || replaceChannelsForOwner;
+  const authorityKey = `${towerPgSyncCursorKey(store)}:record-delta-v1`;
+  const readAuthority = deps.getSyncState || getSyncState;
+  const authority = await readAuthority(authorityKey);
+  const authorityToken = (state) => JSON.stringify([state?.cursor || null, state?.localGeneration || 0, Boolean(state?.resetting)]);
+  if (authority?.resetting) throw new Error('Channel authority is resetting');
 
-  let scopes = Array.isArray(store.scopes) ? store.scopes : [];
-  if (scopes.length === 0 && typeof store.refreshScopes === 'function') {
-    const refreshed = await store.refreshScopes();
-    scopes = Array.isArray(refreshed) ? refreshed : (Array.isArray(store.scopes) ? store.scopes : []);
+  // Alpine may still hold an empty/partial scope list after the scope read
+  // commits to Dexie. A coalesced refresh may also return only a freshness
+  // marker. Neither is an authority boundary for replacing workspace channels.
+  // Read the complete authorized scope list and retain the current partition's
+  // channels until every channel read succeeds. An explicit empty list still
+  // reconciles removals; a failed or malformed response does not.
+  const scopeResult = await (deps.getTowerPgWorkspaceScopes || getTowerPgWorkspaceScopes)(context.workspaceId, {
+    baseUrl: context.baseUrl,
+    appNpub: context.appNpub,
+    path: context.links.scopes || null,
+  });
+  assertTowerPgWorkspaceCurrent(store, context);
+  if (!Array.isArray(scopeResult?.scopes) || scopeResult.next_cursor || scopeResult.has_more || scopeResult.scopes.length >= 100) {
+    throw new Error('Incomplete Tower PG scopes response; workspace sync must reconcile channels');
   }
+  const scopes = scopeResult.scopes.map((scope) => mapPgScopeToLocal(scope, { workspaceOwnerNpub: context.workspaceOwnerNpub }));
 
   const channels = [];
   for (const scope of scopes.filter((entry) => entry?.record_id && entry.record_state !== 'deleted')) {
@@ -1947,14 +1965,26 @@ export async function hydrateTowerPgChannels(store, deps = {}) {
       baseUrl: context.baseUrl,
       appNpub: context.appNpub,
     });
-    const mapped = (Array.isArray(result?.channels) ? result.channels : [])
+    assertTowerPgWorkspaceCurrent(store, context);
+    if (!Array.isArray(result?.channels) || result.next_cursor || result.has_more || result.channels.length >= 100) {
+      throw new Error('Incomplete Tower PG channels response; workspace sync must reconcile channels');
+    }
+    const mapped = result.channels
       .map((channel) => mapPgChannelToLocal(channel, { workspaceOwnerNpub: context.workspaceOwnerNpub }))
       .filter((channel) => channel.record_id);
     channels.push(...mapped);
   }
 
   assertTowerPgWorkspaceCurrent(store, context);
-  await replaceChannels(context.workspaceOwnerNpub, channels);
+  await (deps.runWorkspaceSyncTransaction || runWorkspaceSyncTransaction)(async () => {
+    assertTowerPgWorkspaceCurrent(store, context);
+    // A newer delta/tombstone or ACL reset outranks this older list request.
+    // Check in the replacement transaction so a late response cannot revive it.
+    if (authorityToken(await readAuthority(authorityKey)) !== authorityToken(authority)) {
+      throw new Error('Channel authority changed while loading Tower data');
+    }
+    await replaceChannels(context.workspaceOwnerNpub, channels);
+  });
   return channels;
 }
 

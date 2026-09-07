@@ -1815,6 +1815,15 @@ describe('channels-manager pure utilities', () => {
       };
     }
 
+    it.each(['can_read', 'readable'])('hides revoked PG channels when only %s changes', async field => {
+      isTowerPgBackendMode.mockReturnValue(true);
+      const channel = { record_id: 'channel-1', scope_id: 'scope-1', version: 1, [field]: true };
+      const store = createStore({ channels: [channel], selectedChannelId: 'channel-1', currentWorkspace: { pgBackendMode: true } });
+      await channelsManagerMixin.applyChannels.call(store, [{ ...channel, [field]: false }], { syncRoute: false });
+      expect(store.channels).toEqual([]);
+      expect(store.selectedChannelId).toBeNull();
+    });
+
     it('applies saved channel order when channels load', async () => {
       isTowerPgBackendMode.mockReturnValue(false);
       const store = createStore({ channelOrder: ['ch3', 'ch1'] });

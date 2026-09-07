@@ -5,8 +5,7 @@
  * (the Alpine store) and should be spread into the store definition via applyMixins.
  */
 
-import { legacyWorkspaceRecoveryMessage } from './legacy-workspace-recovery.js';
-import { checkLegacyWorkspaceRecovery } from './legacy-workspace-recovery-client.js';
+import { legacyWorkspaceRecoveryMixin } from './legacy-workspace-recovery-manager.js';
 
 import {
   getSettings,
@@ -246,14 +245,7 @@ function writePersonalHarnessSettings(store, settings) {
 export const workspaceManagerMixin = {
 
   workspaceSelectionError: '',
-  legacyWorkspaceRecoveryNotice: '',
-
-  async refreshLegacyWorkspaceRecovery(workspace) {
-    const generation = this._workspaceSelectionGeneration;
-    const result = await checkLegacyWorkspaceRecovery(workspace);
-    if (generation !== this._workspaceSelectionGeneration || this.currentWorkspaceKey !== workspace.workspaceKey) return;
-    this.legacyWorkspaceRecoveryNotice = legacyWorkspaceRecoveryMessage(result);
-  },
+  ...legacyWorkspaceRecoveryMixin,
 
   // --- computed getters ---
 
@@ -1387,7 +1379,7 @@ export const workspaceManagerMixin = {
     const shouldResetRuntimeData = Boolean(
       (previousWorkspaceKey && previousWorkspaceKey !== nextWorkspaceKey)
       || (loadedWorkspaceKey && loadedWorkspaceKey !== nextWorkspaceKey)
-      || (shouldOpenWorkspaceHome && hasRuntimeData)
+      || (shouldOpenWorkspaceHome && hasRuntimeData && loadedWorkspaceKey !== nextWorkspaceKey)
       || (!loadedWorkspaceKey && hasRuntimeData && previousWorkspaceKey !== nextWorkspaceKey)
     );
     if (previousWorkspaceKey && previousWorkspaceKey !== nextWorkspaceKey) {

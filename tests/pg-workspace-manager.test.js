@@ -705,6 +705,28 @@ describe('PG workspace manager mode', () => {
     expect(store.syncRoute).toHaveBeenCalledWith(true);
   });
 
+  it('keeps known same-workspace channels visible while reopening home and verifying the session', async () => {
+    const workspace = { workspaceKey: 'pg:alpha', workspaceId: 'alpha', workspaceOwnerNpub: 'npub1owner', pgBackendMode: true };
+    let release;
+    const channels = [{ record_id: 'known-channel', scope_id: 'known-scope' }];
+    const scopes = [{ record_id: 'known-scope' }];
+    const store = await buildStore({ knownWorkspaces: [workspace], selectedWorkspaceKey: workspace.workspaceKey,
+      localWorkspaceCoreLoadedForKey: workspace.workspaceKey, channels, scopes,
+      ensureWorkspaceSessionKey: vi.fn(() => new Promise(resolve => { release = resolve; })),
+      loadLocalWorkspaceCoreData: vi.fn(),
+    });
+    const selecting = store.selectWorkspace(workspace.workspaceKey, { pgVerified: true, openWorkspaceHome: true });
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    expect(store.channels).toEqual(channels);
+    expect(store.scopes).toEqual(scopes);
+    release();
+    await selecting;
+    expect(store.channels).toEqual(channels);
+    expect(store.scopes).toEqual(scopes);
+    expect(store.loadLocalWorkspaceCoreData).not.toHaveBeenCalled();
+    expect(store.navSection).toBe('status');
+  });
+
   it('does not reload local PG core data when selecting the same already-loaded workspace', async () => {
     const workspace = {
       workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',

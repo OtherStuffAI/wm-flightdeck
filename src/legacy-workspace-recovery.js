@@ -43,5 +43,5 @@ export function legacyWorkspaceRecoveryMessage(result) {
   const reason = result?.status === 'required'
     ? 'An older workspace cache contains unsynced edits or saved drafts.'
     : 'Flight Deck could not check an older workspace cache for unsynced edits.';
-  return `Local edit recovery required. ${reason} Older edits have not been copied or sent. Keep this browser’s site data and ask your workspace administrator for recovery help: back up the old cache, confirm which workspace each edit belongs to, then recover it there. This notice will return while recovery is unresolved.`;
+  return `Local edit recovery required. ${reason} Older edits have not been copied or sent. Keep this browser’s site data and ask your workspace administrator for recovery help: back up the old cache, confirm which workspace each edit belongs to, then recover it there. Choose recovery, dismiss this notice, or use Tower’s version from this menu.`;
 }

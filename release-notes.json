@@ -583,7 +583,7 @@
       "buildNumber": 1771,
       "label": "Delegated WApp management",
       "notes": [
-        "Grant a person or agent narrow, expiring WApp management authority from Setup \u2192 Permissions, preview its limits before signing, and revoke it immediately.",
+        "Grant a person or agent narrow, expiring WApp management authority from Setup → Permissions, preview its limits before signing, and revoke it immediately.",
         "Assign existing WApps through installation intents and inspect pending, active, failed, repairable, or revoked lifecycle state with reconcile and revoke controls."
       ]
     },
@@ -1213,6 +1213,21 @@
       "label": "WApp image uploads",
       "notes": [
         "Choose and preview an icon image in Add or Edit WApp, upload it publicly to Primal Blossom, and save its URL with your launcher. Upload errors can be retried without losing the form."
+      ]
+    },
+    {
+      "buildNumber": 1890,
+      "label": "Channels stay visible during startup",
+      "notes": [
+        "Keep known channels visible while workspace navigation hydrates after an update. Honor access removals and isolate delayed responses from other workspaces."
+      ]
+    },
+    {
+      "buildNumber": 1891,
+      "label": "Dismissible recovery controls",
+      "notes": [
+        "Review legacy local-edit recovery from the avatar menu and dismiss it on this device.",
+        "Choose Tower’s version to refresh the workspace and stop prompting about older drafts, while retaining the old cache as a fallback."
       ]
     }
   ]

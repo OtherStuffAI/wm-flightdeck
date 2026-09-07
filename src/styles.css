@@ -22418,21 +22418,12 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   pointer-events: none;
 }
 
-/* Persistent upgrade warning, including when the workspace switcher is closed. */
-.legacy-workspace-recovery-notice {
-  position: fixed;
-  bottom: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10000;
-  width: min(42rem, calc(100vw - 2rem));
-  max-height: 35vh;
+/* Recovery controls live with the current workspace's avatar status. */
+.legacy-recovery-menu {
+  max-height: 45vh;
   overflow: auto;
-  padding: 0.8rem 1rem;
-  border: 1px solid #a66b00;
-  border-radius: 0.5rem;
-  background: #fff4ce;
-  color: #422b00;
+  color: var(--text-primary);
   font-size: 0.875rem;
-  box-shadow: 0 2px 12px #0003;
 }
+.legacy-recovery-menu summary { cursor: pointer; }
+.legacy-recovery-menu p { margin: 0.6rem 0; line-height: 1.4; }

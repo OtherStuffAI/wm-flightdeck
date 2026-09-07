@@ -1206,6 +1206,9 @@ describe('PG read hydrator', () => {
     const replacePgMessagesForChannel = vi.fn(async () => 2);
 
     const rows = await hydrateTowerPgChannels(target, {
+      getSyncState: async () => null,
+      runWorkspaceSyncTransaction: async (callback) => callback(),
+      getTowerPgWorkspaceScopes: async () => ({ scopes: [{ id: 'scope-1' }] }),
       getTowerPgScopeChannels,
       getTowerPgChannelThreads,
       getTowerPgChannelMessages,

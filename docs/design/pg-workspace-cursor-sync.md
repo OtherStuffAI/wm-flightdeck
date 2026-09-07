@@ -57,8 +57,8 @@ selected UUID partition continues its independent normal sync.
 
 A nonempty `pending_writes` or `document_drafts` table, any row with
 `sync_status` pending/failed, or `pg_reconciliation_pending: true` triggers a
-persistent **Local edit recovery required** banner outside the workspace
-switcher. Expand it for recovery steps. A clean cache produces no banner.
+**Local edit recovery** section in the avatar menu. Expand it for recovery
+steps and device-local choices. A clean cache produces no banner.
 An inspection failure, unavailable worker or 30-second timeout produces a
 could-not-check recovery notice; it is never treated as a clean cache. Checks
 run off the main thread, and late results from an earlier activation are
@@ -92,9 +92,8 @@ Recovery path for an administrator assisting the browser owner:
    requirements. Confirm the edit has synced. Retain the original backup.
    Any selective archival/removal of recovered legacy items requires the
    browser owner's explicit approval; this client does not perform it.
-5. Reload or reselect the workspace to recheck. The notice remains while any
-   protected legacy data remains (including intentionally retained recovered
-   copies), and disappears only when inspection finds no protected items.
+5. Reload or reselect the workspace to recheck. The menu entry remains while protected legacy data remains unless the owner
+   chooses Tower for that workspace. Dismiss keeps it collapsed across reloads.
 
 Limitations: there is no in-app export, attribution, replay, or acknowledgement
 workflow. Saved document drafts are conservatively flagged even if already
@@ -104,3 +103,42 @@ Runtime/browser review must verify the worker under the deployed CSP, banner
 readability on desktop/mobile, repeat reload, same-service switching and a
 clean-cache startup. Unit coverage uses real Dexie with fake IndexedDB; it does
 not replace an actual browser recovery rehearsal.
+
+### Navigation hydration ordering (build 1890)
+
+The channel-list hydrator must not use the rendered Alpine scope collection as
+an authoritative scope manifest. Scope reads commit to Dexie before `liveQuery`
+delivers them, and a repeated family refresh can return a freshness marker
+instead of rows. Treating that interval as an empty workspace erased cached
+channels during startup.
+
+Channel-list hydration now reads Tower's scope list directly, gathers all
+channel lists, then replaces channels in one workspace transaction. Existing
+same-workspace channels remain visible throughout the read. Failed, malformed,
+or potentially capped list responses leave the cache intact; bounded workspace
+sync remains the reconciliation path for collections reaching the list limit.
+Successful empty lists still reconcile removals. The commit rejects changed
+workspace activations and changed record-delta authority (cursor, reset state,
+or local generation), so a delayed list cannot undo a newer revocation/reset.
+Explicit unreadable channel rows are hidden even without a version change.
+
+Opening home in an already-loaded workspace preserves its rendered collections.
+Different-workspace activation and unproven preselected runtime state still
+reset them. No legacy cache is copied and no new authorization cache is created.
+
+### Device-local recovery choices
+
+Recovery notices live in the avatar menu, never in a fixed page overlay.
+**Dismiss** collapses the notice and persists that preference for the current
+workspace key (including its signer and UUID) on this browser only. The entry
+can still be expanded to review or resolve it.
+
+**Use Tower’s version** performs the normal PG full pull into the canonical
+workspace partition, then records that the owner has chosen not to recover the
+older drafts for this workspace on this device. It does not import or replay
+legacy pending commands, erase shared legacy databases, change other workspace
+preferences, or discard newer edits in the canonical partition. Original old
+caches remain a fallback. The notice is retired only after a successful Tower
+refresh and preference write; failed refreshes remain retryable. Stale inspection
+results and completions from an earlier workspace activation cannot override the
+choice or affect a newly selected workspace.

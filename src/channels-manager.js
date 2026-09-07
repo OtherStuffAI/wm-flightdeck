@@ -2332,7 +2332,7 @@ export const channelsManagerMixin = {
       : null;
     const pgChannelVisibilityAuthoritative = Boolean(isTowerPgBackendMode() || this.currentWorkspace?.pgBackendMode);
     const visibleChannels = pgChannelVisibilityAuthoritative
-      ? allChannels
+      ? allChannels.filter((channel) => channel.record_state !== 'deleted' && channel.can_read !== false && channel.readable !== false)
       : filterChannelsForViewer(allChannels, this.session?.npub, this.workspaceOwnerNpub, this.groups);
     const savedChannelOrder = Array.isArray(this.channelOrder)
       ? this.channelOrder.map((id) => String(id || '').trim()).filter(Boolean)
