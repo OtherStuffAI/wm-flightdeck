@@ -136,3 +136,11 @@ describe('updateTowerPgMessageFromLocal', () => {
     ]));
   });
 });
+
+it('maps a successful create_thread response without a thread expansion as the source root', async () => {
+  const row = await createTowerPgMessageFromLocal({
+    backendUrl: 'https://tower.example.com', session: { npub: 'npub1sender' },
+    currentWorkspace: { workspaceId: 'workspace-1', workspaceOwnerNpub: 'npub1workspace', appNpub: 'npub1app' },
+  }, { record_id: 'local-root', pg_client_request_id: 'local-root', channel_id: 'channel-1', body: 'Root body' });
+  expect(row).toMatchObject({ record_id: 'message-1', parent_message_id: null, pg_thread_id: 'thread-created-1' });
+});

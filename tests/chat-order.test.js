@@ -115,3 +115,11 @@ describe('chat order helpers', () => {
     ]);
   });
 });
+
+it('renders the authored source once while retaining a thread history metadata row', () => {
+  const source = { record_id: 'source', channel_id: 'channel', pg_thread_id: 'thread', body: 'Authored body', parent_message_id: null, pg_record_type: 'message' };
+  const thread = { record_id: 'thread', channel_id: 'channel', pg_thread_id: 'thread', pg_source_message_id: 'source', pg_effective_message_ids: ['source'], body: 'Title', parent_message_id: null, pg_record_type: 'thread' };
+  expect(rankMainFeedMessages([source, thread])).toEqual([source]);
+  expect(rankMainFeedMessages([thread])).toEqual([thread]);
+  expect(thread.pg_effective_message_ids).toEqual(['source']);
+});

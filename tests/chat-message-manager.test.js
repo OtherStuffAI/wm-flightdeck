@@ -3424,7 +3424,7 @@ describe('chat message actions menu', () => {
     expect(fn({ ...failed, pg_client_request_id: 'different' })).toBe(false);
   });
 
-  it('resends body, mentions, and attachments with a fresh identity and reconciles the failed row', async () => {
+  it('retries body, mentions, and original attachment IDs with the same command identity', async () => {
     const workspaceDbKey = 'chat-message-manager-resend-success';
     openWorkspaceDb(workspaceDbKey);
     await clearRuntimeData();
@@ -3459,19 +3459,15 @@ describe('chat message actions menu', () => {
       expect(await fn('failed-local')).toBe(true);
       const retried = createTowerPgMessageFromLocal.mock.calls[0][1];
       expect(retried).toMatchObject({
-        body: 'Retry @[Test Agent](mention:agent:npub1testagent) [brief.pdf](storage://storage-copy-1)',
-        attachments: [{ ...attachment, storage_object_id: 'storage-copy-1' }],
+        body: failed.body,
+        attachments: [attachment],
         pg_metadata: { mentions: [mention] },
-        pg_client_request_id: expect.any(String),
+        pg_client_request_id: 'failed-local',
+        record_id: 'failed-local',
       });
-      expect(retried.record_id).not.toBe('failed-local');
-      expect(downloadStorageObjectBlob).toHaveBeenCalledWith('storage-1', { backendUrl: 'https://tower.example' });
-      expect(uploadStorageObject).toHaveBeenCalledWith(
-        { object_id: 'storage-copy-1' }, expect.any(Uint8Array), 'application/pdf',
-      );
-      expect(completeStorageObject).toHaveBeenCalledWith('storage-copy-1', {
-        size_bytes: 3, sha256_hex: 'abc123',
-      });
+      expect(downloadStorageObjectBlob).not.toHaveBeenCalled();
+      expect(uploadStorageObject).not.toHaveBeenCalled();
+      expect(completeStorageObject).not.toHaveBeenCalled();
       expect(await getMessageById('failed-local')).toBeUndefined();
       expect((await getMessagesByChannel('channel-1')).map((message) => message.record_id)).toEqual(['delivered-1']);
       expect(store.messages.map((message) => message.record_id)).toEqual(['delivered-1']);
@@ -3480,7 +3476,7 @@ describe('chat message actions menu', () => {
     }
   });
 
-  it('keeps the failed row and clears the guard when attachment copying fails', async () => {
+  it('keeps the command and attachment IDs retryable when delivery fails again', async () => {
     const workspaceDbKey = 'chat-message-manager-resend-copy-failure';
     openWorkspaceDb(workspaceDbKey);
     await clearRuntimeData();
@@ -3494,25 +3490,25 @@ describe('chat message actions menu', () => {
 
     try {
       await upsertMessage(failed);
-      downloadStorageObjectBlob.mockRejectedValue(new Error('Original attachment is unavailable'));
+      createTowerPgMessageFromLocal.mockRejectedValue(new Error('Connection unavailable'));
       const { fn, store } = bindMethod('resendFailedMessage', {
         session: { npub: 'npub1operator-a' }, messages: [failed], selectedChannelId: 'channel-1',
         channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }],
       });
 
       expect(await fn('failed-local')).toBe(false);
-      expect(createTowerPgMessageFromLocal).not.toHaveBeenCalled();
-      expect(await getMessageById('failed-local')).toEqual(failed);
-      expect(store.messages).toEqual([failed]);
+      expect(createTowerPgMessageFromLocal).toHaveBeenCalledTimes(1);
+      expect(await getMessageById('failed-local')).toMatchObject({ record_id: failed.record_id, attachments: failed.attachments, sync_status: 'failed' });
+      expect(store.messages).toHaveLength(1);
       expect(store.messageResendPendingIds).toEqual([]);
       expect(store.canResendMessage(failed)).toBe(true);
-      expect(store.error).toBe('Could not copy attachments for resend: Original attachment is unavailable');
+      expect(store.error).toContain('Connection unavailable');
     } finally {
       await deleteWorkspaceDb(workspaceDbKey);
     }
   });
 
-  it('deduplicates a pending resend and leaves the fresh failed row retryable after rejection', async () => {
+  it('deduplicates a pending resend and retains the same failed command after rejection', async () => {
     const workspaceDbKey = 'chat-message-manager-resend-failure';
     openWorkspaceDb(workspaceDbKey);
     await clearRuntimeData();
@@ -3541,7 +3537,8 @@ describe('chat message actions menu', () => {
       const freshFailed = await getMessageById(freshId);
       expect(freshFailed).toMatchObject({ body: 'Retry me', sync_status: 'failed' });
       expect(store.canResendMessage(freshFailed)).toBe(true);
-      expect(await getMessageById('failed-local')).toBeUndefined();
+      expect(freshId).toBe('failed-local');
+      expect(await getMessageById('failed-local')).toEqual(freshFailed);
     } finally {
       await deleteWorkspaceDb(workspaceDbKey);
     }
@@ -4805,4 +4802,62 @@ describe('chat thread flow dispatch preview lifecycle', () => {
     expect(store.chatThreadFlowDispatchDirty).toBe(false);
     expect(store.chatThreadFlowDispatchPreviewStale).toBe(false);
   });
+});
+
+it('keeps the open optimistic thread and draft when canonical hydration replaces its root', async () => {
+  const store = createStore({
+    selectedChannelId: 'ch1', activeThreadId: 'local-root', threadInput: 'unsent reply',
+    messages: [{ record_id: 'local-root', channel_id: 'ch1', parent_message_id: null, body: 'root', pg_backend: true, sync_status: 'pending' }],
+  });
+  await store.applyMessages([{ record_id: 'canonical-root', channel_id: 'ch1', parent_message_id: null, pg_client_record_id: 'local-root', pg_thread_id: 'canonical-thread', body: 'root', sync_status: 'synced' }], { scrollToLatest: false });
+  expect(store.activeThreadId).toBe('canonical-root');
+  expect(store.threadInput).toBe('unsent reply');
+  expect(store.messages.map(row => row.record_id)).toEqual(['canonical-root']);
+});
+
+it.each([false, true])('replays the same command after a lost response and reload (reply=%s)', async (reply) => {
+  const workspaceKey = `chat-lost-response-${reply}`;
+  openWorkspaceDb(workspaceKey);
+  await clearRuntimeData();
+  isTowerPgBackendMode.mockReturnValue(true);
+  const server = new Map();
+  let loseResponse = true;
+  createTowerPgMessageFromLocal.mockImplementation(async (_store, row, options) => {
+    const request = { body: row.body, channel: row.channel_id, thread: options?.parentMessage?.pg_thread_id || null, attachments: row.attachments };
+    const existing = server.get(row.pg_client_request_id);
+    if (existing) expect(request).toEqual(existing.request);
+    else server.set(row.pg_client_request_id, { request, id: `canonical-${server.size}` });
+    if (loseResponse) { loseResponse = false; throw new Error('Response lost after server commit'); }
+    return { ...row, record_id: server.get(row.pg_client_request_id).id, pg_record_type: 'message', pg_thread_id: request.thread || 'created-thread', sync_status: 'synced' };
+  });
+  const root = { record_id: 'root', channel_id: 'channel-1', pg_thread_id: 'original-thread', parent_message_id: null, body: 'Root', sync_status: 'synced' };
+  const initial = createStore({ session: { npub: 'npub1viewer' }, channels: [{ record_id: 'channel-1' }], selectedChannelId: 'channel-1', messages: reply ? [root] : [], activeThreadId: reply ? 'root' : null, messageInput: 'Retry body', threadInput: 'Retry body' });
+  try {
+    await (reply ? initial.sendThreadReply() : initial.sendMessage());
+    const failed = (await getMessagesByChannel('channel-1')).find(row => row.sync_status === 'failed');
+    expect(failed).toBeTruthy();
+    // Reloaded client; the open thread is deliberately different from the failed command.
+    const reloaded = createStore({ session: { npub: 'npub1viewer' }, channels: [{ record_id: 'channel-1' }], selectedChannelId: 'channel-1', messages: [failed, { ...root, record_id: 'other-root', pg_thread_id: 'other-thread' }], activeThreadId: 'other-root' });
+    expect(await reloaded.resendFailedMessage(failed.record_id)).toBe(true);
+    expect(server.size).toBe(1);
+    expect(await getMessageById(failed.record_id)).toBeUndefined();
+    const accepted = (await getMessagesByChannel('channel-1')).filter(row => row.pg_record_type === 'message');
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0].pg_thread_id).toBe(reply ? 'original-thread' : 'created-thread');
+  } finally { await deleteWorkspaceDb(workspaceKey); }
+});
+
+it('does not resurrect an optimistic row when a lost POST response fails after SSE acknowledged it', async () => {
+  const { replaceMessageRecord } = await import('../src/db.js');
+  const key = 'chat-late-failure';
+  openWorkspaceDb(key); await clearRuntimeData();
+  try {
+    const optimistic = { record_id: 'optimistic', channel_id: 'channel', pg_backend: true, sync_status: 'pending', body: 'Sent' };
+    await upsertMessage(optimistic);
+    const s = createStore({ messages: [optimistic] });
+    await replaceMessageRecord('optimistic', { ...optimistic, record_id: 'accepted', pg_record_type: 'message', pg_client_record_id: 'optimistic', sync_status: 'synced' });
+    await s.setMessageSyncStatus('optimistic', 'failed');
+    expect(await getMessageById('optimistic')).toBeUndefined();
+    expect((await getMessageById('accepted')).sync_status).toBe('synced');
+  } finally { await deleteWorkspaceDb(key); }
 });

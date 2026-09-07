@@ -233,3 +233,15 @@ describe('channelsManagerMixin', () => {
     expect(source).toContain('!expiredByMaxAge');
   });
 });
+
+it('hydrates the mention roster on cold PG chat entry without opening settings', async () => {
+  const refreshTowerPgWorkspaceMembers = vi.fn().mockResolvedValue([]);
+  const store = createStore({
+    currentWorkspace: { workspaceId: 'workspace-a', pgBackendMode: true },
+    refreshTowerPgWorkspaceMembers,
+    selectedChannelId: null,
+  });
+  await store.selectChannel('channel-a', { syncRoute: false });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(refreshTowerPgWorkspaceMembers).toHaveBeenCalled();
+});

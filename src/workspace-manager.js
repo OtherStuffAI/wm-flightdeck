@@ -1444,6 +1444,7 @@ export const workspaceManagerMixin = {
         this.workspaceHarnessAgents = [];
         this.dailyNotes = [];
         this.pgWorkspaceMembers = [];
+        this.closeMentionPopover?.();
         this.recentChannelMessages = [];
         this.resetWappActivityProjection?.();
         this.selectedDocId = null;

@@ -393,6 +393,7 @@ function buildWorkspaceSpecs(store) {
       onNext: (members) => {
         if (!isSameWorkspace(store, workspaceKey, ownerNpub)) return;
         store.pgWorkspaceMembers = members;
+        store.refreshActiveMentionResults?.();
         store.scheduleTowerPgUnreadProjectionRefresh?.();
       },
     }] : []),

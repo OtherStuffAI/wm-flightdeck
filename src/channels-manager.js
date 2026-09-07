@@ -101,6 +101,8 @@ import { buildSidebarScopeChannelGroups } from './sidebar-navigation.js';
 
 const FULL_NPUB_PATTERN = /^npub1[023456789acdefghjklmnpqrstuvwxyz]{50,}$/i;
 const SYSTEM_SCOPE_IDS = new Set(['__all__', '__recent__', '__unscoped__']);
+const mentionRosterRequests = new WeakMap();
+
 function refreshPgChannelInBackground(store, channelId) {
   const key = String(channelId || '').trim();
   if (!key) return Promise.resolve();
@@ -947,9 +949,33 @@ export const channelsManagerMixin = {
       });
   },
 
+  ensureChatMentionRoster() {
+    const context = resolveTowerPgWorkspaceContext(this);
+    const key = JSON.stringify([context.workspaceId, context.baseUrl, context.appNpub]);
+    const previous = mentionRosterRequests.get(this);
+    if (previous?.key === key && previous.workspace === this.currentWorkspace && (previous.promise || Date.now() - previous.loadedAt < 30_000)) {
+      return previous.promise || Promise.resolve();
+    }
+    const request = { key, workspace: this.currentWorkspace, loadedAt: 0, promise: null };
+    request.promise = this.refreshTowerPgWorkspaceMembers({ limit: 200 })
+      .then(() => { request.loadedAt = Date.now(); })
+      .catch(error => {
+        flightDeckLog('warn', 'chat', 'mention roster refresh failed', { error: error?.message || String(error) });
+      })
+      .finally(() => { request.promise = null; });
+    mentionRosterRequests.set(this, request);
+    return request.promise;
+  },
+
   async refreshTowerPgWorkspaceMembers(options = {}) {
     const { workspaceId, workspaceOwnerNpub, baseUrl, appNpub } = resolveTowerPgWorkspaceContext(this);
     if (!workspaceId || !baseUrl) return [];
+    const selectedWorkspace = this.currentWorkspace;
+    const isCurrent = () => {
+      const current = resolveTowerPgWorkspaceContext(this);
+      return this.currentWorkspace === selectedWorkspace && current.workspaceId === workspaceId
+        && current.baseUrl === baseUrl && current.appNpub === appNpub;
+    };
     const currentActor = mapTowerPgActor(this.currentWorkspace?.pgMe?.actor || {});
     const selfMember = currentActor?.npub
       ? [{
@@ -982,7 +1008,9 @@ export const channelsManagerMixin = {
       });
     }
     const members = [...byNpub.values()];
+    if (!isCurrent()) return [];
     if (hasWorkspaceDb()) await replaceWorkspaceMembers(workspaceId, members);
+    if (!isCurrent()) return [];
     if (members.length > 0) {
       await this.rememberPeople(members.map((member) => member.npub), 'pg-workspace-member');
     }
@@ -2721,6 +2749,7 @@ export const channelsManagerMixin = {
         sinceSelectionMs: channelSelectionNow() - selectionStartedAt,
       });
       if (isPgWorkspace) {
+        void this.ensureChatMentionRoster();
         try {
           await refreshPgChannelInBackground(this, recordId);
         } catch (error) {

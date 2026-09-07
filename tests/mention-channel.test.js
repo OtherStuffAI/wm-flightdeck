@@ -571,3 +571,36 @@ describe('channel mention lookup', () => {
     expect(store.syncRoute).toHaveBeenCalledTimes(1);
   });
 });
+
+it('does not offer cached agents from another workspace while the current PG roster is empty', async () => {
+  const store = await createStore();
+  store.selectedWorkspaceKey = 'workspace-b';
+  store.pgBackendMode = true;
+  store.pgWorkspaceMembers = [];
+  store.addressBookPeople = [{ npub: 'npub1oldagent', label: 'Old Agent', kind: 'agent' }];
+  store.workspaceHarnessAgents = [{ npub: 'npub1oldagent', name: 'Old Agent' }];
+  expect(store.buildMentionPeople().some(row => row.id === 'npub1oldagent')).toBe(false);
+});
+
+it('refreshes an already open mention menu when the roster finishes hydrating', async () => {
+  const store = await createStore();
+  store.mentionActive = true;
+  store._mentionTargetEl = { dataset: {} };
+  store.mentionQuery = 'Agent';
+  store.mentionResults = [];
+  store.pgWorkspaceMembers = [{ actor_id: 'agent-current', npub: 'npub1currentagent', kind: 'agent', display_name: 'Current Agent' }];
+  store.refreshActiveMentionResults();
+  expect(store.mentionResults).toEqual(expect.arrayContaining([expect.objectContaining({ id: 'npub1currentagent', type: 'agent', label: 'Current Agent' })]));
+});
+
+it('offers canonical roster agents in the actual channel-visible composer before groups load', async () => {
+  const store = await createStore();
+  store.pgBackendMode = true;
+  store.selectedChannelId = 'cold-channel';
+  store.channels = [{ record_id: 'cold-channel', record_state: 'active' }];
+  store.pgWorkspaceMembers = [{ actor_id: 'current-agent', npub: 'npub1currentagent', kind: 'agent', display_name: 'Current Agent' }];
+  store.groups = [];
+  expect(store.searchMentions('Current', { visibleOnly: true })).toEqual(expect.arrayContaining([
+    expect.objectContaining({ id: 'npub1currentagent', type: 'agent' }),
+  ]));
+});

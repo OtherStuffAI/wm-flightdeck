@@ -8065,7 +8065,20 @@ export function initApp() {
       return refreshPromise;
     },
 
+    refreshActiveMentionResults() {
+      if (!this.mentionActive || !this._mentionTargetEl) return;
+      const options = {
+        visibleOnly: this._mentionTargetEl.dataset?.workroomComposer === 'true'
+          || this._mentionTargetEl.dataset?.channelVisibleMentions === 'true',
+      };
+      this.mentionResults = this.mentionQuery.length === 0
+        ? this.getDefaultMentionResults(8, options)
+        : this.searchMentions(this.mentionQuery, options);
+      this.mentionSelectedIndex = 0;
+    },
+
     refreshMentionResultsFromLocalIndex(query, targetEl) {
+      if (this.currentWorkspace?.pgBackendMode || this.pgBackendMode) void this.ensureChatMentionRoster();
       const normalizedQuery = String(query || '');
       const previousDocumentIndex = this.mentionDocumentIndex;
       const mentionOptions = {
@@ -8125,7 +8138,8 @@ export function initApp() {
       const currentWorkspaceActorNpubs = new Set((this.pgWorkspaceMembers || [])
         .map((member) => String(member?.npub || member?.actor?.npub || '').trim())
         .filter(Boolean));
-      const hasCurrentWorkspaceActorRoster = currentWorkspaceActorNpubs.size > 0;
+      const hasCurrentWorkspaceActorRoster = currentWorkspaceActorNpubs.size > 0
+        || Boolean(this.currentWorkspace?.pgBackendMode || this.pgBackendMode);
       const authoritativeIntegrationNpubs = new Set();
       const workspaceAgentNpubs = new Set();
       const durableLabels = new Map();
@@ -8204,6 +8218,9 @@ export function initApp() {
       }
       for (const member of (this.pgWorkspaceMembers || [])) {
         const kind = member?.kind || member?.actor_kind || member?.actor?.kind;
+        if (String(kind || '').toLowerCase() === 'agent') {
+          workspaceAgentNpubs.add(String(member?.npub || member?.user_npub || member?.member_npub || '').trim());
+        }
         add(
           member?.npub || member?.user_npub || member?.member_npub,
           member?.display_name || member?.label || member?.name,

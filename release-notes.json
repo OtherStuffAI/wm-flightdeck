@@ -1256,6 +1256,21 @@
       "notes": [
         "Read receipts now reconcile automatically without local-edit warnings. Existing read-marker warnings clear during sync, and missing shared text no longer appears as an access change."
       ]
+    },
+    {
+      "buildNumber": 1897,
+      "label": "Reliable agent mentions and chat threads",
+      "notes": [
+        "Agents load for mentions when entering chat, without opening settings, and stay isolated to the selected workspace.",
+        "Thread summaries no longer appear as duplicate messages. Sending and retrying preserve message identity, thread links and unsent reply drafts."
+      ]
+    },
+    {
+      "buildNumber": 1898,
+      "label": "Agents available in channel composers",
+      "notes": [
+        "Channel and thread mention menus include current workspace agents immediately after the roster loads, without waiting for group settings."
+      ]
     }
   ]
 }

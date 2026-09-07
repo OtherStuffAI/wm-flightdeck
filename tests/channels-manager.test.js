@@ -2661,3 +2661,20 @@ describe('channels-manager pure utilities', () => {
     });
   });
 });
+
+it('discards a roster response after switching workspace databases', async () => {
+  const { openWorkspaceDb, getWorkspaceDb, getWorkspaceMembers } = await import('../src/db.js');
+  let finish;
+  getTowerPgWorkspaceMembers.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const store = createPgGrantStore({ rememberPeople: vi.fn(async () => {}) });
+  openWorkspaceDb('mention-roster-a');
+  await getWorkspaceDb().open();
+  const request = store.refreshTowerPgWorkspaceMembers();
+  store.currentWorkspace = { ...store.currentWorkspace, workspaceId: 'workspace-b' };
+  openWorkspaceDb('mention-roster-b');
+  await getWorkspaceDb().open();
+  finish({ members: [{ actor: { actor_id: 'agent-a', npub: 'npub1agent-a', kind: 'agent', display_name: 'Agent A' } }] });
+  await request;
+  expect(await getWorkspaceMembers('workspace-1')).toEqual([]);
+  expect(store.rememberPeople).not.toHaveBeenCalled();
+});

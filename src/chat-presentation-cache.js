@@ -26,8 +26,13 @@ export function buildThreadAwarePresentationWindow(messages = [], {
     .filter((message) => message && String(message.record_state || 'active') !== 'deleted');
   const byId = new Map(rows.map((message) => [String(message.record_id || ''), message]));
   const requiredIds = new Set();
+  const isSourceSummary = (row) => {
+    const source = byId.get(row.pg_source_message_id);
+    return row.pg_record_type === 'thread' && source?.pg_record_type === 'message'
+      && source.pg_thread_id === row.record_id && source.channel_id === row.channel_id && !source.parent_message_id;
+  };
   const roots = rows
-    .filter((message) => !String(message.parent_message_id || '').trim())
+    .filter((message) => !String(message.parent_message_id || '').trim() && !isSourceSummary(message))
     .sort((left, right) => timestamp(left).localeCompare(timestamp(right)) || String(left.record_id).localeCompare(String(right.record_id)))
     .slice(-Math.max(1, Number(rootLimit) || CHAT_PRESENTATION_ROOT_LIMIT));
   for (const root of roots) requiredIds.add(String(root.record_id || ''));
@@ -60,6 +65,9 @@ export function buildThreadAwarePresentationWindow(messages = [], {
     }
   }
 
+  for (const row of rows) {
+    if (isSourceSummary(row) && requiredIds.has(String(row.pg_source_message_id))) requiredIds.add(String(row.record_id));
+  }
   return rows
     .filter((message) => requiredIds.has(String(message.record_id || '')))
     .sort((left, right) => timestamp(left).localeCompare(timestamp(right)) || String(left.record_id).localeCompare(String(right.record_id)));

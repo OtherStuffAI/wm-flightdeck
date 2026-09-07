@@ -9,6 +9,7 @@ import {
   getMessagesByChannel,
   getMessagePresentationWindowByChannels,
   getMessageById,
+  updateExistingMessageSyncStatus,
   upsertMessage,
   replaceMessageRecord,
   deleteMessageRuntimeState,
@@ -17,10 +18,7 @@ import {
   clearAgentActivity,
 } from './db.js';
 import {
-  completeStorageObject,
-  downloadStorageObjectBlob,
   fetchRecordHistory,
-  uploadStorageObject,
 } from './api.js';
 import { deleteTowerPgChannel, queueTowerPendingWrite } from './tower-command-intents.js';
 import {
@@ -88,7 +86,6 @@ import {
   mergeChatStorageAttachments,
   standaloneChatFileAttachments,
 } from './chat-attachments.js';
-import { buildStoragePrepareBody } from './storage-payloads.js';
 
 const chatDerivedCache = new WeakMap();
 const THREAD_REPLY_PREVIEW_WORD_LIMIT = 50;
@@ -985,6 +982,7 @@ export const chatMessageManagerMixin = {
         || this.pgContextScopeId
         || this.pgContextScope?.record_id,
     }));
+    this.reconcileOpenThreadIdentity(nextMessages);
     const activeThreadId = String(this.activeThreadId || '').trim();
     const activeDeckThread = this.navSection === 'status'
       && Boolean(activeThreadId)
@@ -1255,7 +1253,27 @@ export const chatMessageManagerMixin = {
     await this.applyMessages(messages, options);
   },
 
+  reconcileOpenThreadIdentity(messages = []) {
+    const activeId = String(this.activeThreadId || '').trim();
+    if (!activeId) return;
+    const source = messages.find(row => !row.parent_message_id && row.record_id !== activeId
+      && (row.pg_client_record_id === activeId || row.pg_thread_id === activeId));
+    if (!source) return;
+    const oldDraftKey = this.getChatComposerDraftKey('thread');
+    this.activeThreadId = source.record_id;
+    const drafts = { ...(this.chatComposerDrafts || {}) };
+    delete drafts[oldDraftKey];
+    this.chatComposerDrafts = drafts;
+    this.saveChatComposerDraft('thread');
+    this.syncRoute?.();
+  },
+
   patchMessageLocal(nextMessage) {
+    this.reconcileOpenThreadIdentity([nextMessage]);
+    if (nextMessage.pg_record_type === 'message' && !nextMessage.parent_message_id && nextMessage.pg_thread_id) {
+      this.messages = this.messages.filter(row => !(row.pg_record_type === 'thread' && !Array.isArray(row.pg_effective_message_ids)
+        && row.record_id === nextMessage.pg_thread_id && row.pg_source_message_id === nextMessage.record_id));
+    }
     const index = this.messages.findIndex((item) => item.record_id === nextMessage.record_id);
     if (index >= 0) {
       this.messages.splice(index, 1, { ...this.messages[index], ...nextMessage });
@@ -1277,6 +1295,12 @@ export const chatMessageManagerMixin = {
     const message = this.messages.find((item) => item.record_id === recordId)
       ?? await getMessageById(recordId);
     if (!message) return;
+    if (message.pg_backend) {
+      const updated = await updateExistingMessageSyncStatus(recordId, syncStatus);
+      if (updated) this.patchMessageLocal(updated);
+      else this.messages = this.messages.filter(row => row.record_id !== recordId);
+      return;
+    }
     const updated = {
       ...message,
       sync_status: syncStatus,
@@ -1970,7 +1994,9 @@ export const chatMessageManagerMixin = {
       this.error = 'Select a channel first';
       return;
     }
-    const channel = this.selectedChannel;
+    const channel = retrySourceMessage
+      ? (this.channels || []).find(row => row.record_id === retrySourceMessage.channel_id)
+      : this.selectedChannel;
     if (!channel) {
       this.error = 'Channel not found';
       return;
@@ -2016,7 +2042,7 @@ export const chatMessageManagerMixin = {
     }
     const localRow = {
       record_id: msgId,
-      channel_id: this.selectedChannelId,
+      channel_id: channel.record_id,
       parent_message_id: null,
       body,
       attachments,
@@ -2032,12 +2058,13 @@ export const chatMessageManagerMixin = {
         pg_thread_id: null,
         pg_client_request_id: msgId,
       } : {}),
-      ...(pgMode && isThreadCreate ? {
-        pg_thread_title: String(options.threadTitle || '').trim() || undefined,
+      ...(pgMode && (isThreadCreate || retrySourceMessage?.pg_thread_title) ? {
+        pg_thread_title: String(options.threadTitle || retrySourceMessage?.pg_thread_title || '').trim() || undefined,
       } : {}),
       ...(pgMode && canonicalMentions.length > 0 ? { pg_metadata: { mentions: canonicalMentions } } : {}),
     };
 
+    if (pgMode && retrySourceMessage?.pg_metadata) localRow.pg_metadata = { ...retrySourceMessage.pg_metadata };
     const replacedRecordId = String(options?.replaceRecordId || '').trim();
     if (replacedRecordId) await replaceMessageRecord(replacedRecordId, localRow);
     else await upsertMessage(localRow);
@@ -2074,6 +2101,7 @@ export const chatMessageManagerMixin = {
           pg_reconciliation_pending: true,
         };
         await replaceMessageRecord(localRow.record_id, accepted);
+        accepted = await getMessageById(accepted.record_id) || accepted;
         this.messages = this.messages.filter((message) => message.record_id !== localRow.record_id);
         this.patchMessageLocal(accepted);
         if (drafts.length > 0) {
@@ -2183,12 +2211,14 @@ export const chatMessageManagerMixin = {
       return;
     }
     if (!this.threadInput.trim() && !hasBodyOverride && drafts.length === 0 && fileDrafts.length === 0) return false;
-    const threadChannelId = this.activeThreadChannelId;
-    if (!this.activeThreadId || !threadChannelId) {
+    const threadChannelId = retrySourceMessage?.channel_id || this.activeThreadChannelId;
+    if ((!retrySourceMessage?.parent_message_id && !this.activeThreadId) || !threadChannelId) {
       this.error = 'Open a thread first';
       return;
     }
-    const channel = this.activeThreadChannel;
+    const channel = retrySourceMessage
+      ? (this.channels || []).find(row => row.record_id === threadChannelId)
+      : this.activeThreadChannel;
     if (!channel) {
       this.error = 'Channel not found';
       return;
@@ -2218,7 +2248,9 @@ export const chatMessageManagerMixin = {
     let pgParentMessage = null;
     let pgParentThreadId = null;
     if (pgMode) {
-      pgParentMessage = this.getThreadParentMessage();
+      pgParentMessage = retrySourceMessage
+        ? { record_id: retrySourceMessage.parent_message_id, pg_thread_id: retrySourceMessage.pg_thread_id }
+        : this.getThreadParentMessage();
       pgParentThreadId = pgParentMessage?.pg_thread_id || pgParentMessage?.thread_id || null;
       if (!pgParentMessage?.record_id || !pgParentThreadId) {
         this.error = 'Thread is still loading. Try again in a moment.';
@@ -2249,7 +2281,7 @@ export const chatMessageManagerMixin = {
     const localRow = {
       record_id: msgId,
       channel_id: threadChannelId,
-      parent_message_id: this.activeThreadId,
+      parent_message_id: retrySourceMessage?.parent_message_id || this.activeThreadId,
       body,
       attachments,
       sender_npub: this.session?.npub,
@@ -2270,6 +2302,7 @@ export const chatMessageManagerMixin = {
       } : {}),
       ...(pgParentThreadId ? { pg_thread_id: pgParentThreadId } : {}),
     };
+    if (pgMode && retrySourceMessage?.pg_metadata) localRow.pg_metadata = { ...retrySourceMessage.pg_metadata };
     const replacedRecordId = String(options?.replaceRecordId || '').trim();
     if (replacedRecordId) await replaceMessageRecord(replacedRecordId, localRow);
     else await upsertMessage(localRow);
@@ -2294,13 +2327,14 @@ export const chatMessageManagerMixin = {
     if (pgMode) {
       try {
         const parentMessage = pgParentMessage || this.getThreadParentMessage();
-        const accepted = {
+        let accepted = {
           ...localRow,
           ...await createTowerPgMessageWithLazyDmRepair(this, localRow, channel, { parentMessage }),
           pg_client_record_id: localRow.record_id,
           pg_reconciliation_pending: true,
         };
         await replaceMessageRecord(localRow.record_id, accepted);
+        accepted = await getMessageById(accepted.record_id) || accepted;
         this.messages = this.messages.filter((message) => message.record_id !== localRow.record_id);
         this.patchMessageLocal(accepted);
         this.armThreadActivityAutoScroll(accepted);
@@ -2493,57 +2527,14 @@ export const chatMessageManagerMixin = {
     this.messageResendPendingIds = [...(this.messageResendPendingIds || []), normalizedId];
     this.closeMessageActionsMenu();
     try {
-      const copiedAttachments = [];
-      const replacementObjectIds = new Map();
-      try {
-        for (const attachment of Array.isArray(message.attachments) ? message.attachments : []) {
-          const sourceObjectId = String(attachment?.storage_object_id || '').trim();
-          if (!sourceObjectId) {
-            copiedAttachments.push({ ...attachment });
-            continue;
-          }
-          const blob = await downloadStorageObjectBlob(sourceObjectId, {
-            backendUrl: this.currentWorkspace?.directHttpsUrl || this.currentWorkspaceBackendUrl || this.backendUrl,
-          });
-          const bytes = new Uint8Array(await blob.arrayBuffer());
-          const contentType = String(attachment?.content_type || blob.type || '').trim() || 'application/octet-stream';
-          const filename = String(attachment?.filename || attachment?.title || '').trim() || 'Attachment';
-          const prepared = await this.prepareStorageObjectForCurrentWorkspace(buildStoragePrepareBody({
-            ownerNpub: this.workspaceOwnerNpub || this.session?.npub,
-            accessGroupIds: [],
-            contentType,
-            sizeBytes: bytes.byteLength,
-            fileName: filename,
-          }));
-          await uploadStorageObject(prepared, bytes, contentType);
-          await completeStorageObject(prepared.object_id, {
-            size_bytes: bytes.byteLength,
-            sha256_hex: await this.sha256HexForBytes(bytes),
-          });
-          replacementObjectIds.set(sourceObjectId, prepared.object_id);
-          copiedAttachments.push({
-            ...attachment,
-            storage_object_id: prepared.object_id,
-            content_type: contentType,
-            size_bytes: bytes.byteLength,
-            filename,
-          });
-        }
-      } catch (error) {
-        this.error = `Could not copy attachments for resend: ${error?.message || 'Attachment copy failed.'}`;
-        return false;
-      }
-      const retryBody = [...replacementObjectIds.entries()].reduce(
-        (body, [sourceObjectId, copiedObjectId]) => body.replaceAll(
-          `storage://${sourceObjectId}`,
-          `storage://${copiedObjectId}`,
-        ),
-        String(message.body || ''),
-      );
+      // A failed transport can mean Tower committed but its response was lost.
+      // Reuse the exact command identity, routing, body and attachment IDs.
       const options = {
-        body: retryBody,
-        retrySourceMessage: { ...message, body: retryBody, attachments: copiedAttachments },
+        body: message.body,
+        clientRequestId: message.pg_client_request_id,
+        retrySourceMessage: message,
         replaceRecordId: normalizedId,
+        threadTitle: message.pg_thread_title,
       };
       return message.parent_message_id
         ? await this.sendThreadReply(options)

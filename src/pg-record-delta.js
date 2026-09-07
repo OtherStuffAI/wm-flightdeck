@@ -2,7 +2,7 @@ import { threadHistoryLineage } from './thread-history-coverage.js';
 import Dexie from 'dexie';
 import { preserveHydratedDocumentContent } from './document-selection.js';
 import { latestTaskActivity, isTaskActivityAuthoredByViewer } from './task-attention-actor.js';
-import { getWorkspaceDb } from './db.js';
+import { getWorkspaceDb, reconcilePgMessageIdentity } from './db.js';
 import { sameLogicalValue } from './utils/state-helpers.js';
 import {
   resolveTowerPgWorkspaceContext, towerPgSyncCursorKey,
@@ -265,6 +265,18 @@ export async function applyPgRecordChanges(store, page, options = {}) {
         mapped = preserveHydratedDocumentContent({ ...prior, version: mapped.version }, mapped);
         mapped.pg_canonical_version_id = canonicalVersionId;
       }
+      if (raw.family === 'thread' && canonical.source_message_id && !Array.isArray(mapped.pg_effective_message_ids)) {
+        const source = await db.chat_messages.get(canonical.source_message_id);
+        // Typed reads and POST acknowledgements may have the source before
+        // the canonical journal does. Do not render a second title-only root.
+        if (source?.pg_record_type === 'message' && source.channel_id === canonical.channel_id
+          && source.pg_thread_id === raw.id && !source.parent_message_id
+          && source.record_state !== 'deleted') {
+          if (prior && !pending(prior)) await table.delete(localId);
+          await db.pg_record_conflicts.delete(raw.key);
+          return;
+        }
+      }
       const clientId = mapped.pg_client_record_id || canonical.metadata?.client_record_id;
       if (clientId && clientId !== localId) {
         const optimistic = await table.get(clientId);
@@ -272,9 +284,10 @@ export async function applyPgRecordChanges(store, page, options = {}) {
         if (optimistic && !pendingCommands) await table.delete(clientId);
       }
       if (!sameLogicalValue(prior, { ...prior, ...mapped })) { await table.put(mapped); applied++; }
+      if (raw.family === 'message') await reconcilePgMessageIdentity(db, mapped, clientId);
       if (raw.family === 'message' && canonical.thread_id && !mapped.parent_message_id) {
         const placeholder = await db.chat_messages.get(canonical.thread_id);
-        if (placeholder?.pg_record_type === 'thread' && !pending(placeholder)) await db.chat_messages.delete(canonical.thread_id);
+        if (placeholder?.pg_record_type === 'thread' && !Array.isArray(placeholder.pg_effective_message_ids) && !pending(placeholder)) await db.chat_messages.delete(canonical.thread_id);
       }
       await db.pg_record_conflicts.delete(raw.key);
     };
@@ -290,7 +303,8 @@ export async function applyPgRecordChanges(store, page, options = {}) {
         const source = await db.pg_record_rows.get(rawKey('message', raw.row.source_message_id));
         if (source && source.operation === 'upsert') {
           await materialize(source);
-          await db.chat_messages.delete(raw.id);
+          const history = await db.chat_messages.get(raw.id);
+          if (!Array.isArray(history?.pg_effective_message_ids)) await db.chat_messages.delete(raw.id);
         }
       }
     }

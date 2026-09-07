@@ -295,3 +295,77 @@ describe('read receipts reconcile without content conflicts', () => {
     expect(await db.pg_record_conflicts.count()).toBe(0);
   });
 });
+
+it('does not recreate a title-only thread when its source was hydrated by the send response', async () => {
+  const t = fixture.canonical_upserts.changes.find(c => c.family === 'thread');
+  const c = fixture.one_message_delta.changes[0];
+  const { mapPgMessageToLocal } = await import('../src/pg-read-hydrator.js');
+  const thread = { ...t.row, id: 'thread-ack', source_message_id: 'source-ack', title: 'Thread title' };
+  const source = mapPgMessageToLocal({ ...c.row, id: 'source-ack', thread_id: thread.id, body: 'Signed source body' }, {
+    workspaceOwnerNpub: store.workspaceOwnerNpub, senderNpub: 'npub1author', threadById: new Map([[thread.id, thread]]),
+  });
+  await db.chat_messages.put({ ...source, pg_reconciliation_pending: true, pg_client_record_id: 'local-source' });
+  await applyPgRecordChanges(store, page([{ ...t, id: thread.id, row: thread }], 'thread-only'));
+  expect(await db.chat_messages.get(thread.id)).toBeUndefined();
+  expect(await db.chat_messages.get(source.record_id)).toMatchObject({ body: 'Signed source body', sender_npub: 'npub1author', parent_message_id: null });
+});
+
+it('a late send response cannot overwrite newer canonical SSE content or resurrect reconciliation', async () => {
+  const { replaceMessageRecord } = await import('../src/db.js');
+  const c = fixture.one_message_delta.changes[0];
+  await db.chat_messages.put({ record_id: 'local-send', channel_id: c.channel_id, body: 'original', sync_status: 'pending', version: 1 });
+  await applyPgRecordChanges(store, page([{ ...c, row: { ...c.row, body: 'edited on server', row_version: 2, metadata: { client_record_id: 'local-send' } } }]));
+  await replaceMessageRecord('local-send', { record_id: c.id, channel_id: c.channel_id, body: 'original', version: 1, sync_status: 'synced', pg_client_record_id: 'local-send', pg_reconciliation_pending: true });
+  expect(await db.chat_messages.get('local-send')).toBeUndefined();
+  expect(await db.chat_messages.get(c.id)).toMatchObject({ body: 'edited on server', version: 2 });
+  expect((await db.chat_messages.get(c.id)).pg_reconciliation_pending).not.toBe(true);
+});
+
+it('replaces a sync placeholder and local reply parents atomically when the send ack arrives', async () => {
+  const { replaceMessageRecord } = await import('../src/db.js');
+  const t = fixture.canonical_upserts.changes.find(c => c.family === 'thread');
+  await applyPgRecordChanges(store, page([{ ...t, id: 'ack-thread', row: { ...t.row, id: 'ack-thread', source_message_id: 'ack-root' } }]));
+  await db.chat_messages.put({ record_id: 'local-root', channel_id: t.channel_id, body: 'root', sync_status: 'pending' });
+  await db.chat_messages.put({ record_id: 'local-reply', channel_id: t.channel_id, parent_message_id: 'local-root', body: 'reply draft', sync_status: 'pending' });
+  await replaceMessageRecord('local-root', { record_id: 'ack-root', channel_id: t.channel_id, body: 'root', pg_record_type: 'message', pg_thread_id: 'ack-thread', parent_message_id: null, pg_reconciliation_pending: true, version: 1, sync_status: 'synced' });
+  expect(await db.chat_messages.get('ack-thread')).toBeUndefined();
+  expect(await db.chat_messages.get('local-reply')).toMatchObject({ parent_message_id: 'ack-root', pg_thread_id: 'ack-thread', body: 'reply draft', sync_status: 'pending' });
+});
+
+it('typed channel refresh never retains a summary beside an already cached source', async () => {
+  const { replacePgMessagesForChannel, replacePgThreadsForChannel } = await import('../src/db.js');
+  const source = { record_id: 'typed-source', channel_id: 'typed-channel', pg_record_type: 'message', pg_backend: true, pg_thread_id: 'typed-thread', parent_message_id: null, body: 'Authored body', sync_status: 'synced', version: 1 };
+  const summary = { record_id: 'typed-thread', channel_id: 'typed-channel', pg_record_type: 'thread', pg_backend: true, pg_thread_id: 'typed-thread', pg_source_message_id: 'typed-source', parent_message_id: null, body: 'Title', sync_status: 'synced', version: 1 };
+  await replacePgMessagesForChannel(source.channel_id, [source]);
+  await replacePgMessagesForChannel(source.channel_id, [summary]);
+  expect(await db.chat_messages.get(summary.record_id)).toBeUndefined();
+  await replacePgThreadsForChannel(source.channel_id, [summary]);
+  expect(await db.chat_messages.get(summary.record_id)).toBeUndefined();
+  expect((await db.chat_messages.get(source.record_id)).body).toBe('Authored body');
+});
+
+it('finds the source outside the bounded root window for a retained history summary', async () => {
+  const { getMessagePresentationWindowByChannel } = await import('../src/db.js');
+  const { rankMainFeedMessages } = await import('../src/chat-order.js');
+  const source = { record_id: 'old-source', channel_id: 'channel', pg_record_type: 'message', pg_thread_id: 'history-thread', parent_message_id: null, body: 'Original authored body', updated_at: '2026-01-01T00:00:00Z', record_state: 'active' };
+  await db.chat_messages.bulkPut([source,
+    { record_id: 'other-root', channel_id: 'channel', parent_message_id: null, updated_at: '2026-06-01T00:00:00Z', record_state: 'active' },
+    { record_id: 'history-thread', channel_id: 'channel', pg_record_type: 'thread', pg_thread_id: 'history-thread', pg_source_message_id: source.record_id, pg_effective_message_ids: [source.record_id], parent_message_id: null, body: 'Title only', updated_at: '2026-09-07T00:00:00Z', record_state: 'active' },
+  ]);
+  const window = await getMessagePresentationWindowByChannel('channel', { rootLimit: 1 });
+  const roots = rankMainFeedMessages(window);
+  expect(roots.some(row => row.record_id === source.record_id)).toBe(true);
+  expect(roots.some(row => row.record_id === 'history-thread')).toBe(false);
+});
+
+it('preserves cached history metadata when a thread with a materialized source changes', async () => {
+  const t = fixture.canonical_upserts.changes.find(c => c.family === 'thread');
+  const c = fixture.one_message_delta.changes[0];
+  const thread = { ...t, id: 'history', row: { ...t.row, id: 'history', source_message_id: 'history-source' } };
+  const source = { ...c, id: 'history-source', row: { ...c.row, id: 'history-source', thread_id: 'history' } };
+  await applyPgRecordChanges(store, page([thread, source]));
+  const { mapPgThreadToLocal } = await import('../src/pg-read-hydrator.js');
+  await db.chat_messages.put({ ...mapPgThreadToLocal(thread.row), pg_effective_message_ids: ['history-source'] });
+  await applyPgRecordChanges(store, page([{ ...thread, version: '100', row: { ...thread.row, title: 'Updated title', row_version: 2 } }], 'next-history'));
+  expect(await db.chat_messages.get('history')).toMatchObject({ title: 'Updated title', pg_effective_message_ids: ['history-source'] });
+});

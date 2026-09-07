@@ -836,12 +836,21 @@ export async function getMessagePresentationWindowByChannel(channelId, options =
   if (!normalizedChannelId) return [];
   const rootLimit = Math.max(1, Number(options.rootLimit) || 80);
   const db = wsDb();
-  const recentRows = await db.chat_messages
+  let recentRows = await db.chat_messages
     .where('[channel_id+cache_active+cache_parent+cache_time+record_id]')
     .between([normalizedChannelId, 1, '', Dexie.minKey, Dexie.minKey],
       options.before ? [normalizedChannelId, 1, '', options.before.timestamp, options.before.recordId]
         : [normalizedChannelId, 1, '', '\uffff', Dexie.maxKey], true, !options.before)
     .reverse().limit(rootLimit + 1).toArray();
+  // A recent thread title can refer to a source older than this bounded page.
+  // Fetch only those exact source IDs, retaining the history metadata row.
+  const sourceIds = [...new Set(recentRows.filter(row => row.pg_record_type === 'thread')
+    .map(row => row.pg_source_message_id).filter(Boolean))];
+  if (sourceIds.length) {
+    const sources = (await db.chat_messages.bulkGet(sourceIds)).filter(row => row
+      && row.channel_id === normalizedChannelId && row.record_state !== 'deleted');
+    recentRows = [...new Map([...recentRows, ...sources].map(row => [row.record_id, row])).values()];
+  }
   const rootIds = recentRows.map((row) => row.record_id);
   const replyRootIds = [...new Set([...recentRows.map(row => row.pg_thread_id || row.record_id), options.activeThreadId].filter(Boolean))];
   const [replyPages, unsynced, focused] = await Promise.all([
@@ -877,6 +886,7 @@ export async function getMessagePresentationWindowByChannel(channelId, options =
     if (row?.record_id && row.channel_id === normalizedChannelId) rowsById.set(row.record_id, row);
   }
   const rootsByThread = new Map([...rowsById.values()].filter(row => !row.parent_message_id && row.pg_thread_id)
+    .sort((a, b) => Number(a.pg_record_type === 'message') - Number(b.pg_record_type === 'message'))
     .map(row => [row.pg_thread_id, row.record_id]));
   const presentationRows = [...rowsById.values()].map(row => row.parent_message_id && rootsByThread.has(row.pg_thread_id)
     ? { ...row, parent_message_id: rootsByThread.get(row.pg_thread_id) } : row);
@@ -957,10 +967,41 @@ export async function upsertMessage(msg) {
   return wsDb().chat_messages.put(sanitizeForStorage(msg));
 }
 
+export async function updateExistingMessageSyncStatus(recordId, syncStatus) {
+  const db = wsDb();
+  return db.transaction('rw', db.chat_messages, async () => {
+    const row = await db.chat_messages.get(recordId);
+    if (!row) return null; // An SSE acknowledgement may already have replaced it.
+    await db.chat_messages.update(recordId, { sync_status: syncStatus });
+    return { ...row, sync_status: syncStatus };
+  });
+}
+
 export async function deleteMessageRuntimeState(recordId) {
   const normalizedRecordId = String(recordId || '').trim();
   if (!normalizedRecordId) return 0;
   return wsDb().chat_messages.delete(normalizedRecordId);
+}
+
+// Local identity edges only: never rewrite the signed body or outbound command.
+export async function reconcilePgMessageIdentity(db, accepted, previousId = '') {
+  if (accepted.pg_record_type === 'thread' && accepted.pg_source_message_id && !Array.isArray(accepted.pg_effective_message_ids)) {
+    const source = await db.chat_messages.get(accepted.pg_source_message_id);
+    if (source?.pg_record_type === 'message' && source.channel_id === accepted.channel_id
+      && source.pg_thread_id === accepted.record_id && !source.parent_message_id
+      && source.record_state !== 'deleted') await db.chat_messages.delete(accepted.record_id);
+  }
+  if (accepted.pg_record_type !== 'message' || accepted.parent_message_id || !accepted.pg_thread_id) return;
+  const placeholder = await db.chat_messages.get(accepted.pg_thread_id);
+  if (placeholder?.pg_record_type === 'thread' && !Array.isArray(placeholder.pg_effective_message_ids) && placeholder.channel_id === accepted.channel_id
+    && placeholder.pg_source_message_id === accepted.record_id) {
+    await db.chat_messages.delete(placeholder.record_id);
+  }
+  if (previousId && previousId !== accepted.record_id) {
+    await db.chat_messages.where('parent_message_id').equals(previousId)
+      .filter(reply => reply.channel_id === accepted.channel_id)
+      .modify({ parent_message_id: accepted.record_id, pg_thread_id: accepted.pg_thread_id });
+  }
 }
 
 export async function replaceMessageRecord(previousRecordId, msg) {
@@ -972,7 +1013,15 @@ export async function replaceMessageRecord(previousRecordId, msg) {
     if (previousId && previousId !== row.record_id) {
       await db.chat_messages.delete(previousId);
     }
-    await db.chat_messages.put(row);
+    const canonical = await db.chat_messages.get(row.record_id);
+    // SSE can acknowledge (or edit) the message before its POST returns.
+    // An already materialized canonical revision wins over that delayed ack.
+    const canonicalWins = row.pg_reconciliation_pending === true && canonical
+      && (Number(canonical.version || 0) > Number(row.version || 0)
+        || (canonical.pg_delta_family === 'message' && Number(canonical.version || 0) >= Number(row.version || 0)));
+    if (!canonicalWins) await db.chat_messages.put(row);
+    const accepted = canonicalWins ? canonical : row;
+    await reconcilePgMessageIdentity(db, accepted, previousId);
     return row.record_id;
   });
 }
@@ -991,6 +1040,7 @@ export async function replacePgThreadsForChannel(channelId, messages = []) {
       .filter(Boolean);
     if (pgThreadIds.length > 0) await db.chat_messages.bulkDelete(pgThreadIds);
     if (rows.length > 0) await db.chat_messages.bulkPut(rows);
+    for (const row of rows) await reconcilePgMessageIdentity(db, row);
     return rows.length;
   });
 }
@@ -1067,6 +1117,11 @@ export async function replacePgMessagesForChannel(channelId, messages = [], opti
     ));
     if (deleteIds.length > 0) await db.chat_messages.bulkDelete(deleteIds);
     if (changedRows.length > 0) await db.chat_messages.bulkPut(changedRows);
+    for (const row of changedRows) {
+      if ((!row.parent_message_id && row.pg_thread_id) || row.pg_source_message_id) {
+        await reconcilePgMessageIdentity(db, row, row.pg_client_record_id);
+      }
+    }
     return changedRows.length + deleteIds.length;
   });
 }

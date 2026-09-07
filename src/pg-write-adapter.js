@@ -602,11 +602,13 @@ export async function createTowerPgMessageFromLocal(store, message, options = {}
     }),
   }, pgRequestOptions(context));
   const threadById = new Map();
-  const returnedThreadId = trimText(result.thread?.id);
+  const returnedThreadId = trimText(result.thread?.id || result.message?.thread_id);
   if (returnedThreadId) {
     threadById.set(returnedThreadId, {
       ...result.thread,
-      source_message_id: trimText(result.thread?.source_message_id) || trimText(parentMessage?.record_id),
+      source_message_id: trimText(result.thread?.source_message_id)
+        || trimText(parentMessage?.record_id)
+        || (!threadId ? trimText(result.message?.id) : ''),
     });
   }
   if (threadId && parentMessage?.record_id && !threadById.has(threadId)) {

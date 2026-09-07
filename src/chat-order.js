@@ -15,6 +15,8 @@ export function sortMessagesByUpdatedAt(messages) {
 
 export function rankMainFeedMessages(messages) {
   const latestByThreadId = new Map();
+  const sources = new Map(messages.filter(row => row.pg_record_type === 'message' && !row.parent_message_id)
+    .map(row => [row.record_id, row]));
 
   for (const message of messages) {
     const threadId = message?.parent_message_id || message?.record_id;
@@ -25,7 +27,12 @@ export function rankMainFeedMessages(messages) {
   }
 
   return messages
-    .filter((message) => !message.parent_message_id)
+    .filter((message) => {
+      if (message.parent_message_id) return false;
+      const source = sources.get(message.pg_source_message_id);
+      return !(message.pg_record_type === 'thread' && source
+        && source.channel_id === message.channel_id && source.pg_thread_id === message.record_id);
+    })
     .sort((a, b) => {
       const latestDiff = (latestByThreadId.get(a.record_id) ?? messageUpdatedAtMs(a))
         - (latestByThreadId.get(b.record_id) ?? messageUpdatedAtMs(b));
