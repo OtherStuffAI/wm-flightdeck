@@ -82,3 +82,48 @@ this agent session. A browser smoke pass against the activated local Tower is
 still required: interrupt connectivity below/above 60 seconds, recover a burst,
 finish a turn, reload, and open earlier updates/runs in both Chat and Inbox while
 checking scroll position. Source tests do not substitute for that runtime pass.
+
+## Final implementation evidence
+
+Tower commits: `af94b9f7f670bdcd8d627fd5d15a05c277a359d6` and
+`a8d1885c9e6dc7395451730b62114f3968b41aa4`. Its 58 relevant tests pass against an
+isolated database (1,990 assertions); Bun bundle and whitespace checks pass.
+Repository-wide TypeScript configuration/type errors and the existing privacy
+check finding remain documented in Tower's turn-contract design note.
+
+Autopilot commit: `4c516063691539ed14f812f64bdbe3880088ffc9`. Its 61 focused tests
+and typecheck pass. A full isolated run passed 2,410 tests with 23 skipped; the
+final expanded run passed 2,412 with one baseline native-runtime timeout. That
+exact test passed on isolated recheck. Public-source findings match unchanged
+HEAD. The Autopilot handoff also records that backfilling pre-upgrade latest-only
+turns appends newly recovered earlier text in publication order; it does not
+retroactively resequence existing accepted history.
+
+Flight Deck's shared checkpoint `f192948` contains this implementation alongside
+a concurrent open-thread reply fix. Final recovery-state guards keep stale
+channel and older-history completions from clearing the displayed conversation's
+warnings, and avoid overwriting the service's bounded retry schedule. The final
+build is `20260908-0616-10-1908` (build 1908). Build and dist verification pass;
+generated dist output is not committed.
+
+Validation: the complete native command was run and exposed the unchanged-HEAD
+20,000-row worker timeout plus timing-sensitive failures under concurrent load.
+A controlled run (`bun run test --maxWorkers=2 --testTimeout=20000 --exclude
+tests/pg-materialization-responsiveness.test.js`) passed all 3,659 tests in 265
+files. The final guard/release/hydrator pass added one regression and passed all
+113 tests in its three files; transport/cursor checks passed all 53 tests. The
+remaining benchmark was independently reproduced in an archive of unchanged
+HEAD. No benchmark assertion or timeout was changed to conceal it.
+
+`check:public-source` remains failing. In addition to preexisting tracked
+handoffs, the concurrent shared checkpoint includes supplied task briefs with
+operator paths/names, producing ten additional path/context findings. These
+supplied documents were preserved under the requested shared checkpoint policy;
+there is no claim that this tree passes public-source publication checks.
+
+No external task/comment/chat reporting, deployment push, or Autopilot restart
+was performed. Broker context had no inherited task routing; the complete local
+brief supplied the implementation context. The manager must accept the source
+handoff before changing tracking state and must own runtime activation/browser
+validation. Tower still has unrelated WApp scope files dirty for their owner;
+Autopilot is clean.

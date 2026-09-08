@@ -153,6 +153,7 @@ describe('authoritative agent activity recovery through the sync owner', () => {
 
   it('loads activity alongside initial thread messages and keeps messages after an activity failure', async () => {
     const target = store();
+    Object.assign(target, { navSection: 'status', deckThreadChannelId: 'inbox-channel', activeThreadId: 'root', deckThreadTowerId: 'inbox-thread' });
     hydrateTowerPgChannelAgentActivities.mockRejectedValueOnce(new Error('offline'));
     const result = await target.loadThreadMessagesWithActivity({ channelId: 'inbox-channel', threadId: 'inbox-thread' });
     expect(result).toEqual(['materialized-message']);
@@ -200,6 +201,20 @@ describe('authoritative agent activity recovery through the sync owner', () => {
     await target.backgroundSyncTick();
     expect(target.agentActivityRecoveryPending).toBe(false);
     expect(target.agentActivityRecoveryStartedAt).toBe(0);
+  });
+
+  it('keeps current recovery status when a different channel completion arrives or older history loads', async () => {
+    const target = store();
+    let resolve;
+    hydrateTowerPgChannelAgentActivities.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const pending = target.loadTowerPgAgentActivities('channel-a');
+    target.selectedChannelId = 'channel-b';
+    target.agentActivityRecoveryError = 'current channel recovery';
+    resolve([]);
+    await pending;
+    expect(target.agentActivityRecoveryError).toBe('current channel recovery');
+    await target.loadTowerPgAgentActivities('channel-b', { activityId: 'finished-activity', beforeSequence: 20, recover: false });
+    expect(target.agentActivityRecoveryError).toBe('current channel recovery');
   });
 
   it('ignores stale completion after leaving and returning to the same workspace', async () => {

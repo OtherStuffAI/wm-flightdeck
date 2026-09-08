@@ -454,13 +454,16 @@ export const syncManagerMixin = {
   async loadTowerPgAgentActivities(channelId, options = {}) {
     const workspaceKey = this.buildSSEConnectionKey();
     const service = this._towerSyncService;
-    const stillCurrent = () => workspaceKey === this.buildSSEConnectionKey()
+    const recover = options.recover ?? (!options.cursor && !options.threadId && !options.activityId);
+    const visibleTarget = this.visibleAgentActivityTarget();
+    const selection = JSON.stringify(visibleTarget);
+    const stillCurrent = () => recover && !options.activityId
+      && (!visibleTarget.channelId || visibleTarget.channelId === channelId)
+      && workspaceKey === this.buildSSEConnectionKey()
+      && selection === JSON.stringify(this.visibleAgentActivityTarget())
       && service === this._towerSyncService && !service?.disposed;
     try {
-      const result = await hydrateTowerPgChannelAgentActivities(this, channelId, {
-        ...options,
-        recover: options.recover ?? (!options.cursor && !options.threadId && !options.activityId),
-      });
+      const result = await hydrateTowerPgChannelAgentActivities(this, channelId, { ...options, recover });
       if (stillCurrent()) {
         this.agentActivityRecoveryError = '';
         this.agentActivityRecoveryAttempts = 0;

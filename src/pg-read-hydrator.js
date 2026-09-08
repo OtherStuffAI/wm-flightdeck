@@ -2080,9 +2080,11 @@ export async function hydrateTowerPgChannelMessages(store, channelId, deps = {})
       }));
   } catch (error) {
     // Messages have committed; expose and retry activity failure separately.
-    store.agentActivityRecoveryStartedAt ||= Date.now();
-    store.agentActivityRecoveryError = 'Activity updates could not be recovered. Retrying.';
-    store.scheduleBackgroundSync?.(1000);
+    if (!store.requestTowerSyncFamily) {
+      store.agentActivityRecoveryStartedAt ||= Date.now();
+      store.agentActivityRecoveryError = 'Activity updates could not be recovered. Retrying.';
+      store.scheduleBackgroundSync?.(1000);
+    }
   }
 
   return rows;

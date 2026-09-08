@@ -1334,6 +1334,13 @@
       "notes": [
         "Finishing a reply after switching workspaces now updates its original local conversation without adding messages or changing drafts in the new workspace."
       ]
+    },
+    {
+      "buildNumber": 1908,
+      "label": "Scoped working-update recovery",
+      "notes": [
+        "Working-update recovery keeps retry state with the displayed conversation. Loading an earlier finished run or switching channels cannot clear recovery warnings for the active conversation."
+      ]
     }
   ]
 }
