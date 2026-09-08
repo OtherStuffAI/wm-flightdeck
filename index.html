@@ -3981,41 +3981,11 @@
                       </div>
                     </template>
                     <template x-for="activity in $store.chat.getAgentActivitiesForMessage(msg)" :key="activity.record_id">
-                      <div class="agent-activity agent-activity-channel agent-activity-live" :class="'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state" aria-live="polite">
-                        <button type="button" class="agent-activity-toggle" @click.stop="$store.chat.toggleAgentActivity(activity.activity_id)" :aria-expanded="$store.chat.isAgentActivityExpanded(activity.activity_id)">
-                          <span class="agent-activity-pulse" x-show="$store.chat.getAgentActivityHealth(activity).state === 'live'" aria-hidden="true"></span>
-                          <span class="agent-activity-title" x-text="$store.chat.formatAgentActivityTitle(activity)"></span>
-                          <span class="agent-activity-summary" x-show="activity.summary" x-text="activity.summary"></span>
-                          <span class="agent-activity-chevron" aria-hidden="true" x-text="$store.chat.isAgentActivityExpanded(activity.activity_id) ? '−' : '+'"></span>
-                        </button>
-                        <p class="agent-activity-health" x-show="$store.chat.getAgentActivityRecoveryMessage(activity)" x-text="$store.chat.getAgentActivityRecoveryMessage(activity)"></p>
-                        <div class="agent-activity-detail" x-show="$store.chat.isAgentActivityExpanded(activity.activity_id)" x-cloak>
-                          <p x-show="activity.body" x-text="activity.body"></p>
-                          <span x-text="activity.updated_at ? 'Updated ' + new Date(activity.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''"></span>
-                          <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.hasAgentActivityCommentaryHistory(activity)" @click.stop="$store.chat.toggleAgentActivityHistory(activity)" :aria-expanded="$store.chat.isAgentActivityHistoryExpanded(activity)" x-text="$store.chat.isAgentActivityHistoryExpanded(activity) ? 'Hide working history' : 'Show working history'"></button>
-                          <ol class="agent-activity-history" x-show="$store.chat.isAgentActivityHistoryExpanded(activity)" x-cloak>
-                            <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(activity)" :key="item.history_key">
-                              <li><p x-text="item.body"></p><time x-show="item.created_at" :datetime="item.created_at" x-text="new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></time></li>
-                            </template>
-                          </ol>
-                          <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.isAgentActivityHistoryExpanded(activity) && activity.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
+                      <div class="agent-activity agent-activity-channel agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)" aria-live="polite">
+                        <div class="agent-activity-current">
+                          <span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · Working…'"></span>
+                          <p x-show="activity.body || activity.summary" x-text="activity.body || activity.summary"></p>
                         </div>
-                        <details class="agent-activity-earlier" x-show="activity.earlier_activities?.length" @click.stop>
-                          <summary>Earlier activity <span x-text="'(' + (activity.earlier_activities?.length || 0) + ')' "></span></summary>
-                          <template x-for="earlier in activity.earlier_activities || []" :key="earlier.record_id">
-                            <details class="agent-activity-retained">
-                              <summary><span x-text="$store.chat.formatEarlierAgentActivityTitle(earlier)"></span><time :datetime="earlier.created_at" x-text="earlier.created_at ? new Date(earlier.created_at).toLocaleString() : ''"></time></summary>
-                              <p x-show="earlier.summary" x-text="earlier.summary"></p>
-                              <p x-show="earlier.body && earlier.body !== earlier.summary" x-text="earlier.body"></p>
-                              <ol class="agent-activity-history">
-                                <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(earlier)" :key="item.history_key">
-                                  <li><p x-text="item.body"></p><time :datetime="item.created_at" x-text="item.created_at ? new Date(item.created_at).toLocaleString() : ''"></time></li>
-                                </template>
-                              </ol>
-                              <button type="button" class="agent-activity-history-toggle" x-show="earlier.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(earlier)" :disabled="$store.chat.getAgentActivityHistoryLoadState(earlier) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(earlier) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(earlier) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
-                            </details>
-                          </template>
-                        </details>
                       </div>
                     </template>
                     <template x-if="$store.chat.getThreadReplyCount(msg.record_id) > 0">
@@ -4085,15 +4055,16 @@
                 ></div>
                 <div class="chat-input-actions">
                   <div class="chat-composer-menu" x-data="{ open: false }" @click.outside="open = false">
-                    <button class="chat-composer-menu-trigger" type="button" @click="open = !open" :aria-expanded="open" aria-haspopup="menu" :disabled="!$store.chat.canComposeInChatDestination">Menu</button>
+                    <button class="chat-composer-menu-trigger" type="button" @click="open = !open" :aria-expanded="open" aria-haspopup="menu">Menu</button>
                     <div class="chat-composer-menu-popover" x-show="open" x-cloak x-transition role="menu">
+                      <button type="button" role="menuitem" @click="$store.chat.openAgentActivityDetails('channel'); open = false">Working history &amp; diagnostics</button>
                       <label class="chat-composer-file-action" role="menuitem">
                         <span>Attach photo or file</span>
-                        <input type="file" multiple aria-label="Choose photos or files to attach" @change="$store.chat.handleChatAttachmentSelection($event, 'message'); open = false" />
+                        <input type="file" :disabled="!$store.chat.canComposeInChatDestination" multiple aria-label="Choose photos or files to attach" @change="$store.chat.handleChatAttachmentSelection($event, 'message'); open = false" />
                       </label>
-                      <button type="button" role="menuitem" @click="$store.chat.openAudioRecorder('chat'); open = false">Record Audio</button>
-                      <button type="button" role="menuitem" @click="$store.chat.startChannelHangCall(); open = false" :disabled="$store.chat.channelHangCallSending" x-text="$store.chat.channelHangCallSending ? 'Starting Hang call…' : 'Start Hang call'"></button>
-                      <button type="button" role="menuitem" x-show="$store.chat.workroomsEnabled" @click="$store.chat.openWorkroomCreation(); open = false" :disabled="!$store.chat.isTowerPgMode || !$store.chat.selectedChannelId">Start Workroom</button>
+                      <button type="button" role="menuitem" :disabled="!$store.chat.canComposeInChatDestination" @click="$store.chat.openAudioRecorder('chat'); open = false">Record Audio</button>
+                      <button type="button" role="menuitem" @click="$store.chat.startChannelHangCall(); open = false" :disabled="!$store.chat.canComposeInChatDestination || $store.chat.channelHangCallSending" x-text="$store.chat.channelHangCallSending ? 'Starting Hang call…' : 'Start Hang call'"></button>
+                      <button type="button" role="menuitem" x-show="$store.chat.workroomsEnabled" @click="$store.chat.openWorkroomCreation(); open = false" :disabled="!$store.chat.canComposeInChatDestination || !$store.chat.isTowerPgMode || !$store.chat.selectedChannelId">Start Workroom</button>
                     </div>
                   </div>
                   <button class="chat-send-btn-text" @click="$store.chat.sendMessage()" :disabled="(!$store.chat.canComposeInChatDestination || (!$store.chat.hasMentionComposerDraftText('message') && $store.chat.messageAudioDrafts.length === 0 && $store.chat.messageFileDrafts.length === 0) || $store.chat.messageImageUploadCount > 0 || $store.chat.messageFileDrafts.some(d => d.status !== 'ready') || $store.chat.messageEdit.submitting || $store.chat.composerSendPending.message)" :aria-busy="$store.chat.composerSendPending.message.toString()" x-text="$store.chat.isEditingMessage('message') ? ($store.chat.messageEdit.submitting ? 'Saving…' : 'Save') : ($store.chat.composerSendPending.message ? 'Sending…' : 'Send')"></button>
@@ -4424,50 +4395,13 @@
                   </div>
                 </template>
                 <template x-for="activity in $store.chat.activeThreadAgentActivities" :key="activity.record_id">
-                  <div class="thread-response-activity agent-activity-thread agent-activity-live" :class="'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state" aria-live="polite">
-                    <button type="button" class="identity-avatar-button" @click.stop="$store.chat.openIdentityCard($event, activity.agent_npub)" :title="$store.chat.getSenderName(activity.agent_npub)">
-                      <template x-if="$store.chat.getSenderAvatar(activity.agent_npub)"><img class="thread-avatar" :src="$store.chat.getSenderAvatar(activity.agent_npub)" alt="" @error="$store.chat.handleAvatarImageError($event)" /></template>
-                      <template x-if="!$store.chat.getSenderAvatar(activity.agent_npub)"><div class="thread-avatar thread-avatar-fallback" x-text="$store.chat.getInitials($store.chat.getSenderName(activity.agent_npub))"></div></template>
-                    </button>
-                    <div class="thread-response-activity-body">
-                      <button type="button" class="agent-activity-toggle" @click="$store.chat.toggleAgentActivity(activity.activity_id)" :aria-expanded="$store.chat.isAgentActivityExpanded(activity.activity_id)">
-                        <span class="agent-activity-pulse" x-show="$store.chat.getAgentActivityHealth(activity).state === 'live'" aria-hidden="true"></span>
-                        <span class="agent-activity-title" x-text="$store.chat.formatAgentActivityTitle(activity)"></span>
-                        <span class="agent-activity-summary" x-show="activity.summary" x-text="activity.summary"></span>
-                        <span class="agent-activity-chevron" aria-hidden="true" x-text="$store.chat.isAgentActivityExpanded(activity.activity_id) ? '−' : '+'"></span>
-                      </button>
-                      <p class="agent-activity-health" x-show="$store.chat.getAgentActivityRecoveryMessage(activity)" x-text="$store.chat.getAgentActivityRecoveryMessage(activity)"></p>
-                      <div class="agent-activity-detail" x-show="$store.chat.isAgentActivityExpanded(activity.activity_id)" x-cloak>
-                        <p x-show="activity.body" x-text="activity.body"></p>
-                        <span x-text="activity.updated_at ? 'Updated ' + new Date(activity.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''"></span>
-                        <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.hasAgentActivityCommentaryHistory(activity)" @click.stop="$store.chat.toggleAgentActivityHistory(activity)" :aria-expanded="$store.chat.isAgentActivityHistoryExpanded(activity)" x-text="$store.chat.isAgentActivityHistoryExpanded(activity) ? 'Hide working history' : 'Show working history'"></button>
-                        <ol class="agent-activity-history" x-show="$store.chat.isAgentActivityHistoryExpanded(activity)" x-cloak>
-                          <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(activity)" :key="item.history_key">
-                            <li><p x-text="item.body"></p><time x-show="item.created_at" :datetime="item.created_at" x-text="new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></time></li>
-                          </template>
-                        </ol>
-                        <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.isAgentActivityHistoryExpanded(activity) && activity.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
+                      <div class="thread-response-activity agent-activity-thread agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)" aria-live="polite">
+                        <div class="agent-activity-current">
+                          <span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · Working…'"></span>
+                          <p x-show="activity.body || activity.summary" x-text="activity.body || activity.summary"></p>
+                        </div>
                       </div>
-                        <details class="agent-activity-earlier" x-show="activity.earlier_activities?.length" @click.stop>
-                          <summary>Earlier activity <span x-text="'(' + (activity.earlier_activities?.length || 0) + ')' "></span></summary>
-                          <template x-for="earlier in activity.earlier_activities || []" :key="earlier.record_id">
-                            <details class="agent-activity-retained">
-                              <summary><span x-text="$store.chat.formatEarlierAgentActivityTitle(earlier)"></span><time :datetime="earlier.created_at" x-text="earlier.created_at ? new Date(earlier.created_at).toLocaleString() : ''"></time></summary>
-                              <p x-show="earlier.summary" x-text="earlier.summary"></p>
-                              <p x-show="earlier.body && earlier.body !== earlier.summary" x-text="earlier.body"></p>
-                              <ol class="agent-activity-history">
-                                <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(earlier)" :key="item.history_key">
-                                  <li><p x-text="item.body"></p><time :datetime="item.created_at" x-text="item.created_at ? new Date(item.created_at).toLocaleString() : ''"></time></li>
-                                </template>
-                              </ol>
-                              <button type="button" class="agent-activity-history-toggle" x-show="earlier.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(earlier)" :disabled="$store.chat.getAgentActivityHistoryLoadState(earlier) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(earlier) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(earlier) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
-                            </details>
-                          </template>
-                        </details>
-                    </div>
-                  </div>
-                </template>
-                <button type="button" class="agent-activity-history-toggle" x-show="!$store.chat.getAgentActivityRunsLoadState().done" @click="$store.chat.loadEarlierAgentActivityRuns()" :disabled="$store.chat.getAgentActivityRunsLoadState().loading" x-text="$store.chat.getAgentActivityRunsLoadState().error ? 'Could not load earlier runs — retry' : ($store.chat.getAgentActivityRunsLoadState().loading ? 'Loading earlier runs…' : 'Load earlier agent runs')"></button>
+                    </template>
               </div>
 
               <div class="thread-input-bar">
@@ -4509,15 +4443,16 @@
                 <p class="error-text" role="status" x-show="!$store.chat.canComposeInThreadDestination" x-cloak x-text="$store.chat.threadComposerDisabledReason"></p>
                 <div class="thread-input-actions">
                   <div class="chat-composer-menu" x-data="{ open: false }" @click.outside="open = false">
-                    <button class="chat-composer-menu-trigger" type="button" @click="open = !open" :aria-expanded="open" aria-haspopup="menu" :disabled="!$store.chat.canComposeInThreadDestination">Menu</button>
+                    <button class="chat-composer-menu-trigger" type="button" @click="open = !open" :aria-expanded="open" aria-haspopup="menu">Menu</button>
                     <div class="chat-composer-menu-popover" x-show="open" x-cloak x-transition role="menu">
+                      <button type="button" role="menuitem" @click="$store.chat.openAgentActivityDetails('thread'); open = false">Working history &amp; diagnostics</button>
                       <label class="chat-composer-file-action" role="menuitem">
                         <span>Attach photo or file</span>
-                        <input type="file" multiple aria-label="Choose photos or files to attach to reply" @change="$store.chat.handleChatAttachmentSelection($event, 'thread'); open = false" />
+                        <input type="file" :disabled="!$store.chat.canComposeInThreadDestination" multiple aria-label="Choose photos or files to attach to reply" @change="$store.chat.handleChatAttachmentSelection($event, 'thread'); open = false" />
                       </label>
-                      <button type="button" role="menuitem" @click="$store.chat.openAudioRecorder('thread'); open = false">Record Audio</button>
-                      <button type="button" role="menuitem" x-show="!$store.chat.deckThreadComposerOpen" @click="$store.chat.startThreadHangCall(); open = false" :disabled="$store.chat.threadHangCallSending" x-text="$store.chat.threadHangCallSending ? 'Starting Hang call…' : 'Start Hang call'"></button>
-                      <button type="button" role="menuitem" x-show="$store.chat.workroomsEnabled && !$store.chat.deckThreadComposerOpen" @click="$store.chat.openWorkroomCreation(); open = false" :disabled="!$store.chat.isTowerPgMode || !$store.chat.selectedChannelId">Start Workroom</button>
+                      <button type="button" role="menuitem" :disabled="!$store.chat.canComposeInThreadDestination" @click="$store.chat.openAudioRecorder('thread'); open = false">Record Audio</button>
+                      <button type="button" role="menuitem" x-show="!$store.chat.deckThreadComposerOpen" @click="$store.chat.startThreadHangCall(); open = false" :disabled="!$store.chat.canComposeInThreadDestination || $store.chat.threadHangCallSending" x-text="$store.chat.threadHangCallSending ? 'Starting Hang call…' : 'Start Hang call'"></button>
+                      <button type="button" role="menuitem" x-show="$store.chat.workroomsEnabled && !$store.chat.deckThreadComposerOpen" @click="$store.chat.openWorkroomCreation(); open = false" :disabled="!$store.chat.canComposeInThreadDestination || !$store.chat.isTowerPgMode || !$store.chat.selectedChannelId">Start Workroom</button>
                     </div>
                   </div>
                   <button class="thread-reply-btn" @click="$store.chat.deckThreadComposerOpen ? $store.chat.sendDeckThread() : $store.chat.sendThreadReply()" :disabled="!$store.chat.canComposeInThreadDestination || $store.chat.deckThreadComposerBusy || $store.chat.composerSendPending.thread || ((!$store.chat.hasMentionComposerDraftText('thread') && $store.chat.threadAudioDrafts.length === 0 && $store.chat.threadFileDrafts.length === 0) || $store.chat.threadImageUploadCount > 0 || $store.chat.threadFileDrafts.some(d => d.status !== 'ready') || $store.chat.messageEdit.submitting)" :aria-busy="($store.chat.deckThreadComposerBusy || $store.chat.composerSendPending.thread).toString()" x-text="$store.chat.deckThreadComposerOpen ? (($store.chat.deckThreadComposerBusy || $store.chat.composerSendPending.thread) ? 'Starting…' : 'Start thread') : ($store.chat.isEditingMessage('thread') ? ($store.chat.messageEdit.submitting ? 'Saving…' : 'Save') : ($store.chat.composerSendPending.thread ? 'Sending…' : 'Reply'))"></button>
@@ -10592,6 +10527,29 @@
     </div>
   </div>
 
+
+  <!-- Retained activity is accessible only through the composer menu. -->
+  <dialog class="agent-activity-dialog" x-data x-effect="if ($store.chat.isAgentActivityDetailsOpen()) { if (!$el.open) $el.showModal(); } else if ($el.open) $el.close()" @close="$store.chat.agentActivityDetailsContext = null" @cancel="$store.chat.agentActivityDetailsContext = null" aria-labelledby="agent-activity-dialog-title">
+    <header><h2 id="agent-activity-dialog-title">Working history &amp; diagnostics</h2><button type="button" @click="$store.chat.agentActivityDetailsContext = null" aria-label="Close working history">Close</button></header>
+    <p x-text="$store.chat.getAgentActivityConnectionSummary()"></p>
+    <p x-show="!$store.chat.agentActivityDetailsRows.length">No retained activity loaded.</p>
+    <template x-for="activity in $store.chat.agentActivityDetailsRows" :key="activity.record_id">
+      <details class="agent-activity-retained">
+        <summary><span x-text="$store.chat.getSenderName(activity.agent_npub) + ' · ' + $store.chat.formatEarlierAgentActivityTitle(activity)"></span><time x-text="activity.created_at ? new Date(activity.created_at).toLocaleString() : ''"></time></summary>
+        <p x-text="$store.chat.getAgentActivityHealth(activity).message"></p>
+        <p x-show="$store.chat.getAgentActivityRecoveryMessage(activity)" x-text="$store.chat.getAgentActivityRecoveryMessage(activity)"></p>
+        <p x-show="activity.summary" x-text="activity.summary"></p>
+        <p x-show="activity.body && activity.body !== activity.summary" x-text="activity.body"></p>
+        <ol class="agent-activity-history">
+          <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(activity)" :key="item.history_key">
+            <li><p x-text="item.body"></p><time x-text="item.created_at ? new Date(item.created_at).toLocaleString() : ''"></time></li>
+          </template>
+        </ol>
+        <button type="button" x-show="activity.commentary_next_before_sequence != null" @click="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
+      </details>
+    </template>
+                <button type="button" class="agent-activity-history-toggle" x-show="!$store.chat.getAgentActivityRunsLoadState($store.chat.agentActivityDetailsContext?.scope).done" @click="$store.chat.loadEarlierAgentActivityRuns($store.chat.agentActivityDetailsContext?.scope)" :disabled="Boolean($store.chat.getAgentActivityRunsLoadState($store.chat.agentActivityDetailsContext?.scope).loading)" x-text="$store.chat.getAgentActivityRunsLoadState($store.chat.agentActivityDetailsContext?.scope).error ? 'Could not load earlier runs — retry' : ($store.chat.getAgentActivityRunsLoadState($store.chat.agentActivityDetailsContext?.scope).loading ? 'Loading earlier runs…' : 'Load earlier agent runs')"></button>
+  </dialog>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

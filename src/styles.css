@@ -22440,3 +22440,11 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   .agent-activity-title { white-space: normal; overflow-wrap: anywhere; }
   .agent-activity-summary { flex-basis: 100%; order: 1; }
 }
+
+.agent-activity-current { padding: 10px 16px; color: var(--text-muted); font-size: 13px; }
+.agent-activity-current p { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-activity-dialog { width: min(680px, calc(100vw - 32px)); max-height: 80vh; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg, white); color: var(--text); }
+.agent-activity-dialog::backdrop { background: #0006; }
+.agent-activity-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.agent-activity-dialog h2 { font-size: 18px; }
+.agent-activity-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; }

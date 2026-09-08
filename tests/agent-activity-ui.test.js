@@ -137,3 +137,46 @@ describe('retained run grouping', () => {
     expect(target.formatEarlierAgentActivityTitle(current.earlier_activities[0])).toContain('status unconfirmed');
   });
 });
+
+describe('menu-only activity details', () => {
+  it('keeps expiry and completion out of the timeline without deleting history', () => {
+    const target = store();
+    const row = activity({ thread_id: 'thread-a', expires_at: '2000-01-01' });
+    target.agentActivities = [row];
+    target.sseStatus = 'reconnecting';
+    expect(target.isCurrentAgentActivityWorking(row)).toBe(false);
+    target.openAgentActivityDetails();
+    expect(target.agentActivityDetailsRows).toHaveLength(1);
+    row.expires_at = '2999-01-01';
+    expect(target.isCurrentAgentActivityWorking(row)).toBe(true);
+    row.state = 'completed';
+    expect(target.isCurrentAgentActivityWorking(row)).toBe(false);
+    expect(target.agentActivityDetailsRows).toHaveLength(1);
+  });
+
+  it('closes and clears displayed details on workspace, backend or thread switches', () => {
+    for (const change of [s => s.currentWorkspace = {workspaceId:'other'}, s => s.backendUrl = 'https://other.example', s => s.activeThreadId = 'other']) {
+      const target = store();
+      target.agentActivities = [activity({thread_id:'thread-a'})];
+      target.openAgentActivityDetails();
+      expect(target.isAgentActivityDetailsOpen()).toBe(true);
+      change(target);
+      expect(target.isAgentActivityDetailsOpen()).toBe(false);
+      expect(target.agentActivityDetailsRows).toEqual([]);
+    }
+  });
+
+  it('uses the Inbox parent channel and pages channel history independently', async () => {
+    const target = store();
+    target.getThreadParentMessage = () => ({channel_id:'inbox-channel',pg_thread_id:'inbox-thread'});
+    target.agentActivities = [activity({channel_id:'inbox-channel',thread_id:'inbox-thread'}), activity({record_id:'other',activity_id:'other',thread_id:'thread-a'})];
+    target.openAgentActivityDetails('thread');
+    expect(target.agentActivityDetailsRows.map(row => row.record_id)).toEqual(['row']);
+    await target.loadEarlierAgentActivityRuns();
+    expect(target.requestTowerSyncFamily).toHaveBeenLastCalledWith('channel-agent-activities', 'inbox-channel:inbox-thread:first', {channelId:'inbox-channel',threadId:'inbox-thread',cursor:undefined});
+    target.openAgentActivityDetails('channel');
+    expect(target.agentActivityDetailsRows.map(row => row.record_id)).toEqual(['other']);
+    await target.loadEarlierAgentActivityRuns('channel');
+    expect(target.requestTowerSyncFamily).toHaveBeenLastCalledWith('channel-agent-activities', 'channel-a:null:first', {channelId:'channel-a',threadId:null,cursor:undefined});
+  });
+});

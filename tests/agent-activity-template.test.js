@@ -10,8 +10,8 @@ describe('agent activity template', () => {
     expect(html).toContain('activeThreadAgentActivities');
     expect(html).toContain('x-text="activity.summary"');
     expect(html).toContain('x-text="activity.body"');
-    expect(html).toContain('Show working history');
-    expect(html).toContain(':aria-expanded="$store.chat.isAgentActivityHistoryExpanded(activity)"');
+    expect(html).toContain('Working history &amp; diagnostics');
+    expect(html).toContain('class="agent-activity-dialog"');
     expect(html).toContain('x-text="item.body"');
     expect(html).not.toContain('x-html="activity.body"');
     expect(html).not.toContain('x-html="item.body"');
@@ -29,8 +29,8 @@ describe('agent activity template', () => {
     expect(html).toContain('agent-activity-channel agent-activity-live');
     expect(html).toContain('agent-activity-thread agent-activity-live');
     expect(html).toContain('getAgentActivityRecoveryMessage(activity)');
-    expect(html).toContain('getAgentActivityHealth(activity).state');
+    expect(html).not.toContain("'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state");
     expect(html).toContain('loadEarlierAgentActivityHistory(activity)');
-    expect(html).toContain('loadEarlierAgentActivityRuns()');
+    expect(html).toContain('loadEarlierAgentActivityRuns($store.chat.agentActivityDetailsContext?.scope)');
   });
 });

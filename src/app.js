@@ -664,6 +664,7 @@ export function initApp() {
     agentActivityRecoveryPending: false,
     agentActivityHistoryLoads: {},
     agentActivityRunsLoads: {},
+    agentActivityDetailsContext: null,
     catchUpSyncActive: false,
     startupSyncProgress: {
       active: false, visible: false, stage: 'idle', startedAt: null, elapsedMs: 0,

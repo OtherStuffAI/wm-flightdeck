@@ -167,3 +167,33 @@ The known worker benchmark remains excluded. The staged public-source findings
 match unchanged HEAD byte-for-byte. Browser checks pass for all six surface/width
 combinations. Build `20260908-0652-11-1909` (1909), dist verification, and whitespace
 checks pass. Generated output and local screenshot evidence are not committed.
+
+
+## Menu-only activity detail (build 1910)
+
+This supersedes the inline presentation described above. Normal Chat, Inbox and
+channel timelines render only the current unexpired nonterminal run per agent,
+with its latest safe commentary and a quiet Working label. Expiry changes only
+presentation; it never confirms completion or removes retained records.
+Connection warnings, retained/finished runs, commentary history and run paging
+are available through the existing composer Menu → Working history & diagnostics.
+The menu remains usable when composition is disabled or no run is active.
+
+A shared modal reads the existing grouped local projection and uses the existing
+sync-family requests for bounded history pages. Its workspace/backend/channel/
+thread context invalidates on navigation; Inbox resolves its own parent channel.
+Channel history uses a separate channel cursor. No transport owner was added.
+
+The offline browser regression extracts the production activity, composer-menu
+and dialog templates, runs the real Alpine mixin and CSS with synthetic records,
+and blocks networking. It checks both widths (390/1120) for Chat, Inbox and
+channel, opening Menu then history, diagnostics during recovery, finished history,
+run paging and distinct agents. Screenshots default to /tmp/activity-menu.
+Authenticated local-Tower end-to-end recovery remains a separate runtime check.
+The full suite was deliberately not repeated after the preceding baseline run.
+
+Validation: 80 focused activity/history/recovery/release-note tests pass. The
+rendered-template browser pass covers all six surface/width combinations.
+Build 20260908-0704-12-1910, dist verification and whitespace checks pass.
+Public-source findings remain byte-for-byte identical to the pre-change check.
+Concurrent Inbox layout work is preserved outside this activity checkpoint.

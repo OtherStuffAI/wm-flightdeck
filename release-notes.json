@@ -1348,6 +1348,13 @@
       "notes": [
         "Each agent now has one current activity panel per conversation, with older runs available under collapsed Earlier activity. Quiet updates use neutral wording; connection warnings appear only during recovery."
       ]
+    },
+    {
+      "buildNumber": 1910,
+      "label": "Working history in the menu",
+      "notes": [
+        "Chat and Inbox show only current working commentary. Open Menu \u2192 Working history & diagnostics for retained runs, earlier updates and connection details, even after work finishes."
+      ]
     }
   ]
 }

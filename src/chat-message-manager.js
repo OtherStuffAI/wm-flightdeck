@@ -1220,29 +1220,52 @@ export const chatMessageManagerMixin = {
   hasAgentActivityCommentaryHistory(activity = {}) {
     return this.getAgentActivityCommentaryHistory(activity).length > 0 || activity.commentary_next_before_sequence != null;
   },
-  getAgentActivityRunsContext() {
-    const parent = this.getThreadParentMessage?.();
+  isCurrentAgentActivityWorking(activity = {}) {
+    void this.responseActivityTick;
+    const expiresAt = Date.parse(activity.expires_at || '');
+    return !isTerminalAgentActivity(activity) && Number.isFinite(expiresAt) && expiresAt > Date.now();
+  },
+  getAgentActivityConnectionSummary() {
+    const health = this.getAgentActivityHealth({ state: 'working', expires_at: '2999-01-01' });
+    return health.message || 'Connection active';
+  },
+  openAgentActivityDetails(scope = 'thread') {
+    this.agentActivityDetailsContext = { scope, key: this.getAgentActivityRunsContext(scope).key };
+  },
+  isAgentActivityDetailsOpen() {
+    const context = this.agentActivityDetailsContext;
+    return Boolean(context && context.key === this.getAgentActivityRunsContext(context.scope).key);
+  },
+  get agentActivityDetailsRows() {
+    if (!this.isAgentActivityDetailsOpen()) return [];
+    const scope = this.agentActivityDetailsContext.scope;
+    const groups = scope === 'thread' ? this.activeThreadAgentActivities
+      : this.getVisibleAgentActivities().filter(row => row.channel_id === this.activeChannelId);
+    return groups.flatMap(row => [row, ...(row.earlier_activities || [])]);
+  },
+  getAgentActivityRunsContext(scope = 'thread') {
+    const parent = scope === 'thread' ? this.getThreadParentMessage?.() : null;
     const channelId = parent?.channel_id || this.activeChannelId;
-    const threadId = parent?.pg_thread_id || parent?.thread_id || this.activeThreadId;
+    const threadId = scope === 'thread' ? (parent?.pg_thread_id || parent?.thread_id || this.activeThreadId) : null;
     const key = `${this.currentWorkspace?.workspaceId || ''}:${this.backendUrl || ''}:${channelId || ''}:${threadId || ''}`;
     return { channelId, threadId, key };
   },
-  getAgentActivityRunsLoadState() {
-    return this.agentActivityRunsLoads?.[this.getAgentActivityRunsContext().key] || {};
+  getAgentActivityRunsLoadState(scope = 'thread') {
+    return this.agentActivityRunsLoads?.[this.getAgentActivityRunsContext(scope).key] || {};
   },
-  async loadEarlierAgentActivityRuns() {
-    const { channelId, threadId, key } = this.getAgentActivityRunsContext();
+  async loadEarlierAgentActivityRuns(scope = 'thread') {
+    const { channelId, threadId, key } = this.getAgentActivityRunsContext(scope);
     const previous = this.agentActivityRunsLoads?.[key] || {};
-    if (!channelId || !threadId || previous.loading || previous.done) return;
+    if (!channelId || (scope === 'thread' && !threadId) || previous.loading || previous.done) return;
     this.agentActivityRunsLoads = { ...this.agentActivityRunsLoads, [key]: { ...previous, loading: true, error: false } };
     try {
       const result = await this.requestTowerSyncFamily('channel-agent-activities', `${channelId}:${threadId}:${previous.cursor || 'first'}`, {
         channelId, threadId, cursor: previous.cursor,
       });
-      if (this.getAgentActivityRunsContext().key !== key) return;
+      if (this.getAgentActivityRunsContext(scope).key !== key) return;
       this.agentActivityRunsLoads = { ...this.agentActivityRunsLoads, [key]: { cursor: result?.next_cursor || null, done: !result?.next_cursor } };
     } catch {
-      if (this.getAgentActivityRunsContext().key !== key) return;
+      if (this.getAgentActivityRunsContext(scope).key !== key) return;
       this.agentActivityRunsLoads = { ...this.agentActivityRunsLoads, [key]: { ...previous, error: true } };
     } finally {
       if (this.agentActivityRunsLoads?.[key]?.loading) {
