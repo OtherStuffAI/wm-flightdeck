@@ -544,7 +544,7 @@ function buildWorkspaceSpecs(store) {
         },
         {
           key: 'docs:documents',
-          query: () => getWindowedDocumentsByOwner(ownerNpub),
+          query: () => getDocumentsByOwner(ownerNpub),
           onNext: (documents) => store.applyDocuments(documents),
         },
       ];

@@ -49,8 +49,23 @@ export function filterDocItemsByScope(documents, directories, selectedBoardId, s
     return { documents: liveDocs, directories: liveDirs };
   }
 
-  const matchesScope = (item) =>
-    matchesTaskBoardScope(item, selectedBoardScope, scopesMap, { includeDescendants: true });
+  const matchesScope = (item) => {
+    // PG rows carry the direct scope in scope_l1_id as a compatibility alias,
+    // not an ancestor. Resolve ancestry from workspace scope metadata instead.
+    if (item.pg_backend && item.scope_id) {
+      let scopeId = item.scope_id;
+      const seen = new Set();
+      while (scopeId && !seen.has(scopeId)) {
+        if (scopeId === selectedBoardScope.record_id) return true;
+        seen.add(scopeId);
+        const scope = scopesMap.get(scopeId);
+        if ([scope?.l1_id, scope?.l2_id, scope?.l3_id, scope?.l4_id, scope?.l5_id].includes(selectedBoardScope.record_id)) return true;
+        scopeId = scope?.parent_id;
+      }
+      return false;
+    }
+    return matchesTaskBoardScope(item, selectedBoardScope, scopesMap, { includeDescendants: true });
+  };
 
   const matchedDocs = liveDocs.filter(matchesScope);
   const directlyMatchedDirs = liveDirs.filter(matchesScope);

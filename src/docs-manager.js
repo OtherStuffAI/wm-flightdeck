@@ -975,6 +975,14 @@ export const docsManagerMixin = {
     if (options.ensureSync !== false) this.ensureBackgroundSync(true);
   },
 
+  async openAllDocuments() {
+    this.closeDocEditor({ syncRoute: false });
+    this.currentFolderId = null;
+    this.docFilter = '';
+    await this.selectBoard('__all__');
+    this.navigateTo('docs');
+  },
+
   closeDocEditor(options = {}) {
     const selectedRecord = this.selectedDocument;
     if (this.docEditDraftDirty) void this.persistSelectedDocDraft({ immediate: true });

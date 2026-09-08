@@ -2672,8 +2672,23 @@ describe('docsManagerMixin canonical row normalization', () => {
     await expect(store.saveSelectedPgDocItem(record, 'npub1owner', { autosave: false })).resolves.toBeNull();
     expect(store.docAutosaveState).toBe('error');
     expect(store.error).toContain('complete document');
+    expect(store.docEditDraftDirty).toBe(true);
+    expect(await getDocumentDraft('workspace-1', record.record_id)).toMatchObject({ content: lossy.content, editor_state: lossy.editor_state });
     expect(store.prepareDocumentContentForEnvelope).not.toHaveBeenCalled();
     expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+  });
+
+  it('saves a rich list with an insignificant trailing prose space', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const model = prosemirrorToFlightDeckContentModel({ type: 'doc', content: [
+      { type: 'bulletList', content: [{ type: 'listItem', content: [
+        { type: 'paragraph', content: [{ type: 'text', text: 'Synthetic prose item. ' }] },
+      ] }] },
+    ] });
+    updateTowerPgDocMock.mockResolvedValueOnce(acceptedPgDoc(44, model.content));
+    const { store } = createSyncedPgDocSaveStore({ currentModel: model });
+    await expect(store.saveSelectedDocItem({ autosave: false })).resolves.toMatchObject({ version: 44 });
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
   });
 
   it('allows a valid intentional deletion because the smaller editor state round-trips completely', async () => {

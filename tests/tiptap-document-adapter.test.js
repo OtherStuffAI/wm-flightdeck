@@ -197,3 +197,32 @@ describe('Tiptap document adapter', () => {
     });
   });
 });
+
+describe('prose boundary integrity', () => {
+  const text = (value, marks = []) => ({ type: 'text', text: value, marks });
+  const model = (content) => prosemirrorToFlightDeckContentModel({ type: 'doc', content });
+  const paragraph = (content) => ({ type: 'paragraph', content });
+  it('accepts single trailing list prose spaces over repeated edit/save/reopen cycles', () => {
+    let current = model([{ type: 'bulletList', content: ['First prose item. ', 'Second prose item. '].map(value => ({ type: 'listItem', content: [paragraph([text(value)])] })) }]);
+    for (let cycle = 0; cycle < 5; cycle++) {
+      expect(validateDocumentContentModelRoundTrip(current)).toEqual({ ok: true });
+      current = model(markdownToProseMirrorDoc(current.content, { contentBlocks: current.content_blocks }).content);
+    }
+    const edited = model([paragraph([text('Intentional replacement')])]);
+    expect(validateDocumentContentModelRoundTrip(edited)).toEqual({ ok: true });
+    expect(validateDocumentContentModelRoundTrip(model([]))).toEqual({ ok: true });
+  });
+  it.each([
+    [paragraph([text('two words')]), paragraph([text('twowords')])],
+    [paragraph([text('linked', [{ type: 'link', attrs: { href: 'https://example.com' } }])]), paragraph([text('linked')])],
+    [paragraph([text('bold', [{ type: 'bold' }])]), paragraph([text('bold')])],
+    [paragraph([text('a'), { type: 'hardBreak' }, text('b')]), paragraph([text('ab')])],
+    [{ type: 'codeBlock', content: [text(' a  b ')] }, { type: 'codeBlock', content: [text('a b')] }],
+    [paragraph([text(' a ', [{ type: 'code' }])]), paragraph([text('a', [{ type: 'code' }])])],
+    [paragraph([{ type: 'image', attrs: { src: 'https://example.com/a.png', alt: 'A' } }]), paragraph([])],
+  ])('rejects semantic loss %#', (original, damaged) => {
+    const expected = model([original]);
+    const actual = model([damaged]);
+    expect(validateDocumentContentModelRoundTrip({ ...actual, editor_state: expected.editor_state }).ok).toBe(false);
+  });
+});

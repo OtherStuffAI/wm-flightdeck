@@ -4606,6 +4606,8 @@
             <div class="docs-header" x-show="!$store.chat.docsEditorOpen">
               <div class="docs-title-block">
                 <h2>Docs</h2>
+                <p class="docs-subtitle" x-text="'Viewing: ' + $store.chat.selectedBoardLabel"></p>
+                <button type="button" class="btn-secondary" @click="$store.chat.openAllDocuments()">All documents</button>
                 <p class="docs-subtitle" x-text="`${$store.chat.filteredDocBrowserItems.length} of ${$store.chat.currentFolderContents.length}`"></p>
               </div>
 
@@ -4870,6 +4872,8 @@
 
                 <div class="docs-empty-panel" x-show="($store.chat.sortedDocBrowserItems || []).length === 0">
                   <h2>Docs</h2>
+                <p class="docs-subtitle" x-text="'Viewing: ' + $store.chat.selectedBoardLabel"></p>
+                <button type="button" class="btn-secondary" @click="$store.chat.openAllDocuments()">All documents</button>
                   <p x-text="$store.chat.isTowerPgMode ? 'No documents here yet.' : 'No documents or folders here yet.'"></p>
                 </div>
               </div>
@@ -4884,7 +4888,7 @@
                       Back
                     </button>
                     <div class="folder-breadcrumbs doc-editor-breadcrumbs">
-                      <span class="breadcrumb-item breadcrumb-link" @click="$store.chat.closeDocEditor()">Docs</span>
+                      <span class="breadcrumb-item breadcrumb-link" @click="$store.chat.openAllDocuments()">All documents</span>
                       <template x-for="folder in $store.chat.currentFolderBreadcrumbs" :key="folder.record_id">
                         <span>
                           <span class="breadcrumb-sep">/</span>

@@ -1787,16 +1787,11 @@ export function initApp() {
       if (this.isTowerPgMode) {
         const channelId = String(this.pgContextSelectedChannelId || '').trim();
         const threadId = String(this.pgContextSelectedThreadId || '').trim();
-        const scopeId = String(this.pgContextScopeId || this.selectedBoardId || '').trim();
         const docs = this.scopeFilteredDocs.documents
           .filter((item) => {
             if (item.record_state === 'deleted') return false;
             if (channelId && String(item.pg_channel_id || '').trim() !== channelId) return false;
             if (threadId && String(item.pg_thread_id || '').trim() !== threadId) return false;
-            if (!channelId && !threadId && scopeId && scopeId !== ALL_TASK_BOARD_ID && scopeId !== RECENT_TASK_BOARD_ID && scopeId !== UNSCOPED_TASK_BOARD_ID) {
-              const itemScopeId = String(item.scope_id || item.scope_l1_id || '').trim();
-              if (itemScopeId && itemScopeId !== scopeId) return false;
-            }
             return true;
           })
           .map((item) => ({ type: 'document', item }))

@@ -64,8 +64,14 @@ function appendSemanticTokens(node = {}, tokens = []) {
     });
     return tokens;
   }
-  for (const child of Array.isArray(node.content) ? node.content : []) {
-    appendSemanticTokens(child, tokens);
+  const children = Array.isArray(node.content) ? node.content : [];
+  for (const [index, child] of children.entries()) {
+    // Markdown list serialization discards a single unmarked prose boundary
+    // space. Never trim inline/marked/code text or whitespace before a break.
+    const proseTail = (node.type === 'paragraph' || node.type === 'heading')
+      && index === children.length - 1 && child.type === 'text'
+      && !(child.marks || []).length && /[^\s] $/.test(child.text || '');
+    appendSemanticTokens(proseTail ? { ...child, text: child.text.slice(0, -1) } : child, tokens);
   }
   return tokens;
 }
