@@ -1,12 +1,9 @@
 # Agent working update reliability — implement all five fixes
-Tracking task: @[Keep agent working updates visible and recover complete history](mention:task:74005209-69cb-4074-b548-e9eeffd3f435). Read task and latest comments through Flight Deck broker tools where available; local brief is complete if worker lacks inherited routing. Manager handles external reporting.
-Pete explicitly requested implementation on 2026-09-08: "Please implement all these changes now."
-Origin: @[Features](mention:channel:0617d526-88dc-4dc2-9876-08349ab60eca), thread baaca1d9-5bcb-49bb-8f7f-74e253e18af3, @[Implementation request](mention:message:d863e3f9-480b-478f-bc47-9d382d0f5cb0).
-Workspace 2e5caefd-dd65-45d2-b747-ee874e8e5fc9; scope 76d518f7-c477-4374-bf74-5d36fda570ed.
-User symptom: working updates disappear and return while the agent still works; history intermittently available. Pete proposed 60 seconds; agreed behavior below.
+The requester explicitly requested implementation on 2026-09-08: "Please implement all these changes now."
+User symptom: working updates disappear and return while the agent still works; history intermittently available. The requester proposed 60 seconds; agreed behavior below.
 
 ## Required deliverable
-Implement and validate all five fixes across /Users/mini/code/wm/flightdeck, /Users/mini/code/wm/tower, /Users/mini/code/wm/autopilot.
+Implement and validate all five fixes across <suite-root>/flightdeck, <suite-root>/tower, <suite-root>/autopilot.
 1. Preserve received working panel during connection loss. Start reconnect immediately; first 60 seconds show Reconnecting; thereafter Connection lost—status unknown, keeping content. Never infer stopped/completed from silence or expiry.
 2. Automatically recover missed updates and reconcile authoritative state on reconnect/fallback recovery; retry activity-fetch failures visibly and boundedly. Preserve workspace/turn isolation and avoid duplicate polling.
 3. Every received commentary enters ordered, deduplicated history consistently through live events and full reload. Do not coalesce away history while coalescing current snapshots.
@@ -20,7 +17,7 @@ Autopilot src/agent-chat/agent-activity-publisher.ts advances latestCommentaryAt
 Read live code; line numbers may move. Local publication sample Sept7 onward 203 accepted, zero recorded failed: delivery failure is a demonstrated code risk, not confirmed incident.
 
 ## Architecture and constraints
-Latest local published architecture is v4 under /Users/mini/code/wingmanbefree/artifact-wapp/artifacts/Wingman_Suite/wingman-suite-arch/v4/excalidraw-scene.json (nested scene.elements). Read saved scene and visual relationships. Critical v4 contract: TowerSyncService sole network/update owner for SSE/cursor recovery, fallback polling, initial hydrate, ensureLoaded, coalescing and materialisation -> Dexie -> liveQuery -> Alpine. No component-owned fetch/poll workarounds.
+Latest local published architecture is v4 under <legacy-suite-root>/artifact-wapp/artifacts/Wingman_Suite/wingman-suite-arch/v4/excalidraw-scene.json (nested scene.elements). Read saved scene and visual relationships. Critical v4 contract: TowerSyncService sole network/update owner for SSE/cursor recovery, fallback polling, initial hydrate, ensureLoaded, coalescing and materialisation -> Dexie -> liveQuery -> Alpine. No component-owned fetch/poll workarounds.
 Tower owns shared history, Autopilot execution/publication, Flightdeck UI. Implement backward-compatible Tower contract first then consumers. Do not redesign unrelated systems.
 Read all applicable repo instructions. Default main in each repo, preserve concurrent work. Inspect full worktree and commit all nonignored tested state unless clear safety reason; no resets/rebases/force pushes or discarding others. Do not push deployment branches or restart Autopilot. Implementation/build/tests are authorized. Report runtime activation still needed accurately. Never raw-key signing; broker only.
 

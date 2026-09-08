@@ -115,11 +115,11 @@ files. The final guard/release/hydrator pass added one regression and passed all
 remaining benchmark was independently reproduced in an archive of unchanged
 HEAD. No benchmark assertion or timeout was changed to conceal it.
 
-`check:public-source` remains failing. In addition to preexisting tracked
-handoffs, the concurrent shared checkpoint includes supplied task briefs with
-operator paths/names, producing ten additional path/context findings. These
-supplied documents were preserved under the requested shared checkpoint policy;
-there is no claim that this tree passes public-source publication checks.
+`check:public-source` remains failing on unrelated tracked handoffs and operator
+context. Manager review removed deployment-specific paths, names and routing
+from this change's implementation brief; that brief no longer appears in the
+check findings. Unrelated supplied documents remain preserved. This tree is
+not claimed to pass public-source publication checks.
 
 No external task/comment/chat reporting, deployment push, or Autopilot restart
 was performed. Broker context had no inherited task routing; the complete local
