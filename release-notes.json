@@ -1286,6 +1286,13 @@
       "notes": [
         "Saving preserves ordinary paragraph spaces and formatting around punctuation across repeated reopen cycles, while accepting a single trailing list prose space and still rejecting content loss."
       ]
+    },
+    {
+      "buildNumber": 1901,
+      "label": "Cleaner document view",
+      "notes": [
+        "Removed the reference strip above document content so it no longer flashes after saving."
+      ]
     }
   ]
 }

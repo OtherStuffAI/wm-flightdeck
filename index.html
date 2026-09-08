@@ -5100,29 +5100,6 @@
                   ><span class="doc-scope-pill doc-scope-pill-title doc-scope-pill-unscoped">Unscoped</span></button>
                 </div>
 
-                <template x-if="$store.chat.getVisibleRecordLinkSections($store.chat.selectedDocument).length > 0">
-                  <div class="doc-record-links">
-                    <template x-for="section in $store.chat.getVisibleRecordLinkSections($store.chat.selectedDocument)" :key="`doc-link-section-${section.kind}`">
-                      <div class="record-link-section" :class="`record-link-section-${section.kind}`">
-                        <span class="doc-record-link-heading" x-text="section.label"></span>
-                        <div class="task-references-list">
-                          <template x-for="ref in section.links" :key="`${section.kind}-${ref.type}-${ref.id}`">
-                            <button
-                              type="button"
-                              class="task-reference-chip record-link-chip"
-                              :class="`record-link-chip-${section.kind}`"
-                              @click="$store.chat.navigateReference(ref)"
-                            >
-                              <span class="task-reference-type" x-text="$store.chat.getRecordLinkTypeLabel(ref)"></span>
-                              <span x-text="$store.chat.resolveReferenceLabel(ref)"></span>
-                            </button>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-
                 <div class="doc-content-block">
                   <nav class="mobile-detail-switcher doc-mobile-switcher" aria-label="Document sections">
                     <button
