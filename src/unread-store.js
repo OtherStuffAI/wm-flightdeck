@@ -22,6 +22,7 @@ import {
   getTasksByOwner,
   getSyncState,
   getResourceViewStates,
+  getBulkReadResourceStates,
   getResourceViewState,
   upsertResourceViewState,
   replaceResourceViewStates,
@@ -138,6 +139,17 @@ export function collectUnreadViewResources(states = [], resourceTypes = []) {
     }));
 }
 
+async function applyBulkReadProjection(store, states, assertCurrent) {
+  if (store._recordDeltaAttentionActive) {
+    const { getPgAttentionProjection } = await import('./pg-record-delta.js');
+    const projection = await getPgAttentionProjection(store);
+    assertCurrent();
+    if (unreadStoreMixin.applyPgAttentionProjection.call(store, projection)) return;
+  }
+  assertCurrent();
+  store.applyTowerPgResourceViewStates(states);
+}
+
 // Bulk writes are confirmed-only: a failed atomic Tower batch must not leave
 // monotonic pending rows that the refresh path would later replay individually.
 async function markBulkViewResources(store, context, resources, assertCurrent) {
@@ -192,7 +204,7 @@ async function markBulkViewResources(store, context, resources, assertCurrent) {
     assertCurrent();
     const states = await readStates();
     assertCurrent();
-    store.applyTowerPgResourceViewStates(states);
+    await applyBulkReadProjection(store, states, assertCurrent);
     return { ok: true, count, ...(skipped ? { skipped } : {}) };
   } catch (error) {
     // Keep confirmed earlier chunks visible, but never touch a new activation.
@@ -200,7 +212,7 @@ async function markBulkViewResources(store, context, resources, assertCurrent) {
       assertCurrent();
       const states = await readStates();
       assertCurrent();
-      store.applyTowerPgResourceViewStates(states);
+      await applyBulkReadProjection(store, states, assertCurrent);
     } catch { /* The original error remains the actionable failure. */ }
     return { ok: false, count, ...(skipped ? { skipped } : {}), error: error?.message || 'Failed to mark items as read.' };
   }
@@ -838,7 +850,7 @@ export const unreadStoreMixin = {
     return markBulkViewResources(this, context, resources, assertCurrent);
   },
 
-  async markInboxResourcesRead(resourceTypes = []) {
+  async markInboxResourcesRead(resourceTypes = [], { allScopes = false } = {}) {
     const types = [...new Set((Array.isArray(resourceTypes) ? resourceTypes : []).filter((type) => ['thread', 'task', 'document'].includes(type)))];
     if (types.length === 0) return { ok: true, count: 0, empty: true };
 
@@ -857,10 +869,10 @@ export const unreadStoreMixin = {
     const context = resolveTowerPgWorkspaceContext(this);
     if (!context.workspaceId || !context.baseUrl) return { ok: false, count: 0, error: 'Tower Inbox view state is unavailable.' };
     const assertCurrent = bulkViewWorkspaceGuard(this, context);
-    const states = await (this.getResourceViewStates || getResourceViewStates)();
+    const states = await (this.getResourceViewStates || getBulkReadResourceStates)();
     try { assertCurrent(); } catch (error) { return { ok: false, count: 0, error: error.message }; }
     const resources = collectScopeUnreadViewResources(states, types, {
-      selectedScopeId: this.pgContextScopeId,
+      selectedScopeId: allScopes ? '' : this.pgContextScopeId,
       scopesMap: this.scopesMap,
       channels: this.channels,
       messages: this.messages,
@@ -1067,18 +1079,7 @@ export const unreadStoreMixin = {
     if (!viewerNpub) return;
 
     if (usesTowerResourceViewState(this)) {
-      const context = resolveTowerPgWorkspaceContext(this);
-      const resources = Object.keys(this._unreadTaskItems).map((resourceId) => ({ resource_type: 'task', resource_id: resourceId }));
-      if (!context.workspaceId || resources.length === 0) return;
-      const result = await markTowerPgResourcesViewed(context.workspaceId, resources, {
-        baseUrl: context.baseUrl, appNpub: context.appNpub,
-      });
-      for (const state of Array.isArray(result?.states) ? result.states : []) {
-        const row = mapTowerResourceViewState(state);
-        if (row) await upsertResourceViewState(row);
-      }
-      this.applyTowerPgResourceViewStates(await getResourceViewStates());
-      return;
+      return unreadStoreMixin.markInboxResourcesRead.call(this, ['task'], { allScopes: true });
     }
     await this.markSectionRead('tasks');
     this._unreadTaskItems = {};

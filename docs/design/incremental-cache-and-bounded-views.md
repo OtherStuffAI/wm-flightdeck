@@ -198,8 +198,14 @@ watermark. Task attention excludes the viewer's own latest task/comment activity
 using the existing actor-aware comparator. Thread/document attention follows
 existing resource version semantics. First-use baseline seeding uses the existing
 resource-view-state endpoint with limit 1; its journal writes are included through
-snapshot handover. Local read watermarks are monotonic and clear attention/counts
-atomically before network acknowledgement. Latest channel activity is separate
+snapshot handover. Bulk task/Inbox read actions join persisted resource attention
+with viewer watermarks because record-delta activity can advance before (or
+without) a view-state row. They acknowledge the captured activity version and
+refresh the active projection after acknowledgement. Review tasks follow the
+same read rules without a workflow-state mutation; later activity becomes unread
+again. Inbox bulk actions retain the selected scope and descendants, while the
+task-board bulk action retains workspace-wide scope. Local read watermarks are
+monotonic and clear attention/counts atomically before network acknowledgement. Latest channel activity is separate
 from viewer-specific read state. Backfill equivalence is tested against the
 existing unread projection, including self-authored activity and comments.
 

@@ -322,6 +322,27 @@ export async function getResourceViewStates() {
   return wsDb().resource_view_states.toArray();
 }
 
+// Record-delta activity advances independently of the viewer watermark rows.
+// Bulk read must include canonical attention even when no view-state row exists.
+export async function getBulkReadResourceStates() {
+  const db = wsDb();
+  return db.transaction('r', db.resource_view_states, db.pg_resource_attention, async () => {
+    const rows = new Map((await db.resource_view_states.toArray()).map(row => [row.record_id, row]));
+    for (const attention of await db.pg_resource_attention.toArray()) {
+      const view = rows.get(attention.record_id);
+      rows.set(attention.record_id, {
+        ...view,
+        ...attention,
+        scope_id: view?.scope_id || null,
+        channel_id: attention.channel_id || view?.channel_id || null,
+        activity_version: Math.max(Number(view?.activity_version || 0), Number(attention.activity_version || 0)),
+        viewed_activity_version: Math.max(Number(view?.viewed_activity_version || 0), Number(attention.viewed_activity_version || 0)),
+      });
+    }
+    return [...rows.values()];
+  });
+}
+
 export async function getResourceViewState(resourceType, resourceId) {
   return wsDb().resource_view_states.get(`${resourceType}:${resourceId}`);
 }

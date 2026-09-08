@@ -1300,6 +1300,13 @@
       "notes": [
         "Document saves preserve spaces at formatting and paragraph boundaries, including after typing beside bold text. Repeated reopens retain content and formatting, while the save guard continues to reject content loss."
       ]
+    },
+    {
+      "buildNumber": 1903,
+      "label": "Read review tasks in bulk",
+      "notes": [
+        "Mark all tasks as read and Mark everything as read now clear current activity on review tasks without marking them done. New activity still appears unread."
+      ]
     }
   ]
 }
