@@ -1293,6 +1293,13 @@
       "notes": [
         "Removed the reference strip above document content so it no longer flashes after saving."
       ]
+    },
+    {
+      "buildNumber": 1902,
+      "label": "Reliable saves after rich text edits",
+      "notes": [
+        "Document saves preserve spaces at formatting and paragraph boundaries, including after typing beside bold text. Repeated reopens retain content and formatting, while the save guard continues to reject content loss."
+      ]
     }
   ]
 }

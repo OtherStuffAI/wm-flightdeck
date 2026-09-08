@@ -6,10 +6,20 @@ import {
 } from './prosemirror-constants.js';
 
 function escapeText(value = '') {
-  return String(value || '').replace(/([\\`*_{}\[\]()#+\-.!|>])/g, '\\$1');
+  return String(value || '').replace(/([\\`*_{}\[\]()#+\-.!|>&])/g, '\\$1');
 }
 
-function markText(text, marks = []) {
+function markText(text, marks = [], { atStart = false, atEnd = false, encodeFirst = false, encodeLast = false } = {}) {
+  // Markdown emphasis cannot open/close beside literal whitespace, and block
+  // parsers trim boundary spaces. Character references preserve the exact text
+  // (including its marks) without relaxing the independent integrity check.
+  let escaped = escapeText(text);
+  // An encoded marked space ends in ';'. Encode an adjacent word character
+  // too, so Markdown's delimiter flanking rules still recognize the mark.
+  if (encodeFirst) escaped = escaped.replace(/^[\p{L}\p{N}]/u, (char) => `&#${char.codePointAt(0)};`);
+  if (encodeLast) escaped = escaped.replace(/[\p{L}\p{N}]$/u, (char) => `&#${char.codePointAt(0)};`);
+  if (marks.length || atStart) escaped = escaped.replace(/^ +/, (spaces) => '&#32;'.repeat(spaces.length));
+  if (marks.length || atEnd) escaped = escaped.replace(/ +$/, (spaces) => '&#32;'.repeat(spaces.length));
   return (marks || []).reduce((out, mark) => {
     if (mark.type === 'bold') return `**${out}**`;
     if (mark.type === 'italic') return `_${out}_`;
@@ -21,7 +31,7 @@ function markText(text, marks = []) {
       return `@[${label}](mention:${mark.attrs?.mentionType || 'record'}:${mark.attrs?.mentionId || ''})`;
     }
     return out;
-  }, escapeText(text));
+  }, escaped);
 }
 
 function inlineMarkdown(nodes = []) {
@@ -38,8 +48,13 @@ function inlineMarkdown(nodes = []) {
       runs.push({ ...node });
     }
   }
-  return runs.map((node) => {
-    if (node.type === 'text') return markText(node.text || '', node.marks || []);
+  return runs.map((node, index) => {
+    if (node.type === 'text') return markText(node.text || '', node.marks || [], {
+      atStart: index === 0,
+      atEnd: index === runs.length - 1,
+      encodeFirst: runs[index - 1]?.marks?.length > 0 && / $/.test(runs[index - 1]?.text || ''),
+      encodeLast: runs[index + 1]?.marks?.length > 0 && /^ /.test(runs[index + 1]?.text || ''),
+    });
     if (node.type === 'hardBreak') return '  \n';
     if (node.type === 'fdStorageImage' || node.type === 'image') {
       const src = node.type === 'fdStorageImage' && node.attrs?.objectId

@@ -17,9 +17,13 @@ const reject = (model) => assert.equal(validateDocumentContentModelRoundTrip(mod
 function cycles(initial) {
   let model = initial;
   const expected = documentEditorSemanticTokens(initial.editor_state);
+  let canonicalMarkdown;
   for (let cycle = 0; cycle < 8; cycle++) {
     validate(model);
-    assert(model.content === initial.content, 'Markdown changed on reopen');
+    // A stored rich state can use equivalent noncanonical Markdown. Require
+    // stability after the first forced parse, and semantic equality throughout.
+    if (cycle === 1) canonicalMarkdown = model.content;
+    if (cycle > 1) assert(model.content === canonicalMarkdown, 'Markdown changed on reopen');
     assert(JSON.stringify(documentEditorSemanticTokens(model.editor_state)) === JSON.stringify(expected), 'Reopen changed semantic content');
     model = createDocumentEditorState({ ...model, editor_state: null }).contentModel;
   }
@@ -41,7 +45,9 @@ assert(editFirstText(edited), 'Expected editable prose');
 cycles(serialize(edited));
 const deleted = structuredClone(edited);
 assert(deleted.content.length > 1, 'Expected multiple blocks');
-deleted.content.pop();
+// Tiptap may append an empty paragraph; remove through the last content block.
+do { deleted.content.pop(); } while (deleted.content.length
+  && JSON.stringify(documentEditorSemanticTokens(deleted)) === JSON.stringify(documentEditorSemanticTokens(edited)));
 assert(JSON.stringify(documentEditorSemanticTokens(deleted)) !== JSON.stringify(documentEditorSemanticTokens(edited)), 'Deletion must remove semantic content');
 const smaller = serialize(deleted);
 cycles(smaller);

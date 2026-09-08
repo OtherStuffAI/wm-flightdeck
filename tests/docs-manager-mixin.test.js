@@ -2691,6 +2691,26 @@ describe('docsManagerMixin canonical row normalization', () => {
     expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
   });
 
+  it('saves and persists marked boundary spaces without losing the draft content', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const model = prosemirrorToFlightDeckContentModel({ type: 'doc', content: [
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Label: ', marks: [{ type: 'bold' }] },
+        { type: 'text', text: 'Retained body.' },
+      ] },
+    ] });
+    updateTowerPgDocMock.mockResolvedValueOnce(acceptedPgDoc(44, model.content));
+    const { store } = createSyncedPgDocSaveStore({ currentModel: model });
+    const saved = await store.saveSelectedDocItem({ autosave: false });
+    expect(saved).toMatchObject({ version: 44, content: model.content });
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
+    expect(store.prepareDocumentContentForEnvelope).toHaveBeenCalledTimes(1);
+    const reopened = createDocumentEditorState({ ...saved, editor_state: null }).contentModel;
+    expect(reopened.editor_state.content[0].content[0]).toMatchObject({
+      text: 'Label: ', marks: [{ type: 'bold' }],
+    });
+  });
+
   it('allows a valid intentional deletion because the smaller editor state round-trips completely', async () => {
     isTowerPgBackendModeMock.mockReturnValue(true);
     const source = buildSyntheticLongDocumentFixture();

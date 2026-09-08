@@ -76,7 +76,14 @@ function inlineContent(tokens = [], inheritedMarks = []) {
     if (!token) continue;
     if (token.type === 'text' || token.type === 'escape') {
       const mention = mentionMarkFromText(token.text);
-      pushTextNode(out, token.text, mention ? [...inheritedMarks, mention] : inheritedMarks);
+      // Decode decimal character references in prose only, after lexing. Escaped
+      // ampersands and code tokens must stay literal (no recursive decoding).
+      const text = token.type === 'text' ? token.text.replace(/&#(\d+);/g, (raw, digits) => {
+        const code = Number(digits);
+        return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
+          ? String.fromCodePoint(code) : raw;
+      }) : token.text;
+      pushTextNode(out, text, mention ? [...inheritedMarks, mention] : inheritedMarks);
       continue;
     }
     if (token.type === 'br') {

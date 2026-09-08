@@ -276,3 +276,69 @@ describe('prose boundary integrity', () => {
     expect(validateDocumentContentModelRoundTrip({ ...damaged, editor_state: expected.editor_state }).ok).toBe(false);
   });
 });
+
+describe('editable whitespace serialization', () => {
+  it.each(['bold', 'italic', 'strike'])('preserves %s boundary spaces and marks across repeated reopens', (type) => {
+    const state = { type: 'doc', content: [{ type: 'paragraph', content: [
+      { type: 'text', text: 'Before ' },
+      { type: 'text', text: ' Label: ', marks: [{ type }] },
+      { type: 'text', text: ' after.' },
+    ] }] };
+    let current = prosemirrorToFlightDeckContentModel(state);
+    for (let cycle = 0; cycle < 5; cycle++) {
+      expect(validateDocumentContentModelRoundTrip(current)).toEqual({ ok: true });
+      const parsed = markdownToProseMirrorDoc(current.content);
+      expect(parsed.content[0].content).toContainEqual({ type: 'text', text: ' Label: ', marks: [{ type }] });
+      current = prosemirrorToFlightDeckContentModel(parsed);
+    }
+    expect(state.content[0].content[1].text).toBe(' Label: ');
+  });
+
+  it.each(['heading', 'paragraph', 'listItem'])('preserves exact %s boundary spaces, including escaped punctuation fragments', (type) => {
+    const prose = { type: type === 'heading' ? 'heading' : 'paragraph', attrs: { level: 2 }, content: [
+      { type: 'text', text: '  Boundary.  ' },
+    ] };
+    const state = { type: 'doc', content: [type === 'listItem'
+      ? { type: 'bulletList', content: [{ type: 'listItem', content: [prose] }] } : prose] };
+    let model = prosemirrorToFlightDeckContentModel(state);
+    for (let cycle = 0; cycle < 5; cycle++) {
+      expect(validateDocumentContentModelRoundTrip(model)).toEqual({ ok: true });
+      const damaged = { ...model, content: model.content.replace('&#32;', '') };
+      expect(validateDocumentContentModelRoundTrip(damaged).ok).toBe(false);
+      model = createDocumentEditorState({ ...model, editor_state: null }).contentModel;
+    }
+  });
+
+  it.each(['bold', 'italic', 'strike'])('preserves %s marked spaces immediately beside unmarked words', (type) => {
+    const state = { type: 'doc', content: [{ type: 'paragraph', content: [
+      { type: 'text', text: 'Before' },
+      { type: 'text', text: ' Label: ', marks: [{ type }] },
+      { type: 'text', text: 'After' },
+    ] }] };
+    let model = prosemirrorToFlightDeckContentModel(state);
+    for (let cycle = 0; cycle < 4; cycle++) {
+      expect(validateDocumentContentModelRoundTrip(model)).toEqual({ ok: true });
+      model = createDocumentEditorState({ ...model, editor_state: null }).contentModel;
+    }
+  });
+
+  it('keeps literal entity-looking prose and inline/fenced code literal', () => {
+    const state = { type: 'doc', content: [
+      { type: 'paragraph', content: [
+        { type: 'text', text: 'Literal &#32; &amp; &#38; ' },
+        { type: 'text', text: '&#32;', marks: [{ type: 'code' }] },
+      ] },
+      { type: 'codeBlock', content: [{ type: 'text', text: ' &#32; ' }] },
+    ] };
+    let model = prosemirrorToFlightDeckContentModel(state);
+    for (let cycle = 0; cycle < 4; cycle++) {
+      expect(validateDocumentContentModelRoundTrip(model)).toEqual({ ok: true });
+      model = createDocumentEditorState({ ...model, editor_state: null }).contentModel;
+    }
+  });
+
+  it('rejects even single list tail-space loss now that serialization preserves it', () => {
+    const model = createDocumentEditorState({ content: '- Tail.&#32;' }).contentModel;
+    expect(validateDocumentContentModelRoundTrip({ ...model, content: '- Tail.' }).ok).toBe(false);
+  });
+});
