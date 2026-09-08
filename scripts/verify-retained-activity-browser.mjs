@@ -128,8 +128,8 @@ for(const surface of ['chat','inbox','channel']) for(const width of [1120,390]) 
   await page.locator('.current-working-toggle:visible').click();
   await page.locator('.current-working-history:visible').waitFor();
   await page.evaluate(()=> { const s=Alpine.store('chat'); const a=s.agentActivities.at(-1); a.turn_id='replacement-turn'; a.body='New turn only'; a.commentary_history=[]; });
-  await page.waitForFunction(()=>document.querySelector('.current-working-toggle[aria-expanded="false"]')!==null);
-  if(await page.locator('.current-working-history:visible').count()) throw new Error('Replacement turn inherited history expansion');
+  await page.locator('.current-working-history:visible').waitFor({state:'hidden'});
+  if(await page.locator('.current-working-toggle:visible').getAttribute('aria-expanded')!=='false') throw new Error('Replacement turn inherited history expansion');
   await page.locator('.current-working-toggle:visible').click();
   await page.locator('.current-working-history:visible').waitFor();
   if(await page.locator('.current-working-history:visible').innerText()!=='New turn only') throw new Error('Replacement turn includes old history');
