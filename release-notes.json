@@ -1355,6 +1355,13 @@
       "notes": [
         "Chat and Inbox show only current working commentary. Open Menu \u2192 Working history & diagnostics for retained runs, earlier updates and connection details, even after work finishes."
       ]
+    },
+    {
+      "buildNumber": 1911,
+      "label": "Compact mobile Inbox",
+      "notes": [
+        "Inbox cards now keep context and time on one line, retain useful previews and message counts, and avoid repeating the chat title. Mobile cards use three compact content lines with accessible read/done controls."
+      ]
     }
   ]
 }

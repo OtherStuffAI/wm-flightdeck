@@ -22448,3 +22448,52 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 .agent-activity-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .agent-activity-dialog h2 { font-size: 18px; }
 .agent-activity-dialog p { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Inbox keeps context/time together and reserves the next lines for content. */
+.flightdeck-summary-panel-inbox .inbox-card-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.flightdeck-summary-panel-inbox .attention-card-kicker {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.flightdeck-summary-panel-inbox .inbox-card-heading .attention-card-time {
+  margin-left: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.inbox-preview-line { display: flex; gap: 0.45rem; min-width: 0; align-items: baseline; }
+.inbox-message-count { flex: 0 0 auto; font-size: 0.72rem; color: #64748b; }
+.flightdeck-summary-panel-inbox .attention-card-meta { min-width: 0; }
+
+@media (max-width: 767px) {
+  .flightdeck-summary-panel-inbox .attention-card-list { gap: 0.35rem; }
+  .flightdeck-summary-panel-inbox .attention-card {
+    grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+    gap: 0.45rem;
+    padding: 0.55rem;
+    border-radius: 10px;
+    box-shadow: none;
+    min-height: 76px;
+  }
+  .flightdeck-summary-panel-inbox .attention-card-icon { width: 1.75rem; height: 1.75rem; border-radius: 8px; }
+  .flightdeck-summary-panel-inbox .attention-card-icon svg { width: 1rem; height: 1rem; }
+  .flightdeck-summary-panel-inbox .attention-card-content { gap: 0.18rem; }
+  .flightdeck-summary-panel-inbox .attention-card-meta { grid-column: 3; flex-wrap: nowrap; gap: 0; }
+  .flightdeck-summary-panel-inbox .attention-card-action { display: none; }
+  .flightdeck-summary-panel-inbox .attention-card-mark-read {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    width: 44px;
+    font-size: 0.65rem;
+    line-height: 1.2;
+    white-space: normal;
+  }
+}
