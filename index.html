@@ -1928,7 +1928,7 @@
                     <option value="document">Docs</option>
                     <option value="file">Files</option>
                   </select>
-                  <input id="deck-inbox-search" type="search" autocomplete="off" aria-label="Search Inbox" placeholder="Search Inbox" :value="$store.chat.deckInboxSearchDraft" @input="$store.chat.setDeckInboxSearchDraft($event.target.value)" />
+                  <input id="deck-inbox-search" type="search" autocomplete="off" aria-label="Search Inbox" placeholder="Search" :value="$store.chat.deckInboxSearchDraft" @input="$store.chat.setDeckInboxSearchDraft($event.target.value)" />
                   <button type="submit" class="inbox-search-submit" title="Search Inbox" aria-label="Search Inbox">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
                   </button>
@@ -3981,10 +3981,21 @@
                       </div>
                     </template>
                     <template x-for="activity in $store.chat.getAgentActivitiesForMessage(msg)" :key="activity.record_id">
-                      <div class="agent-activity agent-activity-channel agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)" aria-live="polite">
-                        <div class="agent-activity-current">
-                          <span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · Working…'"></span>
-                          <p x-show="activity.body || activity.summary" x-text="activity.body || activity.summary"></p>
+                      <div class="agent-activity agent-activity-channel agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)">
+                        <div class="agent-activity-current" x-data="{ expanded: false, workingKey: '' }" x-id="['current-working-history']" x-effect="const key = $store.chat.getCurrentWorkingKey(activity, 'channel'); if (key !== workingKey || !$store.chat.isCurrentAgentActivityWorking(activity)) { expanded = false; workingKey = key; }">
+                          <button type="button" class="current-working-toggle" @click.stop="expanded = !expanded" :aria-expanded="expanded" :aria-controls="$id('current-working-history')">
+                            <span class="current-working-heading"><span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · Working'"></span><span class="current-working-symbol" aria-hidden="true" x-text="$store.chat.getCurrentWorkingSymbol()"></span><span class="current-working-chevron" aria-hidden="true" x-text="expanded ? '▾' : '▸'"></span></span>
+                            <span class="current-working-preview" x-show="!expanded" x-text="activity.body || activity.summary"></span>
+                            <span class="current-working-count" x-text="$store.chat.getCurrentWorkingCount(activity)"></span>
+                          </button>
+                          <div x-show="expanded" x-cloak :id="$id('current-working-history')" class="current-working-history">
+                            <ol class="agent-activity-history">
+                              <template x-for="item in $store.chat.getCurrentWorkingHistory(activity)" :key="item.sequence">
+                                <li><p x-text="item.body"></p></li>
+                              </template>
+                            </ol>
+                            <button type="button" x-show="activity.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier working updates')"></button>
+                          </div>
                         </div>
                       </div>
                     </template>
@@ -4395,10 +4406,21 @@
                   </div>
                 </template>
                 <template x-for="activity in $store.chat.activeThreadAgentActivities" :key="activity.record_id">
-                      <div class="thread-response-activity agent-activity-thread agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)" aria-live="polite">
-                        <div class="agent-activity-current">
-                          <span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · Working…'"></span>
-                          <p x-show="activity.body || activity.summary" x-text="activity.body || activity.summary"></p>
+                      <div class="thread-response-activity agent-activity-thread agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)">
+                        <div class="agent-activity-current" x-data="{ expanded: false, workingKey: '' }" x-id="['current-working-history']" x-effect="const key = $store.chat.getCurrentWorkingKey(activity, 'thread'); if (key !== workingKey || !$store.chat.isCurrentAgentActivityWorking(activity)) { expanded = false; workingKey = key; }">
+                          <button type="button" class="current-working-toggle" @click.stop="expanded = !expanded" :aria-expanded="expanded" :aria-controls="$id('current-working-history')">
+                            <span class="current-working-heading"><span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · Working'"></span><span class="current-working-symbol" aria-hidden="true" x-text="$store.chat.getCurrentWorkingSymbol()"></span><span class="current-working-chevron" aria-hidden="true" x-text="expanded ? '▾' : '▸'"></span></span>
+                            <span class="current-working-preview" x-show="!expanded" x-text="activity.body || activity.summary"></span>
+                            <span class="current-working-count" x-text="$store.chat.getCurrentWorkingCount(activity)"></span>
+                          </button>
+                          <div x-show="expanded" x-cloak :id="$id('current-working-history')" class="current-working-history">
+                            <ol class="agent-activity-history">
+                              <template x-for="item in $store.chat.getCurrentWorkingHistory(activity)" :key="item.sequence">
+                                <li><p x-text="item.body"></p></li>
+                              </template>
+                            </ol>
+                            <button type="button" x-show="activity.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier working updates')"></button>
+                          </div>
                         </div>
                       </div>
                     </template>

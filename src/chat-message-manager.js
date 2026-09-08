@@ -1217,6 +1217,35 @@ export const chatMessageManagerMixin = {
       .filter((item) => item.turn_id === turnId && item.activity_id === activityId && item.body)
       .sort((left, right) => Number(left.sequence) - Number(right.sequence));
   },
+  getCurrentWorkingKey(activity = {}, scope = 'thread') {
+    return JSON.stringify([this.getAgentActivityRunsContext(scope).key, activity.workspace_id,
+      activity.backend_url, activity.channel_id, activity.thread_id, activity.activity_id, activity.turn_id]);
+  },
+  getCurrentWorkingSymbol() {
+    const tick = Number(this.responseActivityTick || 0);
+    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return '…';
+    return RESPONSE_ACTIVITY_SUFFIXES[tick % RESPONSE_ACTIVITY_SUFFIXES.length];
+  },
+  getCurrentWorkingHistory(activity = {}) {
+    const entries = this.getAgentActivityCommentaryHistory(activity).filter(item =>
+      (!item.workspace_id || item.workspace_id === (activity.workspace_id || this.currentWorkspace?.workspaceId))
+      && (!item.backend_url || item.backend_url.replace(/\/$/, '') === (activity.backend_url || this.backendUrl || '').replace(/\/$/, ''))
+      && (!item.visibility || item.visibility === 'user_visible'));
+    const bySequence = new Map(entries.map(item => [String(item.sequence), item]));
+    const body = activity.body || activity.summary;
+    // A snapshot can arrive before its commentary row. Preserve its full visible text.
+    if (body && !entries.some(item => item.body === body)) {
+      bySequence.set(String(activity.sequence), { sequence: activity.sequence, body, created_at: activity.updated_at });
+    }
+    return [...bySequence.values()].sort((a, b) => Number(a.sequence) - Number(b.sequence));
+  },
+  getCurrentWorkingCount(activity = {}) {
+    const count = this.getCurrentWorkingHistory(activity).length;
+    const label = `${count} working update${count === 1 ? '' : 's'}`;
+    if (activity.commentary_next_before_sequence != null) return `${label} loaded · more available`;
+    if (!Object.hasOwn(activity, 'commentary_next_before_sequence')) return `${label} loaded`;
+    return label;
+  },
   hasAgentActivityCommentaryHistory(activity = {}) {
     return this.getAgentActivityCommentaryHistory(activity).length > 0 || activity.commentary_next_before_sequence != null;
   },
@@ -1276,11 +1305,12 @@ export const chatMessageManagerMixin = {
   async loadEarlierAgentActivityHistory(activity = {}) {
     const beforeSequence = activity.commentary_next_before_sequence;
     if (beforeSequence == null || !activity.channel_id || !activity.activity_id) return;
-    const key = `${activity.channel_id}:${activity.activity_id}:${beforeSequence}`;
+    const requestKey = `${activity.channel_id}:${activity.activity_id}:${beforeSequence}`;
+    const key = this.getAgentActivityHistoryLoadKey(activity);
     if (this.agentActivityHistoryLoads?.[key] === 'loading') return;
     this.agentActivityHistoryLoads = { ...this.agentActivityHistoryLoads, [key]: 'loading' };
     try {
-      await this.requestTowerSyncFamily('agent-activity-history', key, {
+      await this.requestTowerSyncFamily('agent-activity-history', requestKey, {
         channelId: activity.channel_id, activityId: activity.activity_id,
         turnId: activity.turn_id, beforeSequence,
       });
@@ -1289,8 +1319,12 @@ export const chatMessageManagerMixin = {
       this.agentActivityHistoryLoads = { ...this.agentActivityHistoryLoads, [key]: 'failed' };
     }
   },
+  getAgentActivityHistoryLoadKey(activity = {}) {
+    return JSON.stringify([this.currentWorkspace?.workspaceId, this.backendUrl, activity.channel_id,
+      activity.thread_id, activity.activity_id, activity.turn_id, activity.commentary_next_before_sequence]);
+  },
   getAgentActivityHistoryLoadState(activity = {}) {
-    return this.agentActivityHistoryLoads?.[`${activity.channel_id}:${activity.activity_id}:${activity.commentary_next_before_sequence}`] || '';
+    return this.agentActivityHistoryLoads?.[this.getAgentActivityHistoryLoadKey(activity)] || '';
   },
   toggleAgentActivityHistory(activity = {}) {
     const id = String(activity.turn_id || activity.activity_id || '').trim();

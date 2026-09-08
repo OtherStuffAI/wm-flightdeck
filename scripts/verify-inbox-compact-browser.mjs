@@ -12,6 +12,7 @@ const css = await readFile(source ? path.join(source, 'styles.css') : 'src/style
 const document = new JSDOM(html).window.document;
 const find = (node, selector) => node.querySelector(selector) || [...node.querySelectorAll('template')].map(t => find(t.content, selector)).find(Boolean);
 const inbox = find(document, '[data-deck-column="inbox"] .attention-card-list').outerHTML;
+const header = find(document, '.inbox-panel-heading').outerHTML;
 const app = await readFile('src/app.js', 'utf8');
 const guard = app.match(/shouldOpenDeckCard\(event\) \{([\s\S]*?)\n    \},/)[1];
 const temporary = await mkdtemp(path.join(tmpdir(), 'fd-compact-'));
@@ -26,6 +27,12 @@ const fixture = [
 const entry = `import Alpine from '${process.cwd()}/node_modules/alpinejs/dist/module.esm.js';
 window.calls=[];
 Alpine.store('chat', {
+ deckInboxType: 'all', deckInboxSearchDraft: '', unreadTasks: 1, unreadDocs: 1, unreadChat: 1, unreadDeck: 3,
+ setDeckInboxType(value) { this.deckInboxType=value; window.calls.push(['filter',value]); },
+ setDeckInboxSearchDraft(value) { this.deckInboxSearchDraft=value; },
+ applyDeckInboxSearch() { window.calls.push(['search',this.deckInboxSearchDraft]); },
+ openDeckThreadComposer() { window.calls.push(['new']); },
+ runInboxReadAction(kinds,label) { window.calls.push(['bulk',kinds,label]); },
  visibleAutopilotOverviewInbox: ${JSON.stringify(fixture)},
  renderDeckCardText: text => String(text || '').replaceAll('<', '&lt;'),
  getAttentionIconSvg: () => '<svg viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></svg>',
@@ -48,17 +55,53 @@ try {
   const url=new URL(route.request().url());
   if(url.pathname==='/probe.js') return route.fulfill({contentType:'text/javascript',body:await readFile(path.join(temporary,'probe.js'))});
   if(url.pathname!=='/') return route.abort();
-  return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><style>body{display:block;padding:12px}main{max-width:760px;margin:auto}[x-cloak]{display:none!important}</style></head><body x-data><main><section class="flightdeck-summary-panel flightdeck-summary-panel-inbox"><h3>Inbox</h3>${inbox}</section></main><script type="module" src="/probe.js"></script></body></html>`});
+  return route.fulfill({contentType:'text/html',body:`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style><style>body{display:block}main{width:100%;margin:auto}[x-cloak]{display:none!important}</style></head><body x-data><main><div class="flightdeck-summary-overview"><div class="deck-columns-track" data-deck-ready><section class="flightdeck-summary-panel flightdeck-summary-panel-inbox deck-column" data-deck-column="inbox">${header}${inbox}<div style="height:1200px;flex-shrink:0" aria-hidden="true"></div></section><div class="deck-right-stack"></div></div></div></main><script type="module" src="/probe.js"></script></body></html>`});
  });
  const page=await context.newPage(); const errors=[]; page.on('pageerror',e=>errors.push(e.message));
- for(const width of [375,390,430,1440]) {
+ for(const width of [320,375,390,430,1440]) {
   await page.setViewportSize({width,height:1000}); await page.goto('http://inbox-fixture.test/');
   const cards=page.locator('.attention-card'); await cards.nth(5).waitFor();
   const geometry=await cards.evaluateAll(cards=>cards.map(c=>({height:c.getBoundingClientRect().height,width:c.getBoundingClientRect().width,overflow:c.scrollWidth>c.clientWidth+1})));
   assert(geometry.every(c=>!c.overflow));
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
   const screenshot=`/tmp/flightdeck-inbox-${source?'before':'after'}-${process.env.FLIGHTDECK_VERIFY_BROWSER || 'chrome'}-${width}.png`;
-  await page.screenshot({path:screenshot,fullPage:true}); results.push({width,geometry,screenshot});
+  await page.screenshot({path:screenshot,fullPage:true});
+  const controls = page.locator('.inbox-panel-heading').locator('h3, select, input, .inbox-search-submit, .deck-new-thread-button, .doc-actions-toggle');
+  const toolbar = await controls.evaluateAll(nodes => nodes.map(n => { const r=n.getBoundingClientRect(); return {tag:n.tagName, x:r.x,y:r.y,width:r.width,height:r.height,center:r.y+r.height/2}; }));
+  assert.equal(toolbar.length,6);
+  assert(Math.max(...toolbar.map(r=>r.center))-Math.min(...toolbar.map(r=>r.center))<2, 'All six controls share one row');
+  assert(toolbar.every(r=>r.width>0 && r.x>=0 && r.x+r.width<=width), 'Every control fits viewport');
+  assert(toolbar[2].width>=60, 'Search remains usable');
+  if(width<768) assert(toolbar.slice(1).every(r=>r.height>=44 && r.width>=32));
+  await page.getByRole('combobox',{name:'Inbox type'}).selectOption('document');
+  const search=page.getByRole('searchbox',{name:'Search Inbox'});
+  await search.fill('release'); await search.press('Enter');
+  await page.getByRole('button',{name:'Search Inbox',exact:true}).click();
+  await page.getByRole('button',{name:'New thread',exact:true}).click();
+  const menu=page.getByRole('button',{name:'Inbox read actions'});
+  await menu.focus(); await page.keyboard.press('Enter');
+  await page.getByRole('menuitem',{name:'Mark all tasks as read'}).waitFor();
+  const popover=await page.getByRole('menu',{name:'Mark Inbox as read'}).boundingBox();
+  assert(popover.x>=0 && popover.x+popover.width<=width);
+  assert(await page.getByRole('menuitem',{name:'Mark all tasks as read'}).evaluate(n=>{const r=n.getBoundingClientRect();return n.contains(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2));}), 'Menu is not clipped or covered');
+  await page.screenshot({path:screenshot.replace('.png','-menu.png'),fullPage:true});
+  await page.keyboard.press('Escape');
+  assert.equal(await menu.getAttribute('aria-expanded'),'false');
+  await menu.click(); await page.getByRole('menuitem',{name:'Mark all tasks as read'}).click();
+  assert.deepEqual(await page.evaluate(()=>window.calls),[['filter','document'],['search','release'],['search','release'],['new'],['bulk',['task'],'tasks']]);
+  await page.evaluate(()=>window.calls=[]);
+  let sticky;
+  if(width<768) {
+    const heading=page.locator('.inbox-panel-heading');
+    await page.locator('[data-deck-column="inbox"]').evaluate(n=>n.scrollTop=250);
+    const first=await heading.boundingBox();
+    await page.locator('[data-deck-column="inbox"]').evaluate(n=>n.scrollTop=350);
+    const second=await heading.boundingBox();
+    assert(Math.abs(first.y-second.y)<1,'Header stays sticky while cards scroll');
+    sticky={firstY:first.y,secondY:second.y};
+    await page.locator('[data-deck-column="inbox"]').evaluate(n=>n.scrollTop=0);
+  }
+  results.push({width,geometry,toolbar,popover,sticky,screenshot});
   if(source) continue;
   if(width<768) {
    assert(geometry.every(c=>c.height<=100),'Ordinary items should fit three compact content lines');

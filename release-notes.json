@@ -1362,6 +1362,20 @@
       "notes": [
         "Inbox cards now keep context and time on one line, retain useful previews and message counts, and avoid repeating the chat title. Mobile cards use three compact content lines with accessible read/done controls."
       ]
+    },
+    {
+      "buildNumber": 1912,
+      "label": "One-line Inbox toolbar",
+      "notes": [
+        "The mobile Inbox header keeps its title, type filter, search, new-thread button and read menu together on one compact line."
+      ]
+    },
+    {
+      "buildNumber": 1913,
+      "label": "Expandable current working updates",
+      "notes": [
+        "Current answers animate while working. Click or use the keyboard to expand full working updates for that turn, with live counts and earlier-update paging. Older runs and diagnostics remain in Menu."
+      ]
     }
   ]
 }

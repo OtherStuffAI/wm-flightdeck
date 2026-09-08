@@ -197,3 +197,25 @@ rendered-template browser pass covers all six surface/width combinations.
 Build 20260908-0704-12-1910, dist verification and whitespace checks pass.
 Public-source findings remain byte-for-byte identical to the pre-change check.
 Concurrent Inbox layout work is preserved outside this activity checkpoint.
+
+
+## Current-answer working history restoration
+
+Current nonterminal activity uses the existing response-activity timer for a
+rotating symbol. Reduced-motion users see a stable symbol. The native button
+exposes its expanded state and controlled region; one activation reveals all
+loaded user-visible commentary for that turn, including the full current text.
+Expansion belongs to the workspace/backend/conversation/activity/turn identity
+and resets when the lifecycle ends or changes. New commentary updates the open
+list without requesting a scroll jump.
+
+Counts use deduplicated loaded entries, never snapshot sequence as a total.
+Unknown coverage says “loaded”; an older-page cursor says “more available” and
+exposes bounded earlier-update loading through the existing sync service. Dexie
+and liveQuery remain the data source. Finished/older runs and connection details
+remain exclusively in the composer Menu dialog.
+
+The synthetic production-template browser harness checks both widths and all
+three surfaces, keyboard/ARIA behavior, changing symbols, reduced motion, four
+full updates, a live fifth, 60-entry paging, and lifecycle replacement. It does
+not replace an authenticated recovery smoke test against local Tower.

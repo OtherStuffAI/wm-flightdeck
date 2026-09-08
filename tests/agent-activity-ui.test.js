@@ -180,3 +180,54 @@ describe('menu-only activity details', () => {
     expect(target.requestTowerSyncFamily).toHaveBeenLastCalledWith('channel-agent-activities', 'channel-a:null:first', {channelId:'channel-a',threadId:null,cursor:undefined});
   });
 });
+
+
+describe('current answer working history', () => {
+  it('rotates with the existing timer and holds still for reduced motion', () => {
+    vi.useFakeTimers();
+    const target = store();
+    target.agentActivities = [activity()];
+    target.updateResponseActivityTimer = chatMessageManagerMixin.updateResponseActivityTimer;
+    vi.stubGlobal('window', {setInterval, clearInterval, matchMedia: vi.fn(() => ({matches: false}))});
+    try {
+      const first = target.getCurrentWorkingSymbol();
+      target.updateResponseActivityTimer();
+      vi.advanceTimersByTime(900);
+      expect(target.getCurrentWorkingSymbol()).not.toBe(first);
+      window.matchMedia = vi.fn(() => ({matches: true}));
+      const reduced = target.getCurrentWorkingSymbol();
+      vi.advanceTimersByTime(900);
+      expect(target.getCurrentWorkingSymbol()).toBe(reduced);
+      target.agentActivities = [];
+      target.updateResponseActivityTimer();
+      expect(target.responseActivityTimer).toBeNull();
+    } finally { vi.unstubAllGlobals(); vi.useRealTimers(); }
+  });
+
+  it('orders and deduplicates four full updates, includes a live fifth and excludes other turns', () => {
+    const target = store();
+    const entries = [4, 2, 1, 3, 2].map(sequence => ({activity_id:'activity',turn_id:'turn',sequence,body:`Full update ${sequence}`}));
+    const row = activity({sequence:4,body:'Full update 4',commentary_history:[...entries,
+      {...entries[0],turn_id:'old',body:'Old history'}, {...entries[0],workspace_id:'other',body:'Other workspace'}],commentary_next_before_sequence:null});
+    expect(target.getCurrentWorkingHistory(row).map(item => item.body)).toEqual([1,2,3,4].map(n => `Full update ${n}`));
+    expect(target.getCurrentWorkingCount(row)).toBe('4 working updates');
+    row.sequence = 5; row.body = 'Full fifth update';
+    expect(target.getCurrentWorkingHistory(row).at(-1).body).toBe('Full fifth update');
+    expect(target.getCurrentWorkingCount(row)).toBe('5 working updates');
+    row.commentary_next_before_sequence = 1;
+    expect(target.getCurrentWorkingCount(row)).toBe('5 working updates loaded · more available');
+    delete row.commentary_next_before_sequence;
+    expect(target.getCurrentWorkingCount(row)).toBe('5 working updates loaded');
+  });
+
+  it('scopes expansion and history loading to workspace, backend, thread and turn', () => {
+    const target = store(); const row = activity();
+    const key = target.getCurrentWorkingKey(row);
+    expect(target.getCurrentWorkingKey({...row,turn_id:'next'})).not.toBe(key);
+    target.activeThreadId = 'next-thread';
+    expect(target.getCurrentWorkingKey(row)).not.toBe(key);
+    target.agentActivityHistoryLoads = {[target.getAgentActivityHistoryLoadKey(row)]:'loading'};
+    target.currentWorkspace = {workspaceId:'other'};
+    expect(target.getAgentActivityHistoryLoadState(row)).toBe('');
+  });
+});

@@ -169,7 +169,7 @@ describe('flight deck summary template', () => {
     expect(heading).toMatch(/<h3>Inbox<\/h3>\s*<form class="inbox-search-form"/);
     expect(heading).toContain('<form class="inbox-search-form" role="search" @submit.prevent="$store.chat.applyDeckInboxSearch()">');
     expect(heading).toContain('type="search" autocomplete="off" aria-label="Search Inbox"');
-    expect(heading).toContain('placeholder="Search Inbox"');
+    expect(heading).toContain('placeholder="Search"');
     expect(heading).toContain(':value="$store.chat.deckInboxSearchDraft"');
     expect(heading).toContain('@input="$store.chat.setDeckInboxSearchDraft($event.target.value)"');
     expect(heading).toMatch(/<button type="submit" class="inbox-search-submit" title="Search Inbox" aria-label="Search Inbox">\s*<svg[^>]*aria-hidden="true">/);

@@ -11,3 +11,20 @@ Run `node scripts/verify-inbox-compact-browser.mjs`. This renders the actual sou
 The initial comparison measured mobile cards at 76px versus 113–161px before, and desktop cards at approximately 78px. Local screenshots and JSON measurements are emitted under `/tmp/flightdeck-inbox-*`.
 
 The full suite at implementation time passed 3666/3668 tests; failures were an unrelated chat file picker attribute-order assertion and a 10-second materialization responsiveness timeout. The responsiveness test passed in isolation. Focused Inbox history, bulk-read, and release-note tests passed (48 tests). Build 1911 and asset verification passed. The public-source check reports pre-existing private handoff documents. A live iPhone/Safari smoke check remains: WebKit was not installed in the available browser cache.
+
+## Single-line header
+
+The mobile heading keeps all six elements on one row: title, type selector,
+search input, submit, new thread, and read menu. Flexible input sizing and 3px
+spacing reserve space for the controls at widths down to 320px. Inputs and
+buttons are 44px tall; the three icon buttons are 32px wide. The shorter Search
+placeholder retains the Search Inbox accessible name and a 16px input font.
+The existing sticky positioning and unclipped menu remain in use.
+
+The offline browser script now renders the complete production heading and
+cards inside the deck's scroll containers, at 320, 375, 390, 430 and 1440px.
+It records all six bounding boxes, checks their common vertical centre and
+viewport bounds, and exercises filter changes, search submission by Enter and
+button, new-thread dispatch, menu keyboard opening/Escape/action dispatch,
+menu hit testing, and sticky scrolling. The actions use instrumented local
+callbacks; no backend mutations or live navigation are involved.
