@@ -25,7 +25,20 @@ function markText(text, marks = []) {
 }
 
 function inlineMarkdown(nodes = []) {
-  return (nodes || []).map((node) => {
+  // Escaped punctuation reparses into separate text nodes with identical
+  // marks. Serialize each contiguous run once so bold/italic delimiters do
+  // not collide on reopen (for example **word****\-****word**).
+  const runs = [];
+  for (const node of nodes || []) {
+    const previous = runs[runs.length - 1];
+    if (node.type === 'text' && previous?.type === 'text'
+      && JSON.stringify(previous.marks || []) === JSON.stringify(node.marks || [])) {
+      previous.text += node.text || '';
+    } else {
+      runs.push({ ...node });
+    }
+  }
+  return runs.map((node) => {
     if (node.type === 'text') return markText(node.text || '', node.marks || []);
     if (node.type === 'hardBreak') return '  \n';
     if (node.type === 'fdStorageImage' || node.type === 'image') {

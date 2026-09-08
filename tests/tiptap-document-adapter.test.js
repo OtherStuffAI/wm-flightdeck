@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { markdownToProseMirrorDoc } from '../src/docs/editor/markdown-to-prosemirror.js';
 import { prosemirrorToFlightDeckContentModel } from '../src/docs/editor/prosemirror-to-flightdeck.js';
 import { validateDocumentContentModelRoundTrip } from '../src/docs/editor/document-content-integrity.js';
+import { createDocumentEditorState } from '../src/docs/editor/document-editor-store.js';
 import {
   FLIGHTDECK_PROSEMIRROR_CONTENT_FORMAT,
   PROSEMIRROR_JSON_FORMAT,
@@ -202,6 +203,38 @@ describe('prose boundary integrity', () => {
   const text = (value, marks = []) => ({ type: 'text', text: value, marks });
   const model = (content) => prosemirrorToFlightDeckContentModel({ type: 'doc', content });
   const paragraph = (content) => ({ type: 'paragraph', content });
+  it('preserves ordinary prose tails and marked punctuation alongside trimmed list tails on forced reopen', () => {
+    const state = { type: 'doc', content: [
+      paragraph([text('Ordinary prose. ')]),
+      paragraph([text('Next soft\nline. ')]),
+      paragraph([text('Marked-word', [{ type: 'bold' }]), text(' and a tail. ')]),
+      { type: 'bulletList', content: [{ type: 'listItem', content: [
+        paragraph([text('Label-word:', [{ type: 'bold' }]), text(' List prose. ')]),
+      ] }] },
+    ] };
+    const snapshot = structuredClone(state);
+    let current = createDocumentEditorState({ editor_state: state }).contentModel;
+    const markdown = current.content;
+    for (let cycle = 0; cycle < 6; cycle++) {
+      expect(validateDocumentContentModelRoundTrip(current)).toEqual({ ok: true });
+      expect(current.content).toBe(markdown);
+      current = createDocumentEditorState({ ...current, editor_state: null }).contentModel;
+    }
+    expect(state).toEqual(snapshot);
+  });
+  it.each(['bold', 'italic', 'strike', 'code', 'link'])('serializes adjacent %s fragments as one run without changing the input', (type) => {
+    const marks = [{ type, ...(type === 'link' ? { attrs: { href: 'https://example.com' } } : {}) }];
+    const state = { type: 'doc', content: [paragraph(['left', '-', 'right'].map(value => text(value, marks)))] };
+    const snapshot = structuredClone(state);
+    let current = createDocumentEditorState({ editor_state: state }).contentModel;
+    const markdown = current.content;
+    for (let cycle = 0; cycle < 4; cycle++) {
+      expect(validateDocumentContentModelRoundTrip(current)).toEqual({ ok: true });
+      expect(current.content).toBe(markdown);
+      current = createDocumentEditorState({ ...current, editor_state: null }).contentModel;
+    }
+    expect(state).toEqual(snapshot);
+  });
   it('accepts single trailing list prose spaces over repeated edit/save/reopen cycles', () => {
     let current = model([{ type: 'bulletList', content: ['First prose item. ', 'Second prose item. '].map(value => ({ type: 'listItem', content: [paragraph([text(value)])] })) }]);
     for (let cycle = 0; cycle < 5; cycle++) {
@@ -213,9 +246,14 @@ describe('prose boundary integrity', () => {
     expect(validateDocumentContentModelRoundTrip(model([]))).toEqual({ ok: true });
   });
   it.each([
+    [paragraph([text('prose. ')]), paragraph([text('prose.')])],
+    [paragraph([text('soft\nline')]), paragraph([text('softline')])],
+    [paragraph([text('word '), text('next', [{ type: 'bold' }])]), paragraph([text('word'), text('next', [{ type: 'bold' }])])],
+    [{ type: 'heading', attrs: { level: 2 }, content: [text('Heading ')] }, { type: 'heading', attrs: { level: 2 }, content: [text('Heading')] }],
     [paragraph([text('two words')]), paragraph([text('twowords')])],
     [paragraph([text('linked', [{ type: 'link', attrs: { href: 'https://example.com' } }])]), paragraph([text('linked')])],
     [paragraph([text('bold', [{ type: 'bold' }])]), paragraph([text('bold')])],
+    [paragraph([text('linked', [{ type: 'link', attrs: { href: 'https://example.com/a' } }])]), paragraph([text('linked', [{ type: 'link', attrs: { href: 'https://example.com/b' } }])])],
     [paragraph([text('a'), { type: 'hardBreak' }, text('b')]), paragraph([text('ab')])],
     [{ type: 'codeBlock', content: [text(' a  b ')] }, { type: 'codeBlock', content: [text('a b')] }],
     [paragraph([text(' a ', [{ type: 'code' }])]), paragraph([text('a', [{ type: 'code' }])])],
@@ -224,5 +262,17 @@ describe('prose boundary integrity', () => {
     const expected = model([original]);
     const actual = model([damaged]);
     expect(validateDocumentContentModelRoundTrip({ ...actual, editor_state: expected.editor_state }).ok).toBe(false);
+  });
+  it.each([
+    [text('marked ', [{ type: 'bold' }])],
+    [text('two spaces  ')],
+    [text('tab\t')],
+    [text('nonbreaking\u00a0')],
+    [text('before break '), { type: 'hardBreak' }, text('after')],
+  ].map(content => [content]))('does not excuse other list whitespace loss %#', (content) => {
+    const wrap = (inline) => [{ type: 'bulletList', content: [{ type: 'listItem', content: [paragraph(inline)] }] }];
+    const expected = model(wrap(content));
+    const damaged = model(wrap(content.map(node => node.type === 'text' ? { ...node, text: node.text.trimEnd() } : node)));
+    expect(validateDocumentContentModelRoundTrip({ ...damaged, editor_state: expected.editor_state }).ok).toBe(false);
   });
 });

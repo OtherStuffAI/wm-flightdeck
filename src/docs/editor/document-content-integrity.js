@@ -28,7 +28,7 @@ function storageSource(node = {}) {
   return String(node?.attrs?.src || '').trim();
 }
 
-function appendSemanticTokens(node = {}, tokens = []) {
+function appendSemanticTokens(node = {}, tokens = [], parent = {}) {
   if (node.type === 'text') {
     const token = {
       kind: 'text',
@@ -66,12 +66,16 @@ function appendSemanticTokens(node = {}, tokens = []) {
   }
   const children = Array.isArray(node.content) ? node.content : [];
   for (const [index, child] of children.entries()) {
-    // Markdown list serialization discards a single unmarked prose boundary
-    // space. Never trim inline/marked/code text or whitespace before a break.
-    const proseTail = (node.type === 'paragraph' || node.type === 'heading')
+    // listMarkdown trims its first paragraph's line. Limit the exception to
+    // that exact context: ordinary paragraph spaces survive serialization,
+    // sometimes as separate text nodes after escaped punctuation is parsed.
+    // Never trim inline/marked/code text or whitespace before a hard break.
+    const proseTail = node.type === 'paragraph'
+      && (parent.type === 'listItem' || parent.type === 'taskItem')
+      && parent.content?.find((child) => child.type === 'paragraph') === node
       && index === children.length - 1 && child.type === 'text'
       && !(child.marks || []).length && /[^\s] $/.test(child.text || '');
-    appendSemanticTokens(proseTail ? { ...child, text: child.text.slice(0, -1) } : child, tokens);
+    appendSemanticTokens(proseTail ? { ...child, text: child.text.slice(0, -1) } : child, tokens, node);
   }
   return tokens;
 }

@@ -1279,6 +1279,13 @@
         "Saving accepts insignificant trailing prose spaces while preserving the document integrity guard and local drafts.",
         "Docs searches the full cached workspace list, includes descendant scopes, and shows the active view with an All documents action."
       ]
+    },
+    {
+      "buildNumber": 1900,
+      "label": "Document save round-trip correction",
+      "notes": [
+        "Saving preserves ordinary paragraph spaces and formatting around punctuation across repeated reopen cycles, while accepting a single trailing list prose space and still rejecting content loss."
+      ]
     }
   ]
 }
