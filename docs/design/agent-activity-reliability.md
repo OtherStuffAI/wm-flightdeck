@@ -127,3 +127,43 @@ brief supplied the implementation context. The manager must accept the source
 handoff before changing tracking state and must own runtime activation/browser
 validation. Tower still has unrelated WApp scope files dirty for their owner;
 Autopilot is clean.
+
+## Retained activity presentation correction
+
+The browser now projects one current panel per workspace, backend, channel,
+thread and agent. Immutable lifecycle creation time selects that panel; update
+arrival time and sequence do not promote an older run. Older snapshots remain
+in Dexie and appear under one collapsed Earlier activity control per agent.
+Each retained run can expand its safe commentary and request earlier commentary
+pages through the existing sync service. Thread run pagination is unchanged.
+Confirmed terminal states remain compact and expandable. Unconfirmed retained
+runs use neutral status-unconfirmed wording, without implying completion.
+
+Freshness expiry on healthy transport now shows No recent update. It does not
+start a connection warning. Actual recovery retains the existing 60-second grace
+and warns on the current panel only. Chat and Inbox share the thread template;
+channel activity uses the same projection and retained-history controls.
+
+The offline browser regression uses the real Alpine mixin, templates and CSS:
+`node scripts/verify-retained-activity-browser.mjs after`. Set
+`FLIGHTDECK_BROWSER_EXECUTABLE` to a local Chromium executable if needed. The
+optional `before` argument renders the pre-correction commit, overridable through
+`FLIGHTDECK_ACTIVITY_BASELINE`. All records are synthetic, network requests are
+blocked, and screenshots default to the system temporary directory. It checks
+Chat/Inbox threads and channel activity at desktop and narrow widths, history
+expansion, expiry, reconnect grace, late replay, terminal state and multiple
+agents. This isolates presentation; authenticated end-to-end recovery against a
+running local Tower remains a separate runtime smoke test.
+
+Validation for this correction continues to exclude the previously reproduced
+20,000-row worker benchmark. The public-source check still reports preexisting
+tracked handoffs and operator context; this change does not copy those contents
+or claim that the repository passes publication checks.
+
+Correction validation: 270 focused tests in ten files pass. The final broad run
+passes 3,663 tests with one unrelated document-editor assertion failure; that
+entire 101-test file passes in isolation and passed in the preceding broad run.
+The known worker benchmark remains excluded. The staged public-source findings
+match unchanged HEAD byte-for-byte. Browser checks pass for all six surface/width
+combinations. Build `20260908-0652-11-1909` (1909), dist verification, and whitespace
+checks pass. Generated output and local screenshot evidence are not committed.

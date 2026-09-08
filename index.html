@@ -4000,6 +4000,22 @@
                           </ol>
                           <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.isAgentActivityHistoryExpanded(activity) && activity.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
                         </div>
+                        <details class="agent-activity-earlier" x-show="activity.earlier_activities?.length" @click.stop>
+                          <summary>Earlier activity <span x-text="'(' + (activity.earlier_activities?.length || 0) + ')' "></span></summary>
+                          <template x-for="earlier in activity.earlier_activities || []" :key="earlier.record_id">
+                            <details class="agent-activity-retained">
+                              <summary><span x-text="$store.chat.formatEarlierAgentActivityTitle(earlier)"></span><time :datetime="earlier.created_at" x-text="earlier.created_at ? new Date(earlier.created_at).toLocaleString() : ''"></time></summary>
+                              <p x-show="earlier.summary" x-text="earlier.summary"></p>
+                              <p x-show="earlier.body && earlier.body !== earlier.summary" x-text="earlier.body"></p>
+                              <ol class="agent-activity-history">
+                                <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(earlier)" :key="item.history_key">
+                                  <li><p x-text="item.body"></p><time :datetime="item.created_at" x-text="item.created_at ? new Date(item.created_at).toLocaleString() : ''"></time></li>
+                                </template>
+                              </ol>
+                              <button type="button" class="agent-activity-history-toggle" x-show="earlier.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(earlier)" :disabled="$store.chat.getAgentActivityHistoryLoadState(earlier) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(earlier) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(earlier) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
+                            </details>
+                          </template>
+                        </details>
                       </div>
                     </template>
                     <template x-if="$store.chat.getThreadReplyCount(msg.record_id) > 0">
@@ -4432,6 +4448,22 @@
                         </ol>
                         <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.isAgentActivityHistoryExpanded(activity) && activity.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
                       </div>
+                        <details class="agent-activity-earlier" x-show="activity.earlier_activities?.length" @click.stop>
+                          <summary>Earlier activity <span x-text="'(' + (activity.earlier_activities?.length || 0) + ')' "></span></summary>
+                          <template x-for="earlier in activity.earlier_activities || []" :key="earlier.record_id">
+                            <details class="agent-activity-retained">
+                              <summary><span x-text="$store.chat.formatEarlierAgentActivityTitle(earlier)"></span><time :datetime="earlier.created_at" x-text="earlier.created_at ? new Date(earlier.created_at).toLocaleString() : ''"></time></summary>
+                              <p x-show="earlier.summary" x-text="earlier.summary"></p>
+                              <p x-show="earlier.body && earlier.body !== earlier.summary" x-text="earlier.body"></p>
+                              <ol class="agent-activity-history">
+                                <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(earlier)" :key="item.history_key">
+                                  <li><p x-text="item.body"></p><time :datetime="item.created_at" x-text="item.created_at ? new Date(item.created_at).toLocaleString() : ''"></time></li>
+                                </template>
+                              </ol>
+                              <button type="button" class="agent-activity-history-toggle" x-show="earlier.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(earlier)" :disabled="$store.chat.getAgentActivityHistoryLoadState(earlier) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(earlier) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(earlier) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
+                            </details>
+                          </template>
+                        </details>
                     </div>
                   </div>
                 </template>

@@ -127,16 +127,25 @@ describe('agent activity hydration/SSE to visible thread', () => {
     }))], { getTowerPgAgentActivities: async () => ({ agent_activities: [] }) });
     target.applyAgentActivities(await getAgentActivitiesForChannel(CHANNEL_ID));
     expect(target.activeThreadAgentActivities).toEqual(expect.arrayContaining([
-      expect.objectContaining({ activity_id: 'activity-old', state: 'completed' }),
-      expect.objectContaining({ activity_id: 'activity-1', turn_id: 'turn-1', state: 'working' }),
+      expect.objectContaining({ activity_id: 'activity-1', turn_id: 'turn-1', state: 'working',
+        earlier_activities: [expect.objectContaining({ activity_id: 'activity-old', state: 'completed' })] }),
     ]));
+
+    // Late delivery cannot rewrite the immutable start or promote the old run.
+    await hydrateTowerPgEventUpdates(target, [event(rawActivity({
+      id: 'row-old', activity_id: 'activity-old', turn_id: 'turn-old',
+      state: 'completed', sequence: 1000, created_at: '2999-01-01T00:00:00.000Z',
+    }))], { getTowerPgAgentActivities: async () => ({ agent_activities: [] }) });
+    target.applyAgentActivities(await getAgentActivitiesForChannel(CHANNEL_ID));
+    expect(target.activeThreadAgentActivities[0].activity_id).toBe('activity-1');
+    expect(target.activeThreadAgentActivities[0].earlier_activities[0].created_at).toBe('2026-08-09T00:00:00.000Z');
 
     target.messages.push({ record_id: 'message-final', parent_message_id: TRIGGER_ID, channel_id: CHANNEL_ID, body: 'Final reply' });
     await hydrateTowerPgEventUpdates(target, [event(rawActivity({ state: 'completed', sequence: 4 }))], {
       getTowerPgAgentActivities: async () => ({ agent_activities: [rawActivity({ state: 'completed', sequence: 4 })] }),
     });
     target.applyAgentActivities(await getAgentActivitiesForChannel(CHANNEL_ID));
-    expect(target.activeThreadAgentActivities).toHaveLength(2);
+    expect(target.activeThreadAgentActivities).toHaveLength(1);
     expect(target.activeThreadAgentActivities.every((row) => row.state === 'completed')).toBe(true);
     expect(await getAgentActivityCommentaryForChannel(CHANNEL_ID)).toHaveLength(2);
     expect(target.messages.at(-1)).toMatchObject({ record_id: 'message-final', body: 'Final reply' });

@@ -98,14 +98,15 @@ export function getAgentActivityHealth(activity = {}, sseStatus = 'connected', n
   const expiresAt = Date.parse(activity.expires_at || '');
   const transportLost = !['connected', 'fallback-polling'].includes(status);
   const expired = !Number.isFinite(expiresAt) || expiresAt <= nowMs;
-  if (startedAt > 0 || transportLost || expired || recovery.error) {
-    const since = startedAt > 0 ? startedAt : (expired && Number.isFinite(expiresAt) ? expiresAt : nowMs);
+  if (startedAt > 0 || transportLost) {
+    const since = startedAt > 0 ? startedAt : nowMs;
     const lost = nowMs - since >= 60_000;
     return {
       state: lost ? 'error' : 'degraded',
       message: lost ? 'Connection lost—status unknown' : 'Reconnecting',
     };
   }
+  if (expired) return { state: 'quiet', message: 'No recent update' };
   return { state: 'live', message: '' };
 }
 
@@ -125,4 +126,22 @@ export function reconcileAgentActivity(current, incoming) {
   if (!current?.record_id) return incoming;
   if (agentActivityLifecycleKey(current) !== agentActivityLifecycleKey(incoming)) return current;
   return Number(incoming.sequence) > Number(current.sequence) ? incoming : current;
+}
+
+// Project retained records without changing storage or allowing update/replay time
+// to promote an earlier lifecycle into the current conversation slot.
+export function selectCurrentAgentActivities(activities = []) {
+  const groups = new Map();
+  for (const activity of selectVisibleAgentActivities(activities)) {
+    const key = JSON.stringify([
+      activity.workspace_id || '', activity.backend_url || '',
+      activity.channel_id || '', activity.thread_id || '', activity.agent_npub || '',
+    ]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(activity);
+  }
+  return [...groups.values()].map((runs) => {
+    runs.sort((a, b) => compareAgentActivityLifecycle(b, a));
+    return { ...runs[0], earlier_activities: runs.slice(1) };
+  });
 }

@@ -79,7 +79,7 @@ import {
   canonicalAgentMentionsFromSelection,
   filterMentionsToCurrentWorkspaceActors,
 } from './agent-direct-chat.js';
-import { getAgentActivityHealth, isTerminalAgentActivity, selectVisibleAgentActivities } from './agent-activity.js';
+import { getAgentActivityHealth, isTerminalAgentActivity, selectCurrentAgentActivities } from './agent-activity.js';
 import {
   buildHangCallInvitation,
   createHangRoomUrl,
@@ -606,7 +606,9 @@ export const chatMessageManagerMixin = {
       thread?.pg_thread_id,
       thread?.thread_id,
     ].map((value) => String(value || '').trim()).filter(Boolean));
-    return this.getVisibleAgentActivities().filter((activity) => threadIds.has(String(activity.thread_id || '').trim()));
+    const channelId = thread?.channel_id || this.activeChannelId;
+    return this.getVisibleAgentActivities().filter((activity) => (!channelId || activity.channel_id === channelId)
+      && threadIds.has(String(activity.thread_id || '').trim()));
   },
 
   get resolvedThreadVisibleReplyCount() {
@@ -1159,7 +1161,9 @@ export const chatMessageManagerMixin = {
   },
   getVisibleAgentActivities() {
     void this.responseActivityTick;
-    return selectVisibleAgentActivities(this.agentActivities, this.sseStatus)
+    return selectCurrentAgentActivities((this.agentActivities || []).filter((activity) =>
+      (!activity.workspace_id || !this.currentWorkspace?.workspaceId || activity.workspace_id === this.currentWorkspace.workspaceId)
+      && (!activity.backend_url || !this.backendUrl || activity.backend_url.replace(/\/$/, '') === this.backendUrl.replace(/\/$/, ''))))
       .sort((left, right) => String(left.created_at || '').localeCompare(String(right.created_at || ''))
         || String(left.activity_id || '').localeCompare(String(right.activity_id || '')));
   },
@@ -1184,6 +1188,10 @@ export const chatMessageManagerMixin = {
     const messageId = String(message?.record_id || message || '').trim();
     if (!messageId) return [];
     return this.getVisibleAgentActivities().filter((activity) => activity.trigger_message_id === messageId);
+  },
+  formatEarlierAgentActivityTitle(activity = {}) {
+    const state = isTerminalAgentActivity(activity) ? activity.state : 'status unconfirmed';
+    return `Earlier activity · ${state}`;
   },
   formatAgentActivityTitle(activity = {}) {
     const senderName = this.getSenderName(activity.agent_npub);

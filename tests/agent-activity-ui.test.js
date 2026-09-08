@@ -88,3 +88,52 @@ describe('activity presentation and user-requested bounded history loading', () 
     expect(target.getAgentActivityRunsLoadState().done).toBe(true);
   });
 });
+
+describe('retained run grouping', () => {
+  function run(id, overrides = {}) {
+    return activity({ record_id: id, activity_id: id, turn_id: id, agent_npub: 'agent-a',
+      workspace_id: 'workspace-a', backend_url: 'https://tower.example', thread_id: 'thread-a',
+      trigger_message_id: id, created_at: `2026-09-08T0${id}:00:00Z`, ...overrides });
+  }
+  it('shows only the newest healthy run above two expired retained runs in Chat and Inbox', () => {
+    const target = store();
+    target.applyAgentActivities([run('1', { expires_at: '2000-01-01' }), run('2', { expires_at: '2000-01-01' }), run('3')]);
+    const [current] = target.activeThreadAgentActivities;
+    expect(target.activeThreadAgentActivities).toHaveLength(1);
+    expect(current.activity_id).toBe('3');
+    expect(target.getAgentActivityHealth(current).state).toBe('live');
+    expect(current.earlier_activities.map(row => row.activity_id)).toEqual(['2', '1']);
+    expect(target.getAgentActivitiesForMessage('1')).toEqual([]);
+    expect(target.getAgentActivitiesForMessage('3')).toEqual([current]);
+    expect(target.formatEarlierAgentActivityTitle(current.earlier_activities[0])).toBe('Earlier activity · status unconfirmed');
+    expect(target.agentActivities).toHaveLength(3);
+  });
+  it('keeps a late old replay out of the current slot and retains terminal history', () => {
+    const target = store();
+    target.applyAgentActivities([run('1', { sequence: 999, updated_at: '2999-01-01', state: 'completed' }), run('2')]);
+    const [current] = target.activeThreadAgentActivities;
+    expect(current.activity_id).toBe('2');
+    expect(target.formatEarlierAgentActivityTitle(current.earlier_activities[0])).toBe('Earlier activity · completed');
+  });
+  it('keeps distinct agents, workspaces, backends and conversations separate', () => {
+    const target = store();
+    target.applyAgentActivities([run('1'), run('2', { agent_npub: 'agent-b' }),
+      run('3', { workspace_id: 'workspace-b' }), run('4', { backend_url: 'https://other.example' }),
+      run('5', { thread_id: 'other' }), run('6', { channel_id: 'other' })]);
+    expect(target.getVisibleAgentActivities()).toHaveLength(4);
+    expect(target.activeThreadAgentActivities.map(row => row.activity_id)).toEqual(['1', '2']);
+  });
+  it('shows quiet expiry neutrally and warns only the current panel after reconnect grace', () => {
+    const target = store();
+    target.applyAgentActivities([run('1'), run('2', { expires_at: '2000-01-01' })]);
+    const [current] = target.activeThreadAgentActivities;
+    expect(target.getAgentActivityHealth(current)).toEqual({ state: 'quiet', message: 'No recent update' });
+    target.sseStatus = 'reconnecting';
+    target.agentActivityRecoveryStartedAt = Date.now() - 59_000;
+    expect(target.getAgentActivityHealth(current).message).toBe('Reconnecting');
+    target.agentActivityRecoveryStartedAt -= 2_000;
+    expect(target.getAgentActivityHealth(current).message).toBe('Connection lost—status unknown');
+    expect(target.activeThreadAgentActivities).toHaveLength(1);
+    expect(target.formatEarlierAgentActivityTitle(current.earlier_activities[0])).toContain('status unconfirmed');
+  });
+});

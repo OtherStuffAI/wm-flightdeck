@@ -1341,6 +1341,13 @@
       "notes": [
         "Working-update recovery keeps retry state with the displayed conversation. Loading an earlier finished run or switching channels cannot clear recovery warnings for the active conversation."
       ]
+    },
+    {
+      "buildNumber": 1909,
+      "label": "Quieter retained agent activity",
+      "notes": [
+        "Each agent now has one current activity panel per conversation, with older runs available under collapsed Earlier activity. Quiet updates use neutral wording; connection warnings appear only during recovery."
+      ]
     }
   ]
 }

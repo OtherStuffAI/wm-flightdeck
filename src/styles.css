@@ -22428,3 +22428,15 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 }
 .legacy-recovery-menu summary { cursor: pointer; }
 .legacy-recovery-menu p { margin: 0.6rem 0; line-height: 1.4; }
+
+.agent-activity-earlier { margin: 0.35rem 0.7rem; color: var(--text-muted); font-size: 0.8rem; }
+.agent-activity-earlier summary { cursor: pointer; padding: 0.3rem 0; overflow-wrap: anywhere; }
+.agent-activity-retained { margin-top: 0.4rem; padding: 0.35rem 0.6rem; border-left: 2px solid var(--border); }
+.agent-activity-retained time { display: block; font-size: 0.72rem; }
+.agent-activity-retained p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.agent-activity-quiet { background: var(--bg-secondary); border-color: var(--border); color: var(--text-muted); }
+@media (max-width: 600px) {
+  .agent-activity-toggle { flex-wrap: wrap; }
+  .agent-activity-title { white-space: normal; overflow-wrap: anywhere; }
+  .agent-activity-summary { flex-basis: 100%; order: 1; }
+}

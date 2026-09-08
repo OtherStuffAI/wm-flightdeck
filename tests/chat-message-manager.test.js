@@ -2767,7 +2767,7 @@ describe('sendThreadReply', () => {
       ]);
 
       store.agentActivities = [{
-        record_id: 'activity-1', activity_id: 'activity-1', thread_id: 'child-thread',
+        record_id: 'activity-1', activity_id: 'activity-1', thread_id: 'child-thread', channel_id: 'channel-1',
         trigger_message_id: 'child-message-1', visibility: 'user_visible', state: 'working',
         sequence: 1, expires_at: '2999-01-01T00:00:00.000Z',
       }];

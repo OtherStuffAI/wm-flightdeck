@@ -77,7 +77,7 @@ describe('agent activity lifecycle', () => {
   it('clears uncertainty only when recovery succeeds and leaves expired rows unknown', () => {
     expect(getAgentActivityHealth(activity(), 'connected', Date.now(), { startedAt: 0 }).state).toBe('live');
     const expired = activity({ expires_at: '2000-01-01T00:00:00.000Z' });
-    expect(getAgentActivityHealth(expired, 'connected').message).toBe('Connection lost—status unknown');
+    expect(getAgentActivityHealth(expired, 'connected').message).toBe('No recent update');
     expect(selectVisibleAgentActivities([expired])).toEqual([expired]);
   });
 });
