@@ -84,7 +84,7 @@ afterEach(async () => {
 });
 
 describe('agent activity hydration/SSE to visible thread', () => {
-  it('renders receipt and commentary through reconnect, then cleans up only its owning completed turn', async () => {
+  it('renders ordered commentary through reconnect and keeps confirmed finished runs', async () => {
     const target = store();
     const db = openWorkspaceDb(DB_KEY);
     await db.open();
@@ -99,8 +99,8 @@ describe('agent activity hydration/SSE to visible thread', () => {
 
     const incrementalActivityListRequest = vi.fn(async () => ({ agent_activities: [] }));
     await hydrateTowerPgEventUpdates(target, [
-      event(rawActivity({ state: 'working', label: 'Working', sequence: 2, summary: 'First commentary' })),
-      event(rawActivity({ state: 'working', label: 'Working', sequence: 3, summary: 'Second commentary' })),
+      event(rawActivity({ state: 'working', label: 'Working', sequence: 2, summary: 'First commentary', body: 'First body' })),
+      event(rawActivity({ state: 'working', label: 'Working', sequence: 3, summary: 'Second commentary', body: 'Second body' })),
     ], {
       getTowerPgAgentActivities: incrementalActivityListRequest,
     });
@@ -108,8 +108,8 @@ describe('agent activity hydration/SSE to visible thread', () => {
     expect(target.activeThreadAgentActivities).toEqual([
       expect.objectContaining({ state: 'working', sequence: 3, summary: 'Second commentary' }),
     ]);
-    expect(target.activeThreadAgentActivities[0].commentary_history).toEqual([]);
-    expect(await getAgentActivityCommentaryForChannel(CHANNEL_ID)).toEqual([]);
+    expect(target.activeThreadAgentActivities[0].commentary_history.map((row) => row.body)).toEqual(['First body', 'Second body']);
+    expect(await getAgentActivityCommentaryForChannel(CHANNEL_ID)).toHaveLength(2);
     expect(incrementalActivityListRequest).not.toHaveBeenCalled();
 
     await hydrateTowerPgChannelAgentActivities(target, CHANNEL_ID, {
@@ -126,20 +126,23 @@ describe('agent activity hydration/SSE to visible thread', () => {
       state: 'completed', sequence: 999, created_at: '2026-08-09T00:00:00.000Z',
     }))], { getTowerPgAgentActivities: async () => ({ agent_activities: [] }) });
     target.applyAgentActivities(await getAgentActivitiesForChannel(CHANNEL_ID));
-    expect(target.activeThreadAgentActivities).toEqual([
+    expect(target.activeThreadAgentActivities).toEqual(expect.arrayContaining([
+      expect.objectContaining({ activity_id: 'activity-old', state: 'completed' }),
       expect.objectContaining({ activity_id: 'activity-1', turn_id: 'turn-1', state: 'working' }),
-    ]);
+    ]));
 
     target.messages.push({ record_id: 'message-final', parent_message_id: TRIGGER_ID, channel_id: CHANNEL_ID, body: 'Final reply' });
     await hydrateTowerPgEventUpdates(target, [event(rawActivity({ state: 'completed', sequence: 4 }))], {
       getTowerPgAgentActivities: async () => ({ agent_activities: [rawActivity({ state: 'completed', sequence: 4 })] }),
     });
     target.applyAgentActivities(await getAgentActivitiesForChannel(CHANNEL_ID));
-    expect(target.activeThreadAgentActivities).toEqual([]);
+    expect(target.activeThreadAgentActivities).toHaveLength(2);
+    expect(target.activeThreadAgentActivities.every((row) => row.state === 'completed')).toBe(true);
+    expect(await getAgentActivityCommentaryForChannel(CHANNEL_ID)).toHaveLength(2);
     expect(target.messages.at(-1)).toMatchObject({ record_id: 'message-final', body: 'Final reply' });
   });
 
-  it('recovers a missed terminal by authoritative absence without touching the final thread message', async () => {
+  it('preserves uncertain state on authoritative absence without touching the final thread message', async () => {
     const target = store();
     const db = openWorkspaceDb(DB_KEY);
     await db.open();
@@ -158,8 +161,8 @@ describe('agent activity hydration/SSE to visible thread', () => {
     });
 
     target.applyAgentActivities(await getAgentActivitiesForChannel(CHANNEL_ID));
-    expect(target.activeThreadAgentActivities).toEqual([]);
-    expect(await getAgentActivityCommentaryForChannel(CHANNEL_ID)).toEqual([]);
+    expect(target.activeThreadAgentActivities).toEqual([expect.objectContaining({ state: 'working' })]);
+    expect(await getAgentActivityCommentaryForChannel(CHANNEL_ID)).toHaveLength(1);
     expect(target.messages.at(-1)).toMatchObject({ record_id: 'message-final', body: 'Final reply' });
   });
 });

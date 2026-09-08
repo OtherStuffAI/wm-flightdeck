@@ -66,6 +66,21 @@ describe('Tower PG API helpers', () => {
     expect(createNip98AuthHeaderForSecret).not.toHaveBeenCalled();
   });
 
+  it('signs exact bounded activity history cursors without rounding bigint delivery positions', async () => {
+    const api = await import('../src/api.js');
+    await api.getTowerPgAgentActivities('workspace-1', {
+      channelId: 'channel-1', activityId: 'activity-1', afterCommentaryCursor: '9007199254740993',
+      historyLimit: 200, baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg',
+    });
+    const [requestUrl, options] = globalThis.fetch.mock.calls[0];
+    const params = new URL(requestUrl).searchParams;
+    expect(params.get('after_commentary_cursor')).toBe('9007199254740993');
+    expect(params.get('history_limit')).toBe('200');
+    expect(params.get('activity_id')).toBe('activity-1');
+    expect(params.has('after_sequence')).toBe(false);
+    expect(options.headers.Authorization).toBe(`NIP98 GET ${requestUrl}`);
+  });
+
   it('upgrades an advertised http descriptor link to its configured https Tower', async () => {
     const api = await import('../src/api.js');
     api.setBaseUrl('https://tower.example');

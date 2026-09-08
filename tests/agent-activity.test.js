@@ -40,37 +40,24 @@ describe('agent activity lifecycle', () => {
     expect(reconcileAgentActivity(activity(), activity({ state, sequence: 2 }))).toEqual(expect.objectContaining({ state }));
   });
 
-  it('rejects unsafe visibility and suppresses stale snapshots after reload', () => {
+  it('rejects unsafe visibility while preserving expired and historical lifecycle rows', () => {
     expect(activity({ visibility: 'hidden_reasoning' })).toBeNull();
-    expect(isVisibleAgentActivity(activity({ expires_at: '2000-01-01T00:00:00.000Z' }))).toBe(true);
-    expect(isVisibleAgentActivity(activity())).toBe(true);
-    expect(selectVisibleAgentActivities([activity({ expires_at: '2000-01-01T00:00:00.000Z' })])).toEqual([]);
+    const old = activity({ activity_id: 'old', turn_id: 'old', expires_at: '2000-01-01T00:00:00.000Z' });
+    const terminal = activity({ state: 'completed' });
+    expect(isVisibleAgentActivity(old)).toBe(true);
+    expect(selectVisibleAgentActivities([old, terminal])).toEqual([old, terminal]);
   });
 
-  it('shows only the newest run for one thread and agent, including terminal cleanup', () => {
-    const older = activity({ record_id: 'row-old', activity_id: 'activity-old', turn_id: 'turn-a', created_at: '2026-08-10T00:00:00.000Z', sequence: 10, body: 'Old run' });
-    const received = activity({ record_id: 'row-new', activity_id: 'activity-new', turn_id: 'turn-b', created_at: '2026-08-10T01:00:00.000Z', sequence: 1, state: 'accepted', label: 'Message received' });
-    const started = activity({ record_id: 'row-new', activity_id: 'activity-new', turn_id: 'turn-b', created_at: '2026-08-10T01:00:00.000Z', sequence: 2, label: 'Agent started' });
-    const thinking = activity({ record_id: 'row-new', activity_id: 'activity-new', turn_id: 'turn-b', created_at: '2026-08-10T01:00:00.000Z', sequence: 3, body: 'Inspecting the event path' });
-
-    expect(selectVisibleAgentActivities([older, received])).toEqual([received]);
-    expect(selectVisibleAgentActivities([older, started])).toEqual([started]);
-    expect(selectVisibleAgentActivities([older, thinking])).toEqual([thinking]);
-    expect(selectVisibleAgentActivities([older, activity({
-      record_id: 'row-new', activity_id: 'activity-new', turn_id: 'turn-b', created_at: '2026-08-10T01:00:00.000Z', sequence: 4, state: 'completed',
-    })])).toEqual([]);
+  it.each(['completed', 'failed', 'cancelled'])('retains confirmed %s with later runs and ignores out-of-order replay', (state) => {
+    const terminal = activity({ state, sequence: 9 });
+    const later = activity({ activity_id: 'later', turn_id: 'later', sequence: 1 });
+    expect(selectVisibleAgentActivities([terminal, later, activity({ sequence: 2 })])).toEqual([terminal, later]);
+    expect(getAgentActivityHealth(terminal, 'disconnected').state).toBe('finished');
   });
 
-  it.each(['failed', 'cancelled'])('keeps an older run suppressed after %s cleanup', (state) => {
-    const older = activity({ record_id: 'row-old', activity_id: 'activity-old', turn_id: 'turn-a', created_at: '2026-08-10T00:00:00.000Z', sequence: 10 });
-    const terminal = activity({ record_id: 'row-new', activity_id: 'activity-new', turn_id: 'turn-b', created_at: '2026-08-10T01:00:00.000Z', sequence: 1, state });
-    expect(selectVisibleAgentActivities([older, terminal])).toEqual([]);
-  });
-
-  it('does not let a stale older-run event overwrite a newer run', () => {
-    const newer = activity({ record_id: 'row-new', activity_id: 'activity-new', turn_id: 'turn-b', created_at: '2026-08-10T01:00:00.000Z', sequence: 1, body: 'Current run' });
-    const stale = activity({ record_id: 'row-old', activity_id: 'activity-old', turn_id: 'turn-a', created_at: '2026-08-10T00:00:00.000Z', sequence: 999, state: 'completed', body: 'Stale run' });
-    expect(selectVisibleAgentActivities([newer, stale])).toEqual([newer]);
+  it('does not deduplicate distinct workspace, backend or turn identities', () => {
+    const rows = [activity(), activity({ workspace_id: 'another' }), activity({ turn_id: 'another' })];
+    expect(selectVisibleAgentActivities(rows)).toHaveLength(3);
   });
 
   it('does not reconcile sequence across turn identities', () => {
@@ -78,15 +65,19 @@ describe('agent activity lifecycle', () => {
     expect(reconcileAgentActivity(current, activity({ turn_id: 'turn-a', sequence: 999, state: 'completed' }))).toBe(current);
   });
 
-  it('retains blue live activity and suppresses stale, connecting, and failed activity', () => {
+  it.each(['connecting', 'reconnecting', 'disconnected', 'fallback-polling', 'connected'])('keeps received content during %s recovery before and after 60 seconds', (status) => {
+    const row = activity();
+    const startedAt = 10_000;
+    expect(getAgentActivityHealth(row, status, startedAt + 59_999, { startedAt }).message).toBe('Reconnecting');
+    expect(getAgentActivityHealth(row, status, startedAt + 60_000, { startedAt }).message).toBe('Connection lost—status unknown');
+    expect(selectVisibleAgentActivities([row], status, startedAt + 60_000)).toEqual([row]);
+    expect(row.state).toBe('working');
+  });
+
+  it('clears uncertainty only when recovery succeeds and leaves expired rows unknown', () => {
+    expect(getAgentActivityHealth(activity(), 'connected', Date.now(), { startedAt: 0 }).state).toBe('live');
     const expired = activity({ expires_at: '2000-01-01T00:00:00.000Z' });
-    expect(getAgentActivityHealth(expired, 'connected').state).toBe('stale');
-    expect(getAgentActivityHealth(activity(), 'reconnecting').state).toBe('degraded');
-    expect(getAgentActivityHealth(activity(), 'fallback-polling').state).toBe('error');
-    expect(getAgentActivityHealth(activity(), 'connected').state).toBe('live');
-    expect(selectVisibleAgentActivities([activity()], 'connected')).toHaveLength(1);
-    expect(selectVisibleAgentActivities([expired], 'connected')).toEqual([]);
-    expect(selectVisibleAgentActivities([activity()], 'connecting')).toEqual([]);
-    expect(selectVisibleAgentActivities([activity()], 'fallback-polling')).toEqual([]);
+    expect(getAgentActivityHealth(expired, 'connected').message).toBe('Connection lost—status unknown');
+    expect(selectVisibleAgentActivities([expired])).toEqual([expired]);
   });
 });

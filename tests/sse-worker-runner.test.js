@@ -211,8 +211,8 @@ describe('sync worker SSE handshake integration', () => {
     firstSource.emit('connected', { lastEventId: 'event 42/next', data: '{}' });
     firstSource.readyState = 2;
     firstSource.onerror();
-
-    vi.advanceTimersByTime(1_000);
+    expect(latestStatus('reconnecting').delayMs).toBe(0);
+    vi.advanceTimersByTime(0);
     const reconnect = latestStatus('token-needed');
     expect(reconnect.requestId).not.toBe(initial.requestId);
     expect(reconnect.signingUrl).toBe(

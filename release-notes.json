@@ -1307,6 +1307,33 @@
       "notes": [
         "Mark all tasks as read and Mark everything as read now clear current activity on review tasks without marking them done. New activity still appears unread."
       ]
+    },
+    {
+      "buildNumber": 1904,
+      "label": "Reliable agent working updates",
+      "notes": [
+        "Working panels stay visible during connection loss and recover missed updates automatically. Finished runs keep their working history after refresh, with earlier updates and runs available on demand."
+      ]
+    },
+    {
+      "buildNumber": 1905,
+      "label": "Replies stay visible in open threads",
+      "notes": [
+        "New replies stay visible while sending and after acceptance in open conversations. Delayed refreshes preserve replies, server echoes reconcile once, and completing a send after switching threads does not change the new conversation."
+      ]
+    },
+    {
+      "buildNumber": 1906,
+      "label": "Conversation reliability integration check",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1907,
+      "label": "Reply acknowledgements stay in their workspace",
+      "notes": [
+        "Finishing a reply after switching workspaces now updates its original local conversation without adding messages or changing drafts in the new workspace."
+      ]
     }
   ]
 }

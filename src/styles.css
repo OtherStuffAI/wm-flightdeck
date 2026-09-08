@@ -9789,6 +9789,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 .agent-activity-thread .agent-activity-toggle { padding: 0; }
 .agent-activity-stale,
 .agent-activity-degraded { border-color: #d97706; background: #fffbeb; }
+.agent-activity-finished { border-color: var(--border); background: transparent; color: var(--text-muted); }
 .agent-activity-error { border-color: #dc2626; background: #fef2f2; }
 .agent-activity-stale .agent-activity-pulse,
 .agent-activity-degraded .agent-activity-pulse { background: #d97706; }

@@ -1884,13 +1884,18 @@ export async function getTowerPgResponseActivities(workspaceId, { targetType = n
   return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
 }
 
-export async function getTowerPgAgentActivities(workspaceId, { channelId, threadId = null, activityId = null, baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, limit = 100 } = {}) {
+export async function getTowerPgAgentActivities(workspaceId, { channelId, threadId = null, activityId = null, cursor = null, beforeSequence = null, afterSequence = null, afterCommentaryCursor = null, historyLimit = 50, baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, limit = 100 } = {}) {
   const encodedWorkspaceId = encodeURIComponent(String(workspaceId || '').trim());
   if (!encodedWorkspaceId) throw new Error('Tower PG workspace id is required');
   if (!channelId) throw new Error('Tower PG agent activity channel id is required');
   const params = new URLSearchParams({ channel_id: String(channelId) });
   if (threadId) params.set('thread_id', String(threadId));
   if (activityId) params.set('activity_id', String(activityId));
+  if (cursor) params.set('cursor', String(cursor));
+  if (beforeSequence != null) params.set('before_sequence', String(beforeSequence));
+  if (afterSequence != null) params.set('after_sequence', String(afterSequence));
+  if (afterCommentaryCursor != null) params.set('after_commentary_cursor', String(afterCommentaryCursor));
+  params.set('history_limit', String(historyLimit));
   if (limit) params.set('limit', String(limit));
   const requestPath = `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/agent-activities?${params.toString()}`;
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);

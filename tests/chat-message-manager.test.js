@@ -49,11 +49,13 @@ import {
   deleteWorkspaceDb,
   getMessageById,
   getMessagePresentationWindowByChannel,
+  getThreadMessagePresentationWindow,
   getMessagesByChannel,
   openWorkspaceDb,
   replacePgMessagesForChannel,
   upsertMessage,
 } from '../src/db.js';
+import * as messageDb from '../src/db.js';
 import { hydrateTowerPgThreadMessages } from '../src/pg-read-hydrator.js';
 
 beforeEach(() => {
@@ -2563,6 +2565,145 @@ describe('sendMessage', () => {
 // sendThreadReply validation
 // ---------------------------------------------------------------------------
 describe('sendThreadReply', () => {
+  it.each([false, true])('keeps an open Inbox reply through canonical acknowledgement (echo first: %s)', async (echoFirst) => {
+    const key = `open-inbox-send-${echoFirst}`;
+    openWorkspaceDb(key);
+    await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const root = { record_id: 'thread', pg_record_type: 'thread', pg_thread_id: 'thread',
+      pg_source_message_id: 'source', channel_id: 'inbox-channel', body: 'Thread',
+      record_state: 'active', sync_status: 'synced', version: 1, updated_at: '2026-01-01T00:00:00Z' };
+    const source = { ...root, record_id: 'source', pg_record_type: 'message' };
+    await upsertMessage(root);
+    await upsertMessage(source);
+    const store = createStore({ navSection: 'status', selectedChannelId: 'other-channel',
+      deckThreadChannelId: 'inbox-channel', deckThreadTowerId: 'thread', activeThreadId: 'thread',
+      currentWorkspace: { workspaceId: 'workspace' }, session: { npub: 'viewer' },
+      channels: [{ record_id: 'inbox-channel' }], messages: [root, { ...source, parent_message_id: 'thread' }],
+      threadInput: 'New reply',
+    });
+    let accept;
+    createTowerPgMessageFromLocal.mockImplementation((_store, local) => new Promise(resolve => {
+      accept = async () => {
+        const canonical = { ...local, record_id: 'accepted', parent_message_id: 'source',
+          pg_record_type: 'message', sync_status: 'synced', pg_client_record_id: local.record_id };
+        if (echoFirst) {
+          await replacePgMessagesForChannel('inbox-channel', [canonical]);
+          await store.applyMessages(await getThreadMessagePresentationWindow('inbox-channel', 'thread'), { threadDetail: true });
+        }
+        resolve(canonical);
+      };
+    }));
+    try {
+      const send = store.sendThreadReply();
+      await vi.waitFor(() => expect(accept).toBeTypeOf('function'));
+      expect(store.visibleThreadMessages.filter(row => row.body === 'New reply')).toHaveLength(1);
+      // A query begun before the local insert finishes after the pending patch.
+      await store.applyMessages([root, { ...source, parent_message_id: 'thread' }], { threadDetail: true });
+      expect(store.visibleThreadMessages.filter(row => row.body === 'New reply')).toHaveLength(1);
+      await accept();
+      expect(await send).toBe(true);
+      expect(store.visibleThreadMessages.filter(row => row.body === 'New reply')).toHaveLength(1);
+      await store.applyMessages(await getThreadMessagePresentationWindow('inbox-channel', 'thread'), { threadDetail: true });
+      expect(store.visibleThreadMessages.filter(row => row.record_id === 'accepted')).toHaveLength(1);
+      const canonical = await getMessageById('accepted');
+      const { pg_reconciliation_pending, ...echo } = canonical;
+      await replacePgMessagesForChannel('inbox-channel', [echo]);
+      await store.applyMessages(await getThreadMessagePresentationWindow('inbox-channel', 'thread'), { threadDetail: true });
+      expect(store.visibleThreadMessages.filter(row => row.body === 'New reply')).toHaveLength(1);
+    } finally { await deleteWorkspaceDb(key); }
+  });
+
+  it('does not patch a different Inbox thread or clear its draft when a send completes', async () => {
+    const key = 'inbox-send-navigation';
+    openWorkspaceDb(key); await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const root = { record_id: 'root', channel_id: 'ch1', pg_thread_id: 'thread', body: 'Root' };
+    await upsertMessage(root);
+    const store = createStore({ navSection: 'status', deckThreadChannelId: 'ch1', deckThreadTowerId: 'thread',
+      activeThreadId: 'root', messages: [root], channels: [{ record_id: 'ch1' }], threadInput: 'Reply',
+      currentWorkspace: { workspaceId: 'workspace' }, session: { npub: 'viewer' },
+      scheduleThreadRepliesScrollToBottom: vi.fn(),
+    });
+    let accept;
+    createTowerPgMessageFromLocal.mockImplementation((_store, local) => new Promise(resolve => {
+      accept = () => resolve({ ...local, record_id: 'accepted', sync_status: 'synced' });
+    }));
+    try {
+      const send = store.sendThreadReply();
+      await vi.waitFor(() => expect(accept).toBeTypeOf('function'));
+      store.activeThreadId = 'other-root'; store.deckThreadTowerId = 'other-thread';
+      store.messages = [{ ...root, record_id: 'other-root', pg_thread_id: 'other-thread' }];
+      store.threadInput = 'Other draft';
+      store.scheduleThreadRepliesScrollToBottom.mockClear();
+      accept(); await send;
+      expect(store.messages.map(row => row.record_id)).toEqual(['other-root']);
+      expect(store.visibleThreadMessages).toEqual([]);
+      expect(store.threadInput).toBe('Other draft');
+      expect(store.scheduleThreadRepliesScrollToBottom).not.toHaveBeenCalled();
+      expect(await getMessageById('accepted')).toMatchObject({ parent_message_id: 'root', body: 'Reply' });
+    } finally { await deleteWorkspaceDb(key); }
+  });
+
+  it.each(['accept', 'reject'])('keeps a late %s in the originating Dexie workspace after switching', async (outcome) => {
+    const originalKey = `reply-original-${outcome}`, nextKey = `reply-next-${outcome}`;
+    openWorkspaceDb(originalKey); await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const root = { record_id: 'root', channel_id: 'ch1', pg_thread_id: 'thread', body: 'Root' };
+    await upsertMessage(root);
+    const store = createStore({ currentWorkspaceKey: originalKey, currentWorkspace: { workspaceId: 'workspace-a' },
+      activeThreadId: 'root', selectedChannelId: 'ch1', messages: [root], channels: [{ record_id: 'ch1' }],
+      threadInput: 'Original reply', session: { npub: 'viewer' },
+    });
+    let settle, localId;
+    createTowerPgMessageFromLocal.mockImplementation((_store, local) => new Promise((resolve, reject) => {
+      localId = local.record_id;
+      settle = () => outcome === 'accept'
+        ? resolve({ ...local, record_id: 'accepted', sync_status: 'synced', pg_record_type: 'message' })
+        : reject(new Error('Original send failed'));
+    }));
+    try {
+      const send = store.sendThreadReply();
+      await vi.waitFor(() => expect(settle).toBeTypeOf('function'));
+      openWorkspaceDb(nextKey); await clearRuntimeData();
+      store.currentWorkspaceKey = nextKey; store.currentWorkspace = { workspaceId: 'workspace-b' };
+      store.messages = []; store.threadInput = 'New workspace draft';
+      // Same record IDs must not let a failed old send mutate another workspace.
+      await upsertMessage({ record_id: localId, body: 'Unrelated local row', sync_status: 'pending' });
+      settle(); expect(await send).toBe(outcome === 'accept');
+      expect(await getMessageById('accepted')).toBeUndefined();
+      expect(await getMessageById(localId)).toMatchObject({ body: 'Unrelated local row', sync_status: 'pending' });
+      expect(store.messages).toEqual([]); expect(store.threadInput).toBe('New workspace draft');
+      openWorkspaceDb(originalKey);
+      if (outcome === 'accept') {
+        expect(await getMessageById(localId)).toBeUndefined();
+        expect(await getMessageById('accepted')).toMatchObject({ pg_workspace_id: 'workspace-a', body: 'Original reply', sync_status: 'synced' });
+      } else expect(await getMessageById(localId)).toMatchObject({ body: 'Original reply', sync_status: 'failed' });
+    } finally { await deleteWorkspaceDb(originalKey); await deleteWorkspaceDb(nextKey); }
+  });
+
+  it('rejects a delayed local refresh after a newer accepted projection', async () => {
+    const root = { record_id: 'root', channel_id: 'ch1', body: 'Root' };
+    const store = createStore({ selectedChannelId: 'ch1', activeThreadId: 'root', messages: [root] });
+    let finish;
+    const read = vi.spyOn(messageDb, 'getMessagesByChannel').mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    try {
+      const refresh = store.refreshMessages();
+      store.patchMessageLocal({ record_id: 'accepted', channel_id: 'ch1', parent_message_id: 'root', body: 'Accepted', sync_status: 'synced' });
+      finish([root]); await refresh;
+      expect(store.visibleThreadMessages.map(row => row.record_id)).toEqual(['accepted']);
+    } finally { read.mockRestore(); }
+  });
+
+  it('applies parent-only presentation corrections even when canonical version and time are unchanged', async () => {
+    const root = { record_id: 'thread', channel_id: 'ch1', pg_thread_id: 'thread' };
+    const reply = { record_id: 'accepted', channel_id: 'ch1', parent_message_id: 'source', pg_thread_id: 'thread', sync_status: 'synced' };
+    const store = createStore({ selectedChannelId: 'ch1', activeThreadId: 'thread', messages: [root, reply] });
+    expect(store.visibleThreadMessages).toEqual([]);
+    await store.applyMessages([root, { ...reply, parent_message_id: 'thread' }], { threadDetail: true });
+    expect(store.visibleThreadMessages.map(row => row.record_id)).toEqual(['accepted']);
+  });
+
   it('keeps two accepted child-branch messages visible through activity and rematerialisation', async () => {
     const workspaceDbKey = 'chat-message-manager-child-branch-reconciliation';
     openWorkspaceDb(workspaceDbKey);

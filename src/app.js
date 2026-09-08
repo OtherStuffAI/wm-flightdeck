@@ -658,6 +658,12 @@ export function initApp() {
     backgroundSyncInFlight: false,
     syncBackoffMs: 0,
     sseStatus: 'disconnected',
+    agentActivityRecoveryStartedAt: 0,
+    agentActivityRecoveryError: '',
+    agentActivityRecoveryAttempts: 0,
+    agentActivityRecoveryPending: false,
+    agentActivityHistoryLoads: {},
+    agentActivityRunsLoads: {},
     catchUpSyncActive: false,
     startupSyncProgress: {
       active: false, visible: false, stage: 'idle', startedAt: null, elapsedMs: 0,

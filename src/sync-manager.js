@@ -244,13 +244,23 @@ export const syncManagerMixin = {
           load: (channelId, options) => hydrateTowerPgChannelMessages(this, channelId, options),
           materialize: (result) => result,
         },
+        'channel-agent-activities': {
+          load: (key, options) => this.loadTowerPgAgentActivities(options.channelId || key, options),
+        },
+        'agent-activity-history': {
+          load: (_key, options) => this.loadTowerPgAgentActivities(options.channelId, { ...options, recover: false }),
+        },
         'thread-history-page': {
           load: (_key, options) => readTowerPgThreadHistoryPage(this, options.channelId, options.threadId, options),
-          materialize: bundle => bundle ? this.materializeTowerPgWorkspaceBundle(bundle) : null,
+          materialize: async (bundle, { options }) => {
+            const result = bundle ? await this.materializeTowerPgWorkspaceBundle(bundle) : null;
+            if (!options.cursor) await this.ensureThreadAgentActivityCoverage(options.channelId, options.threadId);
+            return result;
+          },
         },
         'thread-history': {
           freshMs: DETAIL_FAMILY_FRESH_MS,
-          load: (_coverageKey, options) => hydrateTowerPgThreadMessages(this, options.channelId, options.threadId, options),
+          load: (_coverageKey, options) => this.loadThreadMessagesWithActivity(options),
           materialize: (result) => result,
         },
         task: {
@@ -392,6 +402,10 @@ export const syncManagerMixin = {
     this._towerSyncService = null;
     service?.dispose(reason);
     this.backgroundSyncTimer = null;
+    this.agentActivityRecoveryStartedAt = 0;
+    this.agentActivityRecoveryError = '';
+    this.agentActivityRecoveryAttempts = 0;
+    this.agentActivityRecoveryPending = false;
   },
 
   loadTowerSyncTarget(family, id, options = {}) {
@@ -403,9 +417,15 @@ export const syncManagerMixin = {
       case 'channel-tasks': return hydrateTowerPgChannelTasks(this, id, options);
       case 'channel-documents': return hydrateTowerPgChannelDocumentsAndFiles(this, id, options);
       case 'channel-messages': return hydrateTowerPgChannelMessages(this, id, options);
+      case 'channel-agent-activities': return this.loadTowerPgAgentActivities(options.channelId || id, options);
+      case 'agent-activity-history': return this.loadTowerPgAgentActivities(options.channelId, { ...options, recover: false });
       case 'thread-history-page': return readTowerPgThreadHistoryPage(this, options.channelId, options.threadId, options)
-        .then(bundle => bundle ? this.materializeTowerPgWorkspaceBundle(bundle) : null);
-      case 'thread-history': return hydrateTowerPgThreadMessages(this, options.channelId, options.threadId, options);
+        .then(async (bundle) => {
+          const result = bundle ? await this.materializeTowerPgWorkspaceBundle(bundle) : null;
+          if (!options.cursor) await this.ensureThreadAgentActivityCoverage(options.channelId, options.threadId);
+          return result;
+        });
+      case 'thread-history': return this.loadThreadMessagesWithActivity(options);
       case 'task': return hydrateTowerPgTask(this, id, options);
       case 'task-comments': return hydrateTowerPgTaskComments(this, id, options);
       case 'document': return hydrateTowerPgDoc(this, id, options);
@@ -429,6 +449,72 @@ export const syncManagerMixin = {
     const service = this._towerSyncService || null;
     return service?.ensureLoaded(family, id, options)
       ?? this.loadTowerSyncTarget(family === 'workspace-bootstrap' ? 'workspace' : family, id, options);
+  },
+
+  async loadTowerPgAgentActivities(channelId, options = {}) {
+    const workspaceKey = this.buildSSEConnectionKey();
+    const service = this._towerSyncService;
+    const stillCurrent = () => workspaceKey === this.buildSSEConnectionKey()
+      && service === this._towerSyncService && !service?.disposed;
+    try {
+      const result = await hydrateTowerPgChannelAgentActivities(this, channelId, {
+        ...options,
+        recover: options.recover ?? (!options.cursor && !options.threadId && !options.activityId),
+      });
+      if (stillCurrent()) {
+        this.agentActivityRecoveryError = '';
+        this.agentActivityRecoveryAttempts = 0;
+        this.agentActivityRecoveryPending = result.recovery_pending === true;
+        if (!result.recovery_pending && ['connected', 'fallback-polling'].includes(this.sseStatus)) this.agentActivityRecoveryStartedAt = 0;
+        if (result.recovery_pending) this.scheduleBackgroundSync(1000);
+      }
+      return result;
+    } catch (error) {
+      if (stillCurrent()) {
+        this.agentActivityRecoveryStartedAt ||= Date.now();
+        this.agentActivityRecoveryAttempts = Number(this.agentActivityRecoveryAttempts || 0) + 1;
+        this.agentActivityRecoveryError = this.agentActivityRecoveryAttempts < 3
+          ? 'Activity updates could not be recovered. Retrying.'
+          : 'Activity updates could not be recovered. Retrying with background sync.';
+        // Reuse the service's sole fallback timer. Fast retries are bounded;
+        // continued recovery uses the normal background cadence.
+        this.scheduleBackgroundSync(this.agentActivityRecoveryAttempts < 3
+          ? 1000 * (2 ** (this.agentActivityRecoveryAttempts - 1)) : null);
+      }
+      throw error;
+    }
+  },
+
+  visibleAgentActivityTarget() {
+    if (this.navSection === 'status' && this.deckThreadChannelId && this.activeThreadId) {
+      return { channelId: this.deckThreadChannelId, threadId: this.deckThreadTowerId || this.activeThreadId };
+    }
+    return { channelId: this.selectedChannelId };
+  },
+
+  async recoverVisibleAgentActivities() {
+    const target = this.visibleAgentActivityTarget();
+    if (!target.channelId) return;
+    return this.requestTowerSyncFamily('channel-agent-activities', `${target.channelId}${target.threadId ? `:${target.threadId}` : ''}`, {
+      ...target, force: true, recover: true,
+    });
+  },
+
+  async ensureThreadAgentActivityCoverage(channelId, threadId) {
+    if (!channelId || !threadId) return;
+    try {
+      await this.requestTowerSyncFamily('channel-agent-activities', `${channelId}:${threadId}`, {
+        channelId, threadId, recover: true,
+      });
+    } catch {
+      // The activity loader exposes retry state without discarding messages.
+    }
+  },
+
+  async loadThreadMessagesWithActivity(options) {
+    const result = await hydrateTowerPgThreadMessages(this, options.channelId, options.threadId, options);
+    await this.ensureThreadAgentActivityCoverage(options.channelId, options.threadId);
+    return result;
   },
 
   beginStartupSyncProgress() {
@@ -2650,7 +2736,10 @@ export const syncManagerMixin = {
     // describe work performed by an otherwise healthy EventSource. Keeping
     // them out of the connection lifecycle prevents the fallback poller from
     // treating every live PG event as an SSE disconnect.
-    if (SSE_LIFECYCLE_STATUSES.has(status)) this.sseStatus = status;
+    if (SSE_LIFECYCLE_STATUSES.has(status)) {
+      this.sseStatus = status;
+      if (status !== 'connected') this.agentActivityRecoveryStartedAt ||= Date.now();
+    }
     this.logSSELifecycle(status, message);
 
     if (status === 'pull-complete') {
@@ -2690,6 +2779,11 @@ export const syncManagerMixin = {
       // Widen heartbeat polling now that SSE is live
       this.scheduleBackgroundSync();
       return pgHydration;
+    }
+
+    if (status === 'reconnecting' || status === 'disconnected') {
+      this.scheduleBackgroundSync(50);
+      return;
     }
 
     if (status === 'fallback-polling') {
@@ -2783,17 +2877,17 @@ export const syncManagerMixin = {
         if (ranWorkspaceDelta) {
           await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? this.runTowerPgWorkspaceSync());
           this.towerPgLastReplayDeltaAt = Date.now();
-          const activityChannelIds = new Set(events
-            .filter((event) => String(event?.entity_type || '').trim() === 'agent_activity')
-            .map((event) => String(event?.channel_id || event?.payload?.channel_id || event?.payload?.agent_activity?.channel_id || '').trim())
-            .filter(Boolean));
-          if (fallbackRefreshRequested && this.selectedChannelId) {
-            activityChannelIds.add(String(this.selectedChannelId));
-          }
-          await Promise.all([...activityChannelIds].map((channelId) => (
-            hydrateTowerPgChannelAgentActivities(this, channelId)
-          )));
         }
+        // Activity recovery must run even when the workspace delta is fresh:
+        // snapshots/commentary are a separately scoped authority read.
+        const activityChannelIds = new Set(events
+          .filter((event) => replayBurst && String(event?.entity_type || '').trim() === 'agent_activity')
+          .map((event) => String(event?.channel_id || event?.payload?.channel_id || event?.payload?.agent_activity?.channel_id || '').trim())
+          .filter(Boolean));
+        for (const channelId of activityChannelIds) {
+          await this.requestTowerSyncFamily('channel-agent-activities', channelId, { channelId, force: true, recover: true });
+        }
+        if (fallbackRefreshRequested) await this.recoverVisibleAgentActivities();
         const refreshWappActivity = events.some((event) => (
           String(event?.entity_type || '').trim() === 'wapp_activity_item'
         ));
@@ -2966,6 +3060,7 @@ export const syncManagerMixin = {
     try {
       if (this.isEncryptedRecordSyncDisabled) {
         this.markEncryptedRecordSyncDisabled();
+        await this.recoverVisibleAgentActivities();
         await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? this.runTowerPgWorkspaceSync());
       } else {
         await this.performSync({ silent: true });
@@ -2989,7 +3084,10 @@ export const syncManagerMixin = {
       }
       this.backgroundSyncInFlight = false;
       this.catchUpSyncActive = false;
-      this.scheduleBackgroundSync(this.syncBackoffMs || null);
+      const activityRetryDelay = this.agentActivityRecoveryError
+        ? (this.agentActivityRecoveryAttempts < 3 ? 1000 * (2 ** (this.agentActivityRecoveryAttempts - 1)) : null)
+        : this.agentActivityRecoveryPending ? 1000 : this.syncBackoffMs || null;
+      this.scheduleBackgroundSync(activityRetryDelay);
     }
   },
 

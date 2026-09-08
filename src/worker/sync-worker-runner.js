@@ -450,7 +450,7 @@ function scheduleReconnect({ reason = 'eventsource-error' } = {}) {
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer);
 
   const attempt = sseReconnectAttempts + 1;
-  const delay = Math.min(1000 * Math.pow(2, sseReconnectAttempts), 60_000);
+  const delay = sseReconnectAttempts === 0 ? 0 : Math.min(1000 * Math.pow(2, sseReconnectAttempts - 1), 60_000);
   sseReconnectAttempts = attempt;
 
   if (attempt > 5) {

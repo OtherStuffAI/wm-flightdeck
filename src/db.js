@@ -988,6 +988,20 @@ export async function upsertMessage(msg) {
   return wsDb().chat_messages.put(sanitizeForStorage(msg));
 }
 
+// Late send completions must never select the workspace that happens to be
+// active when the response arrives. Use a separate connection and transaction
+// so existing message helpers resolve wsDb() to the captured partition.
+export async function withWorkspaceMessageTransaction(workspaceDbKey, operation) {
+  if (!workspaceDbKey) throw new Error('Message workspace database key is required');
+  const db = createWorkspaceDb(workspaceDbKey);
+  try {
+    await db.open();
+    return await db.transaction('rw', db.chat_messages, operation);
+  } finally {
+    db.close();
+  }
+}
+
 export async function updateExistingMessageSyncStatus(recordId, syncStatus) {
   const db = wsDb();
   return db.transaction('rw', db.chat_messages, async () => {
@@ -2342,6 +2356,7 @@ export async function upsertAgentActivity(activity) {
     );
     if (current && (!sameLifecycle || Number(current.sequence) >= Number(row.sequence))) return false;
     await db.agent_activities.put({
+      ...current,
       ...row,
       created_at: current?.created_at || row.created_at || null,
     });
@@ -2388,11 +2403,6 @@ export async function replacePgAgentActivitiesForChannel(channelId, activities =
   const id = String(channelId || '').trim();
   if (!id) return 0;
   const rows = (Array.isArray(activities) ? activities : []).map(sanitizeForStorage).filter((row) => row?.record_id);
-  const requestSnapshot = (Array.isArray(options.requestSnapshot) ? options.requestSnapshot : [])
-    .map(sanitizeForStorage)
-    .filter((row) => row?.record_id);
-  const snapshotById = new Map(requestSnapshot.map((row) => [row.record_id, row]));
-  const authoritativeIds = new Set(rows.map((row) => row.record_id));
   const db = wsDb();
   return db.transaction('rw', db.agent_activities, db.agent_activity_commentary, async () => {
     let changed = 0;
@@ -2403,28 +2413,25 @@ export async function replacePgAgentActivitiesForChannel(channelId, activities =
         String(current.turn_id || '') === String(row.turn_id || '')
         || (!current.turn_id && Boolean(row.turn_id))
       );
-      if (!current || (sameLifecycle && Number(row.sequence) > Number(current.sequence))) {
-        await db.agent_activities.put({
-          ...row,
-          created_at: current?.created_at || row.created_at || null,
-        });
+      if (!current || sameLifecycle) {
+        const next = Number(row.sequence) > Number(current?.sequence ?? -1) ? { ...current, ...row } : { ...current };
+        if (/^\d+$/.test(String(row.commentary_cursor ?? ''))) {
+          const priorCursor = /^\d+$/.test(String(current?.commentary_cursor ?? '')) ? current.commentary_cursor : '0';
+          next.commentary_cursor = BigInt(row.commentary_cursor) > BigInt(priorCursor) ? row.commentary_cursor : priorCursor;
+        }
+        if (Object.prototype.hasOwnProperty.call(row, 'commentary_next_before_sequence')) {
+          const previous = current?.commentary_next_before_sequence;
+          const incoming = row.commentary_next_before_sequence;
+          next.commentary_next_before_sequence = previous === null || incoming === null
+            ? null
+            : previous === undefined ? incoming : Math.min(previous, incoming);
+        }
+        await db.agent_activities.put({ ...next, created_at: current?.created_at || row.created_at || null });
         changed += 1;
       }
     }
-    if (options.authoritative === true) {
-      const currentRows = await db.agent_activities.where('channel_id').equals(id).toArray();
-      for (const current of currentRows) {
-        if (current?.pg_backend !== true || authoritativeIds.has(current.record_id)) continue;
-        const started = snapshotById.get(current.record_id);
-        if (!started) continue;
-        const sameLifecycle = String(started.activity_id || '') === String(current.activity_id || '')
-          && String(started.turn_id || '') === String(current.turn_id || '');
-        if (!sameLifecycle || Number(current.sequence) > Number(started.sequence)) continue;
-        await db.agent_activities.delete(current.record_id);
-        if (current.turn_id) await db.agent_activity_commentary.where('turn_id').equals(current.turn_id).delete();
-        changed += 1;
-      }
-    }
+    // List omission and freshness expiry are not lifecycle transitions. Keep
+    // received runs and history until an explicit removal, even on old Towers.
     return changed;
   });
 }
@@ -2451,15 +2458,9 @@ export async function getAgentActivitiesForChannel(channelId) {
   }));
 }
 
-export async function pruneExpiredAgentActivities(now = new Date()) {
-  const db = wsDb();
-  return db.transaction('rw', db.agent_activities, db.agent_activity_commentary, async () => {
-    const expired = await db.agent_activities.where('expires_at').belowOrEqual(now.toISOString()).toArray();
-    const deleted = await db.agent_activities.bulkDelete(expired.map((activity) => activity.record_id));
-    const turnIds = [...new Set(expired.map((activity) => activity.turn_id).filter(Boolean))];
-    await Promise.all(turnIds.map((turnId) => db.agent_activity_commentary.where('turn_id').equals(turnId).delete()));
-    return deleted;
-  });
+export async function pruneExpiredAgentActivities() {
+  // expires_at describes live freshness, never history retention or completion.
+  return 0;
 }
 
 export async function deleteRuntimeRecordByFamily(familyIdOrHash, recordId) {

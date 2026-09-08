@@ -10,7 +10,7 @@ describe('agent activity template', () => {
     expect(html).toContain('activeThreadAgentActivities');
     expect(html).toContain('x-text="activity.summary"');
     expect(html).toContain('x-text="activity.body"');
-    expect(html).toContain('Show thinking history');
+    expect(html).toContain('Show working history');
     expect(html).toContain(':aria-expanded="$store.chat.isAgentActivityHistoryExpanded(activity)"');
     expect(html).toContain('x-text="item.body"');
     expect(html).not.toContain('x-html="activity.body"');
@@ -25,10 +25,12 @@ describe('agent activity template', () => {
     expect(css).toContain('overflow-wrap: anywhere;');
   });
 
-  it('contains only the blue live activity presentation', () => {
+  it('exposes recovery and finished presentation with scoped history paging', () => {
     expect(html).toContain('agent-activity-channel agent-activity-live');
     expect(html).toContain('agent-activity-thread agent-activity-live');
-    expect(html).not.toContain('class="agent-activity-health"');
-    expect(html).not.toContain('getAgentActivityHealth(activity).state');
+    expect(html).toContain('getAgentActivityRecoveryMessage(activity)');
+    expect(html).toContain('getAgentActivityHealth(activity).state');
+    expect(html).toContain('loadEarlierAgentActivityHistory(activity)');
+    expect(html).toContain('loadEarlierAgentActivityRuns()');
   });
 });

@@ -3981,22 +3981,24 @@
                       </div>
                     </template>
                     <template x-for="activity in $store.chat.getAgentActivitiesForMessage(msg)" :key="activity.record_id">
-                      <div class="agent-activity agent-activity-channel agent-activity-live" aria-live="polite">
+                      <div class="agent-activity agent-activity-channel agent-activity-live" :class="'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state" aria-live="polite">
                         <button type="button" class="agent-activity-toggle" @click.stop="$store.chat.toggleAgentActivity(activity.activity_id)" :aria-expanded="$store.chat.isAgentActivityExpanded(activity.activity_id)">
-                          <span class="agent-activity-pulse" aria-hidden="true"></span>
+                          <span class="agent-activity-pulse" x-show="$store.chat.getAgentActivityHealth(activity).state === 'live'" aria-hidden="true"></span>
                           <span class="agent-activity-title" x-text="$store.chat.formatAgentActivityTitle(activity)"></span>
                           <span class="agent-activity-summary" x-show="activity.summary" x-text="activity.summary"></span>
                           <span class="agent-activity-chevron" aria-hidden="true" x-text="$store.chat.isAgentActivityExpanded(activity.activity_id) ? '−' : '+'"></span>
                         </button>
+                        <p class="agent-activity-health" x-show="$store.chat.getAgentActivityRecoveryMessage(activity)" x-text="$store.chat.getAgentActivityRecoveryMessage(activity)"></p>
                         <div class="agent-activity-detail" x-show="$store.chat.isAgentActivityExpanded(activity.activity_id)" x-cloak>
                           <p x-show="activity.body" x-text="activity.body"></p>
                           <span x-text="activity.updated_at ? 'Updated ' + new Date(activity.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''"></span>
-                          <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.hasAgentActivityCommentaryHistory(activity)" @click.stop="$store.chat.toggleAgentActivityHistory(activity)" :aria-expanded="$store.chat.isAgentActivityHistoryExpanded(activity)" x-text="$store.chat.isAgentActivityHistoryExpanded(activity) ? 'Hide thinking history' : 'Show thinking history'"></button>
+                          <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.hasAgentActivityCommentaryHistory(activity)" @click.stop="$store.chat.toggleAgentActivityHistory(activity)" :aria-expanded="$store.chat.isAgentActivityHistoryExpanded(activity)" x-text="$store.chat.isAgentActivityHistoryExpanded(activity) ? 'Hide working history' : 'Show working history'"></button>
                           <ol class="agent-activity-history" x-show="$store.chat.isAgentActivityHistoryExpanded(activity)" x-cloak>
                             <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(activity)" :key="item.history_key">
                               <li><p x-text="item.body"></p><time x-show="item.created_at" :datetime="item.created_at" x-text="new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></time></li>
                             </template>
                           </ol>
+                          <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.isAgentActivityHistoryExpanded(activity) && activity.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
                         </div>
                       </div>
                     </template>
@@ -4406,31 +4408,34 @@
                   </div>
                 </template>
                 <template x-for="activity in $store.chat.activeThreadAgentActivities" :key="activity.record_id">
-                  <div class="thread-response-activity agent-activity-thread agent-activity-live" aria-live="polite">
+                  <div class="thread-response-activity agent-activity-thread agent-activity-live" :class="'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state" aria-live="polite">
                     <button type="button" class="identity-avatar-button" @click.stop="$store.chat.openIdentityCard($event, activity.agent_npub)" :title="$store.chat.getSenderName(activity.agent_npub)">
                       <template x-if="$store.chat.getSenderAvatar(activity.agent_npub)"><img class="thread-avatar" :src="$store.chat.getSenderAvatar(activity.agent_npub)" alt="" @error="$store.chat.handleAvatarImageError($event)" /></template>
                       <template x-if="!$store.chat.getSenderAvatar(activity.agent_npub)"><div class="thread-avatar thread-avatar-fallback" x-text="$store.chat.getInitials($store.chat.getSenderName(activity.agent_npub))"></div></template>
                     </button>
                     <div class="thread-response-activity-body">
                       <button type="button" class="agent-activity-toggle" @click="$store.chat.toggleAgentActivity(activity.activity_id)" :aria-expanded="$store.chat.isAgentActivityExpanded(activity.activity_id)">
-                        <span class="agent-activity-pulse" aria-hidden="true"></span>
+                        <span class="agent-activity-pulse" x-show="$store.chat.getAgentActivityHealth(activity).state === 'live'" aria-hidden="true"></span>
                         <span class="agent-activity-title" x-text="$store.chat.formatAgentActivityTitle(activity)"></span>
                         <span class="agent-activity-summary" x-show="activity.summary" x-text="activity.summary"></span>
                         <span class="agent-activity-chevron" aria-hidden="true" x-text="$store.chat.isAgentActivityExpanded(activity.activity_id) ? '−' : '+'"></span>
                       </button>
+                      <p class="agent-activity-health" x-show="$store.chat.getAgentActivityRecoveryMessage(activity)" x-text="$store.chat.getAgentActivityRecoveryMessage(activity)"></p>
                       <div class="agent-activity-detail" x-show="$store.chat.isAgentActivityExpanded(activity.activity_id)" x-cloak>
                         <p x-show="activity.body" x-text="activity.body"></p>
                         <span x-text="activity.updated_at ? 'Updated ' + new Date(activity.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''"></span>
-                        <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.hasAgentActivityCommentaryHistory(activity)" @click.stop="$store.chat.toggleAgentActivityHistory(activity)" :aria-expanded="$store.chat.isAgentActivityHistoryExpanded(activity)" x-text="$store.chat.isAgentActivityHistoryExpanded(activity) ? 'Hide thinking history' : 'Show thinking history'"></button>
+                        <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.hasAgentActivityCommentaryHistory(activity)" @click.stop="$store.chat.toggleAgentActivityHistory(activity)" :aria-expanded="$store.chat.isAgentActivityHistoryExpanded(activity)" x-text="$store.chat.isAgentActivityHistoryExpanded(activity) ? 'Hide working history' : 'Show working history'"></button>
                         <ol class="agent-activity-history" x-show="$store.chat.isAgentActivityHistoryExpanded(activity)" x-cloak>
                           <template x-for="item in $store.chat.getAgentActivityCommentaryHistory(activity)" :key="item.history_key">
                             <li><p x-text="item.body"></p><time x-show="item.created_at" :datetime="item.created_at" x-text="new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></time></li>
                           </template>
                         </ol>
+                        <button type="button" class="agent-activity-history-toggle" x-show="$store.chat.isAgentActivityHistoryExpanded(activity) && activity.commentary_next_before_sequence != null" @click.stop="$store.chat.loadEarlierAgentActivityHistory(activity)" :disabled="$store.chat.getAgentActivityHistoryLoadState(activity) === 'loading'" x-text="$store.chat.getAgentActivityHistoryLoadState(activity) === 'failed' ? 'Could not load earlier updates — retry' : ($store.chat.getAgentActivityHistoryLoadState(activity) === 'loading' ? 'Loading earlier updates…' : 'Load earlier updates')"></button>
                       </div>
                     </div>
                   </div>
                 </template>
+                <button type="button" class="agent-activity-history-toggle" x-show="!$store.chat.getAgentActivityRunsLoadState().done" @click="$store.chat.loadEarlierAgentActivityRuns()" :disabled="$store.chat.getAgentActivityRunsLoadState().loading" x-text="$store.chat.getAgentActivityRunsLoadState().error ? 'Could not load earlier runs — retry' : ($store.chat.getAgentActivityRunsLoadState().loading ? 'Loading earlier runs…' : 'Load earlier agent runs')"></button>
               </div>
 
               <div class="thread-input-bar">

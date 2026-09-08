@@ -2070,13 +2070,20 @@ export async function hydrateTowerPgChannelMessages(store, channelId, deps = {})
       replacePgResponseActivitiesForChannel: replaceActivities,
     }),
   ]);
-  await Promise.allSettled([
-    hydrateTowerPgChannelAgentActivities(store, targetChannelId, {
-      ...deps,
-      getTowerPgAgentActivities: readAgentActivities,
-      replacePgAgentActivitiesForChannel: replaceAgentActivities,
-    }),
-  ]);
+  try {
+    await (store?.requestTowerSyncFamily
+      ? store.requestTowerSyncFamily('channel-agent-activities', targetChannelId, { channelId: targetChannelId, force: true })
+      : hydrateTowerPgChannelAgentActivities(store, targetChannelId, {
+        ...deps,
+        getTowerPgAgentActivities: readAgentActivities,
+        replacePgAgentActivitiesForChannel: replaceAgentActivities,
+      }));
+  } catch (error) {
+    // Messages have committed; expose and retry activity failure separately.
+    store.agentActivityRecoveryStartedAt ||= Date.now();
+    store.agentActivityRecoveryError = 'Activity updates could not be recovered. Retrying.';
+    store.scheduleBackgroundSync?.(1000);
+  }
 
   return rows;
 }
@@ -2229,15 +2236,31 @@ export async function hydrateTowerPgChannelAgentActivities(store, channelId, dep
   const readLocalActivities = deps.getAgentActivitiesForChannel
     || (deps.replacePgAgentActivitiesForChannel ? async () => [] : getAgentActivitiesForChannel);
   const mergeCommentary = deps.mergeAgentActivityCommentary || mergeAgentActivityCommentary;
-  const requestSnapshot = await readLocalActivities(targetChannelId);
+  const requestSnapshot = (await readLocalActivities(targetChannelId)).filter((row) => !deps.threadId || row.thread_id === deps.threadId);
   const result = await readActivities(context.workspaceId, {
     channelId: targetChannelId,
     baseUrl: context.baseUrl,
     appNpub: context.appNpub,
+    threadId: deps.threadId,
+    activityId: deps.activityId,
+    cursor: deps.cursor,
+    beforeSequence: deps.beforeSequence,
+    afterSequence: deps.afterSequence,
+    afterCommentaryCursor: deps.afterCommentaryCursor,
+    historyLimit: deps.historyLimit ?? 50,
   });
   const activities = (Array.isArray(result?.agent_activities) ? result.agent_activities : [])
     .map(mapPgAgentActivity)
-    .filter((activity) => activity?.record_id);
+    .filter((activity) => activity?.record_id
+      && (!activity.workspace_id || activity.workspace_id === context.workspaceId)
+      && activity.channel_id === targetChannelId
+      && (!deps.activityId || activity.activity_id === deps.activityId)
+      && (!deps.turnId || activity.turn_id === deps.turnId)
+      && (!deps.threadId || activity.thread_id === deps.threadId));
+  // Incremental forward recovery cannot declare older history fully loaded.
+  if (deps.afterSequence != null || deps.afterCommentaryCursor != null) {
+    for (const activity of activities) delete activity.commentary_next_before_sequence;
+  }
   const currentContext = resolveTowerPgWorkspaceContext(store);
   if (
     currentContext.workspaceId !== context.workspaceId
@@ -2272,7 +2295,7 @@ export async function hydrateTowerPgChannelAgentActivities(store, channelId, dep
   const rawActivities = Array.isArray(result?.agent_activities) ? result.agent_activities : [];
   const commentary = rawActivities.flatMap((rawActivity) => {
     const activity = mapPgAgentActivity(rawActivity);
-    if (!activity || isTerminalAgentActivity(activity)) return [];
+    if (!activity || !activities.some((row) => row.record_id === activity.record_id)) return [];
     return (Array.isArray(rawActivity.commentary_history) ? rawActivity.commentary_history : [])
       .map((item) => mapPgAgentActivityCommentary(item, activity, {
         workspaceId: context.workspaceId,
@@ -2282,7 +2305,65 @@ export async function hydrateTowerPgChannelAgentActivities(store, channelId, dep
   });
   assertTowerPgWorkspaceCurrent(store, context);
   await mergeCommentary(commentary);
+  Object.defineProperty(activities, 'next_cursor', { value: result?.next_cursor || null });
+  Object.defineProperty(activities, 'next_after_sequence', {
+    value: rawActivities[0]?.commentary_next_after_sequence ?? null,
+  });
+  Object.defineProperty(activities, 'next_commentary_cursor', { value: rawActivities[0]?.commentary_next_cursor ?? null });
+  if (deps.recover === true && !deps.activityId) {
+    const pending = await recoverTowerPgAgentCommentary(store, targetChannelId, requestSnapshot, activities, deps);
+    Object.defineProperty(activities, 'recovery_pending', { value: pending });
+  }
   return activities;
+}
+
+async function recoverTowerPgAgentCommentary(store, channelId, previous, received, deps) {
+  const context = resolveTowerPgWorkspaceContext(store);
+  const readState = deps.getSyncState || getSyncState;
+  const saveState = deps.setSyncState || setSyncState;
+  const keyFor = (row) => `agent-commentary-recovery:${context.workspaceId}:${context.baseUrl}:${row.activity_id}:${row.turn_id}`;
+  const previousIds = new Set(previous.map((row) => row.activity_id));
+  for (const row of received) {
+    if (previousIds.has(row.activity_id) || !row.turn_id) continue;
+    assertTowerPgWorkspaceCurrent(store, context);
+    // Initial hydration is a bounded latest page. Older history stays on demand.
+    const existing = await readState(keyFor(row));
+    assertTowerPgWorkspaceCurrent(store, context);
+    if (!existing) await saveState(keyFor(row), { sequence: row.sequence, deliveryCursor: row.commentary_cursor, checkedAt: Date.now() });
+  }
+  const candidates = [];
+  for (const row of previous) {
+    if (!row.turn_id) continue;
+    const checkpoint = await readState(keyFor(row));
+    const snapshot = received.find((item) => item.activity_id === row.activity_id);
+    const latest = snapshot || row;
+    const caughtUp = latest.commentary_cursor != null
+      ? checkpoint?.deliveryCursor != null && BigInt(checkpoint.deliveryCursor) >= BigInt(latest.commentary_cursor)
+      : checkpoint && checkpoint.sequence >= latest.sequence;
+    if (isTerminalAgentActivity(latest) && caughtUp
+      && (snapshot || Date.now() - Number(checkpoint?.checkedAt || 0) < 60_000)) continue;
+    candidates.push({ row: latest, checkpoint });
+  }
+  candidates.sort((a, b) => (a.checkpoint?.checkedAt || 0) - (b.checkpoint?.checkedAt || 0));
+  let pending = candidates.length > 10;
+  for (const { row, checkpoint } of candidates.slice(0, 10)) {
+    assertTowerPgWorkspaceCurrent(store, context);
+    const page = await hydrateTowerPgChannelAgentActivities(store, channelId, {
+      ...deps, recover: false, activityId: row.activity_id, turnId: row.turn_id,
+      afterSequence: row.commentary_cursor == null ? checkpoint?.sequence ?? -1 : undefined,
+      afterCommentaryCursor: row.commentary_cursor != null ? checkpoint?.deliveryCursor ?? '0' : undefined,
+      beforeSequence: undefined, historyLimit: 200,
+    });
+    assertTowerPgWorkspaceCurrent(store, context);
+    if (!page.length) continue; // Absence is not a terminal state.
+    if (page.next_after_sequence != null || page.next_commentary_cursor != null) pending = true;
+    await saveState(keyFor(row), {
+      sequence: page.next_after_sequence ?? page[0].sequence,
+      deliveryCursor: page.next_commentary_cursor ?? page[0].commentary_cursor,
+      checkedAt: Date.now(),
+    });
+  }
+  return pending;
 }
 
 export async function hydrateTowerPgChannelResponseActivities(store, channelId, deps = {}) {
@@ -2682,6 +2763,9 @@ export async function hydrateTowerPgWorkroom(store, workroomId, deps = {}) {
 export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) {
   const pgEvents = Array.isArray(events) ? events : [];
   const writeAgentActivity = deps.upsertAgentActivity || upsertAgentActivity;
+  const mergeCommentary = deps.mergeAgentActivityCommentary || mergeAgentActivityCommentary;
+  const activityContext = resolveTowerPgWorkspaceContext(store);
+  const commentaryUpdates = [];
   const messageChannels = new Set();
   const taskChannels = new Set();
   const taskIds = new Set();
@@ -2776,7 +2860,17 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
         fallbackEvents += 1;
       }
     } else if (entityType === 'agent_activity') {
-      const activity = mapPgAgentActivity(payload.agent_activity || payload.activity || payload);
+      const rawActivity = payload.agent_activity || payload.activity || payload;
+      const activity = mapPgAgentActivity(rawActivity);
+      if (activity && activity.workspace_id && activity.workspace_id !== activityContext.workspaceId) continue;
+      if (activity) {
+        const entries = Array.isArray(rawActivity.commentary_history)
+          ? rawActivity.commentary_history
+          : [rawActivity];
+        commentaryUpdates.push(...entries.map((entry) => mapPgAgentActivityCommentary(entry, activity, {
+          workspaceId: activityContext.workspaceId, backendUrl: activityContext.baseUrl,
+        })).filter(Boolean));
+      }
       const recordId = activity?.record_id || trimText(event?.entity_id);
       if (activity && isTerminalAgentActivity(activity)) {
         if (recordId) agentActivityUpdates.push({ activity, recordId, terminal: true });
@@ -2807,6 +2901,10 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
     }
   }
 
+  assertTowerPgWorkspaceCurrent(store, activityContext);
+  // Save every received entry before coalescing replaceable current snapshots.
+  if (commentaryUpdates.length) await mergeCommentary(commentaryUpdates);
+  assertTowerPgWorkspaceCurrent(store, activityContext);
   const latestAgentActivityUpdates = [...agentActivityUpdates.reduce((latest, update) => {
     const key = `${update.activity.activity_id || update.recordId}\u0000${update.activity.turn_id || ''}`;
     const current = latest.get(key);

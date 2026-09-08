@@ -1541,7 +1541,7 @@ describe('sync family progress helpers', () => {
 
     expect(syncTowerPgWorkspace).toHaveBeenCalledTimes(1);
     expect(hydrateTowerPgEventUpdates).toHaveBeenCalledWith(expect.anything(), activities);
-    expect(hydrateTowerPgChannelAgentActivities).toHaveBeenCalledWith(expect.anything(), 'channel-1');
+    expect(hydrateTowerPgChannelAgentActivities).toHaveBeenCalledWith(expect.anything(), 'channel-1', expect.objectContaining({ recover: true }));
   });
 
   it('acknowledges a PG cursor only after successful materialisation and retries a failed batch', async () => {

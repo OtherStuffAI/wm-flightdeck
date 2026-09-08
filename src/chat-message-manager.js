@@ -8,6 +8,9 @@
 import {
   getMessagesByChannel,
   getMessagePresentationWindowByChannels,
+  getThreadMessagePresentationWindow,
+  getCurrentWorkspaceDbKey,
+  withWorkspaceMessageTransaction,
   getMessageById,
   updateExistingMessageSyncStatus,
   upsertMessage,
@@ -76,7 +79,7 @@ import {
   canonicalAgentMentionsFromSelection,
   filterMentionsToCurrentWorkspaceActors,
 } from './agent-direct-chat.js';
-import { getAgentActivityHealth, selectVisibleAgentActivities } from './agent-activity.js';
+import { getAgentActivityHealth, isTerminalAgentActivity, selectVisibleAgentActivities } from './agent-activity.js';
 import {
   buildHangCallInvitation,
   createHangRoomUrl,
@@ -95,13 +98,19 @@ const composerAutosizeFrames = new WeakMap();
 const composerAutosizeMetrics = new WeakMap();
 const MAX_INCREMENTAL_MESSAGE_UPDATES = 12;
 
+function messagePresentationSignature(message) {
+  return JSON.stringify([defaultRecordSignature(message), message?.parent_message_id,
+    message?.pg_thread_id, message?.pg_effective_message_ids, message?.pg_client_record_id,
+    message?.pg_reconciliation_pending]);
+}
+
 function incrementalMessagePatch(current = [], next = []) {
   if (!Array.isArray(current) || !Array.isArray(next) || current.length !== next.length) return null;
   const currentById = new Map(current.map((message) => [message?.record_id, message]));
   if (currentById.size !== current.length || next.some((message) => !currentById.has(message?.record_id))) return null;
   const updates = [];
   for (let index = 0; index < next.length; index += 1) {
-    if (defaultRecordSignature(currentById.get(next[index]?.record_id)) === defaultRecordSignature(next[index])) continue;
+    if (messagePresentationSignature(currentById.get(next[index]?.record_id)) === messagePresentationSignature(next[index])) continue;
     updates.push({ index, message: next[index] });
     if (updates.length > MAX_INCREMENTAL_MESSAGE_UPDATES) return null;
   }
@@ -961,16 +970,19 @@ export const chatMessageManagerMixin = {
   // --- messages ---
 
   async applyMessages(messages = [], options = {}) {
+    const startingRevision = Number(this.messageCollectionRevision || 0);
     if (options.isCurrent && !options.isCurrent()) return;
     const selectionGeneration = options.selectionGeneration;
     if (selectionGeneration != null && this.channelSelectionGeneration !== selectionGeneration) return;
     const selectedChannelId = String(this.selectedChannelId || '').trim();
     const scopeChannels = Array.isArray(this.pgContextChannels) ? this.pgContextChannels : [];
-    const channelIds = selectedChannelId
-      ? [selectedChannelId]
+    const presentationChannelId = this.navSection === 'status' && this.activeThreadId && this.deckThreadChannelId
+      ? this.deckThreadChannelId : selectedChannelId;
+    const channelIds = presentationChannelId
+      ? [presentationChannelId]
       : scopeChannels.map((channel) => channel?.record_id).filter(Boolean);
-    const selectedChannel = selectedChannelId
-      ? (this.channels || []).find((channel) => channel?.record_id === selectedChannelId)
+    const selectedChannel = presentationChannelId
+      ? (this.channels || []).find((channel) => channel?.record_id === presentationChannelId)
       : null;
     let nextMessages = sortMessagesByUpdatedAt(mergePendingPgMessages(this.messages, messages, {
       channelIds,
@@ -991,6 +1003,7 @@ export const chatMessageManagerMixin = {
       && !nextMessages.some((message) => message.record_id === activeThreadId || message.parent_message_id === activeThreadId);
     if (activeThreadMissingFromWindow && options.threadDetail !== true) {
       const persistedThread = await getMessageById(activeThreadId).catch(() => null);
+      if (Number(this.messageCollectionRevision || 0) !== startingRevision) return;
       if (selectionGeneration != null && this.channelSelectionGeneration !== selectionGeneration) return;
       if (String(this.selectedChannelId || '').trim() !== selectedChannelId) return;
       if (
@@ -1016,7 +1029,7 @@ export const chatMessageManagerMixin = {
       }
     }
     if (options.isCurrent && !options.isCurrent()) return;
-    const messagesChanged = !sameListBySignature(this.messages, nextMessages);
+    const messagesChanged = !sameListBySignature(this.messages, nextMessages, messagePresentationSignature);
     const scrollRequested = options.scrollToLatest === true
       || options.scrollThreadToLatest === true
       || this.pendingChatScrollToLatest
@@ -1110,6 +1123,12 @@ export const chatMessageManagerMixin = {
     this.updateResponseActivityTimer();
   },
   applyAgentActivities(activities = []) {
+    const previous = new Map((this.agentActivities || []).map((activity) => [activity.activity_id, activity]));
+    for (const activity of Array.isArray(activities) ? activities : []) {
+      if (isTerminalAgentActivity(activity) && !isTerminalAgentActivity(previous.get(activity.activity_id) || {})) {
+        this.expandedAgentActivityIds = { ...this.expandedAgentActivityIds, [activity.activity_id]: false };
+      }
+    }
     this.agentActivities = Array.isArray(activities) ? activities : [];
     this.revealPendingThreadAgentActivity(this.getVisibleAgentActivities());
     this.updateResponseActivityTimer();
@@ -1117,7 +1136,7 @@ export const chatMessageManagerMixin = {
   updateResponseActivityTimer() {
     const hasActiveActivities = this.activeThreadResponseActivities.length > 0
       || this.getVisibleChannelResponseActivities().length > 0
-      || this.getVisibleAgentActivities().length > 0;
+      || this.getVisibleAgentActivities().some((activity) => !isTerminalAgentActivity(activity));
     if (!hasActiveActivities) {
       if (this.responseActivityTimer && typeof window !== 'undefined') {
         window.clearInterval(this.responseActivityTimer);
@@ -1128,7 +1147,7 @@ export const chatMessageManagerMixin = {
     if (this.responseActivityTimer || typeof window === 'undefined') return;
     this.responseActivityTimer = window.setInterval(() => {
       this.responseActivityTick = Number(this.responseActivityTick || 0) + 1;
-      if (this.activeThreadResponseActivities.length === 0 && this.getVisibleChannelResponseActivities().length === 0 && this.getVisibleAgentActivities().length === 0) {
+      if (this.activeThreadResponseActivities.length === 0 && this.getVisibleChannelResponseActivities().length === 0 && !this.getVisibleAgentActivities().some((activity) => !isTerminalAgentActivity(activity))) {
         this.updateResponseActivityTimer();
       }
     }, 900);
@@ -1145,7 +1164,17 @@ export const chatMessageManagerMixin = {
         || String(left.activity_id || '').localeCompare(String(right.activity_id || '')));
   },
   getAgentActivityHealth(activity = {}) {
-    return getAgentActivityHealth(activity, this.sseStatus);
+    void this.responseActivityTick;
+    return getAgentActivityHealth(activity, this.sseStatus, Date.now(), {
+      startedAt: this.agentActivityRecoveryStartedAt,
+      error: this.agentActivityRecoveryError,
+    });
+  },
+  getAgentActivityRecoveryMessage(activity = {}) {
+    if (isTerminalAgentActivity(activity) || !this.agentActivityRecoveryError) return '';
+    return Number(this.agentActivityRecoveryAttempts || 0) >= 3
+      ? 'Activity updates could not be recovered. Retrying with background sync.'
+      : 'Activity updates could not be recovered. Retrying.';
   },
   async removeAgentActivity(activity = {}) {
     if (!activity?.record_id) return;
@@ -1158,6 +1187,9 @@ export const chatMessageManagerMixin = {
   },
   formatAgentActivityTitle(activity = {}) {
     const senderName = this.getSenderName(activity.agent_npub);
+    if (isTerminalAgentActivity(activity)) return `${senderName} ${activity.state}`;
+    const health = this.getAgentActivityHealth(activity);
+    if (health.state !== 'live') return `${senderName} · ${health.message}`;
     const tick = Number(this.responseActivityTick || 0);
     const label = activity.label || RESPONSE_ACTIVITY_WORDS[Math.floor(tick / RESPONSE_ACTIVITY_SUFFIXES.length) % RESPONSE_ACTIVITY_WORDS.length];
     return `${senderName} is ${label}${RESPONSE_ACTIVITY_SUFFIXES[tick % RESPONSE_ACTIVITY_SUFFIXES.length]}`;
@@ -1178,7 +1210,56 @@ export const chatMessageManagerMixin = {
       .sort((left, right) => Number(left.sequence) - Number(right.sequence));
   },
   hasAgentActivityCommentaryHistory(activity = {}) {
-    return this.getAgentActivityCommentaryHistory(activity).length > 1;
+    return this.getAgentActivityCommentaryHistory(activity).length > 0 || activity.commentary_next_before_sequence != null;
+  },
+  getAgentActivityRunsContext() {
+    const parent = this.getThreadParentMessage?.();
+    const channelId = parent?.channel_id || this.activeChannelId;
+    const threadId = parent?.pg_thread_id || parent?.thread_id || this.activeThreadId;
+    const key = `${this.currentWorkspace?.workspaceId || ''}:${this.backendUrl || ''}:${channelId || ''}:${threadId || ''}`;
+    return { channelId, threadId, key };
+  },
+  getAgentActivityRunsLoadState() {
+    return this.agentActivityRunsLoads?.[this.getAgentActivityRunsContext().key] || {};
+  },
+  async loadEarlierAgentActivityRuns() {
+    const { channelId, threadId, key } = this.getAgentActivityRunsContext();
+    const previous = this.agentActivityRunsLoads?.[key] || {};
+    if (!channelId || !threadId || previous.loading || previous.done) return;
+    this.agentActivityRunsLoads = { ...this.agentActivityRunsLoads, [key]: { ...previous, loading: true, error: false } };
+    try {
+      const result = await this.requestTowerSyncFamily('channel-agent-activities', `${channelId}:${threadId}:${previous.cursor || 'first'}`, {
+        channelId, threadId, cursor: previous.cursor,
+      });
+      if (this.getAgentActivityRunsContext().key !== key) return;
+      this.agentActivityRunsLoads = { ...this.agentActivityRunsLoads, [key]: { cursor: result?.next_cursor || null, done: !result?.next_cursor } };
+    } catch {
+      if (this.getAgentActivityRunsContext().key !== key) return;
+      this.agentActivityRunsLoads = { ...this.agentActivityRunsLoads, [key]: { ...previous, error: true } };
+    } finally {
+      if (this.agentActivityRunsLoads?.[key]?.loading) {
+        this.agentActivityRunsLoads = { ...this.agentActivityRunsLoads, [key]: { ...previous, loading: false } };
+      }
+    }
+  },
+  async loadEarlierAgentActivityHistory(activity = {}) {
+    const beforeSequence = activity.commentary_next_before_sequence;
+    if (beforeSequence == null || !activity.channel_id || !activity.activity_id) return;
+    const key = `${activity.channel_id}:${activity.activity_id}:${beforeSequence}`;
+    if (this.agentActivityHistoryLoads?.[key] === 'loading') return;
+    this.agentActivityHistoryLoads = { ...this.agentActivityHistoryLoads, [key]: 'loading' };
+    try {
+      await this.requestTowerSyncFamily('agent-activity-history', key, {
+        channelId: activity.channel_id, activityId: activity.activity_id,
+        turnId: activity.turn_id, beforeSequence,
+      });
+      this.agentActivityHistoryLoads = { ...this.agentActivityHistoryLoads, [key]: '' };
+    } catch {
+      this.agentActivityHistoryLoads = { ...this.agentActivityHistoryLoads, [key]: 'failed' };
+    }
+  },
+  getAgentActivityHistoryLoadState(activity = {}) {
+    return this.agentActivityHistoryLoads?.[`${activity.channel_id}:${activity.activity_id}:${activity.commentary_next_before_sequence}`] || '';
   },
   toggleAgentActivityHistory(activity = {}) {
     const id = String(activity.turn_id || activity.activity_id || '').trim();
@@ -1230,6 +1311,23 @@ export const chatMessageManagerMixin = {
   },
 
   async refreshMessages(options = {}) {
+    const revision = Number(this.messageCollectionRevision || 0);
+    const workspace = this.currentWorkspaceKey;
+    const threadId = this.activeThreadId;
+    const selectionGeneration = this.channelSelectionGeneration;
+    const originalIsCurrent = options.isCurrent;
+    options = { ...options, isCurrent: () => (!originalIsCurrent || originalIsCurrent())
+      && this.currentWorkspaceKey === workspace && this.activeThreadId === threadId
+      && this.channelSelectionGeneration === selectionGeneration };
+    if (this.navSection === 'status' && this.deckThreadChannelId && threadId) {
+      const channelId = this.deckThreadChannelId;
+      const messages = await getThreadMessagePresentationWindow(channelId, threadId, {
+        threadId: this.deckThreadTowerId, replyLimit: this.threadVisibleReplyCount,
+      });
+      if (this.deckThreadChannelId !== channelId || Number(this.messageCollectionRevision || 0) !== revision) return;
+      await this.applyMessages(messages, { ...options, threadDetail: true });
+      return;
+    }
     const channelId = this.selectedChannelId;
     if (!channelId) {
       if (this.currentWorkspace?.pgBackendMode || this.pgBackendMode) {
@@ -1241,7 +1339,7 @@ export const chatMessageManagerMixin = {
           activeThreadId: this.activeThreadId,
           focusMessageId: this.focusMessageId,
         });
-        if (this.selectedChannelId) return;
+        if (this.selectedChannelId || Number(this.messageCollectionRevision || 0) !== revision) return;
         await this.applyMessages(messages, options);
         return;
       }
@@ -1249,7 +1347,7 @@ export const chatMessageManagerMixin = {
       return;
     }
     const messages = await getMessagesByChannel(channelId);
-    if (this.selectedChannelId !== channelId) return;
+    if (this.selectedChannelId !== channelId || Number(this.messageCollectionRevision || 0) !== revision) return;
     await this.applyMessages(messages, options);
   },
 
@@ -1269,6 +1367,15 @@ export const chatMessageManagerMixin = {
   },
 
   patchMessageLocal(nextMessage) {
+    // Canonical rows use the source message as parent; the Inbox modal may be
+    // keyed by the thread record. Match its Dexie presentation without changing storage.
+    if (this.navSection === 'status' && this.deckThreadChannelId && this.activeThreadId
+      && nextMessage.channel_id === this.deckThreadChannelId
+      && nextMessage.record_id !== this.activeThreadId
+      && nextMessage.pg_record_type !== 'thread'
+      && nextMessage.pg_thread_id === (this.deckThreadTowerId || this.activeThreadId)) {
+      nextMessage = { ...nextMessage, parent_message_id: this.activeThreadId };
+    }
     this.reconcileOpenThreadIdentity([nextMessage]);
     if (nextMessage.pg_record_type === 'message' && !nextMessage.parent_message_id && nextMessage.pg_thread_id) {
       this.messages = this.messages.filter(row => !(row.pg_record_type === 'thread' && !Array.isArray(row.pg_effective_message_ids)
@@ -2258,6 +2365,28 @@ export const chatMessageManagerMixin = {
       }
     }
 
+    const sendThreadId = retrySourceMessage?.parent_message_id || this.activeThreadId;
+    const sendWorkspace = this.currentWorkspaceKey;
+    const sendDbKey = getCurrentWorkspaceDbKey();
+    const persistReply = operation => withWorkspaceMessageTransaction(sendDbKey, operation);
+    const sendBackendUrl = this.backendUrl;
+    const sendWorkspaceId = this.currentWorkspace?.workspaceId || this.currentWorkspace?.workspace_id;
+    const sendGeneration = this.autopilotOverviewThreadOpenRequestId;
+    const sendSelection = this.channelSelectionGeneration;
+    const isSendWorkspaceCurrent = () => this.currentWorkspaceKey === sendWorkspace
+      && this.backendUrl === sendBackendUrl
+      && (this.currentWorkspace?.workspaceId || this.currentWorkspace?.workspace_id) === sendWorkspaceId;
+    const isSendCurrent = () => isSendWorkspaceCurrent() && this.activeThreadId === sendThreadId
+      && this.activeThreadChannelId === threadChannelId
+      && this.currentWorkspaceKey === sendWorkspace
+      && (this.currentWorkspace?.workspaceId || this.currentWorkspace?.workspace_id) === sendWorkspaceId
+      && this.autopilotOverviewThreadOpenRequestId === sendGeneration
+      && this.channelSelectionGeneration === sendSelection;
+    const patchReply = (row, replacedId) => {
+      if (!isSendCurrent()) return;
+      if (replacedId) this.messages = this.messages.filter(message => message.record_id !== replacedId);
+      this.patchMessageLocal(row);
+    };
     let channelWriteFields = null;
     let attachments = retrySourceMessage
       ? [...(Array.isArray(retrySourceMessage.attachments) ? retrySourceMessage.attachments : [])]
@@ -2281,7 +2410,7 @@ export const chatMessageManagerMixin = {
     const localRow = {
       record_id: msgId,
       channel_id: threadChannelId,
-      parent_message_id: retrySourceMessage?.parent_message_id || this.activeThreadId,
+      parent_message_id: sendThreadId,
       body,
       attachments,
       sender_npub: this.session?.npub,
@@ -2304,14 +2433,11 @@ export const chatMessageManagerMixin = {
     };
     if (pgMode && retrySourceMessage?.pg_metadata) localRow.pg_metadata = { ...retrySourceMessage.pg_metadata };
     const replacedRecordId = String(options?.replaceRecordId || '').trim();
-    if (replacedRecordId) await replaceMessageRecord(replacedRecordId, localRow);
-    else await upsertMessage(localRow);
-    if (replacedRecordId && replacedRecordId !== localRow.record_id) {
-      this.messages = this.messages.filter((message) => message.record_id !== replacedRecordId);
-    }
-    this.patchMessageLocal(localRow);
-    this.scheduleThreadRepliesScrollToBottom();
-    if (!hasBodyOverride) {
+    await persistReply(() => replacedRecordId
+      ? replaceMessageRecord(replacedRecordId, localRow) : upsertMessage(localRow));
+    patchReply(localRow, replacedRecordId);
+    if (isSendCurrent()) this.scheduleThreadRepliesScrollToBottom();
+    if (!hasBodyOverride && isSendCurrent()) {
       this.threadInput = '';
       this.selectedAgentMentionsByComposer = {
         ...(this.selectedAgentMentionsByComposer || {}),
@@ -2326,6 +2452,7 @@ export const chatMessageManagerMixin = {
 
     if (pgMode) {
       try {
+        if (!isSendWorkspaceCurrent()) throw new Error('Workspace changed before reply could be sent');
         const parentMessage = pgParentMessage || this.getThreadParentMessage();
         let accepted = {
           ...localRow,
@@ -2333,12 +2460,13 @@ export const chatMessageManagerMixin = {
           pg_client_record_id: localRow.record_id,
           pg_reconciliation_pending: true,
         };
-        await replaceMessageRecord(localRow.record_id, accepted);
-        accepted = await getMessageById(accepted.record_id) || accepted;
-        this.messages = this.messages.filter((message) => message.record_id !== localRow.record_id);
-        this.patchMessageLocal(accepted);
-        this.armThreadActivityAutoScroll(accepted);
-        if (drafts.length > 0) {
+        accepted = await persistReply(async () => {
+          await replaceMessageRecord(localRow.record_id, accepted);
+          return await getMessageById(accepted.record_id) || accepted;
+        });
+        patchReply(accepted, localRow.record_id);
+        if (isSendCurrent()) this.armThreadActivityAutoScroll(accepted);
+        if (drafts.length > 0 && isSendWorkspaceCurrent()) {
           try {
             const { attachments: pgAudioAttachments } = await this.materializeAudioDrafts({
               drafts,
@@ -2354,26 +2482,27 @@ export const chatMessageManagerMixin = {
                 ...accepted,
                 attachments: [...existingAttachments, ...pgAudioAttachments],
               };
-              await upsertMessage(acceptedWithAudio);
-              this.messages = this.messages.filter((message) => message.record_id !== accepted.record_id);
-              this.patchMessageLocal(acceptedWithAudio);
+              await persistReply(() => upsertMessage(acceptedWithAudio));
+              patchReply(acceptedWithAudio, accepted.record_id);
             }
           } catch (audioError) {
+            if (!isSendCurrent()) return true;
             this.threadAudioDrafts = drafts;
             this.error = `Reply sent, but failed to attach voice note: ${audioError?.message || 'Failed to sync PG audio note'}`;
           }
         }
-        this.scheduleThreadRepliesScrollToBottom();
-        if (!(this.navSection === 'status' && this.deckThreadChannelId)) {
+        if (isSendCurrent()) this.scheduleThreadRepliesScrollToBottom();
+        if (isSendCurrent() && !(this.navSection === 'status' && this.deckThreadChannelId)) {
           Promise.resolve()
-            .then(() => this.refreshMessages({ scrollThreadToLatest: true }))
+            .then(() => isSendCurrent() && this.refreshMessages({ scrollThreadToLatest: true }))
             .catch((refreshError) => {
               console.warn('[flightdeck] PG reply refresh failed after send', refreshError);
             });
         }
       } catch (error) {
-        await this.setMessageSyncStatus(msgId, 'failed');
-        this.error = error?.message || 'Failed to sync PG reply';
+        const failed = await persistReply(() => updateExistingMessageSyncStatus(msgId, 'failed'));
+        if (failed) patchReply(failed);
+        if (isSendCurrent()) this.error = error?.message || 'Failed to sync PG reply';
         return false;
       }
       return true;
@@ -2384,7 +2513,7 @@ export const chatMessageManagerMixin = {
         record_id: msgId,
         owner_npub: channel.owner_npub || this.workspaceOwnerNpub || this.session?.npub,
         channel_id: threadChannelId,
-        parent_message_id: this.activeThreadId,
+        parent_message_id: sendThreadId,
         body,
         attachments,
         channel_group_ids: channelWriteFields.group_ids,

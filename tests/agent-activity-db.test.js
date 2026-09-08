@@ -74,7 +74,7 @@ describe('agent activity db', () => {
     expect((await getAgentActivitiesForChannel('channel-1'))[0].commentary_history.map((item) => item.body)).toEqual(['First', 'Second']);
   });
 
-  it('expires commentary with its owning activity lifecycle', async () => {
+  it('retains commentary and its owning lifecycle after freshness expiry', async () => {
     await upsertAgentActivity(row({ expires_at: '2026-08-10T00:00:00.000Z' }));
     await mergeAgentActivityCommentary([{
       history_key: 'workspace-1\u0000https://tower.example\u0000turn-1\u00001',
@@ -82,8 +82,8 @@ describe('agent activity db', () => {
       activity_id: 'activity-1', channel_id: 'channel-1', sequence: 1, body: 'Working',
     }]);
     await pruneExpiredAgentActivities(new Date('2026-08-10T00:00:01.000Z'));
-    expect(await getAgentActivitiesForChannel('channel-1')).toEqual([]);
-    expect(await getAgentActivityCommentaryForChannel('channel-1')).toEqual([]);
+    expect(await getAgentActivitiesForChannel('channel-1')).toHaveLength(1);
+    expect(await getAgentActivityCommentaryForChannel('channel-1')).toHaveLength(1);
   });
 
   it('claims a legacy null turn once and preserves immutable created_at', async () => {
@@ -103,7 +103,7 @@ describe('agent activity db', () => {
     expect(await getAgentActivitiesForChannel('channel-1')).toHaveLength(2);
   });
 
-  it('removes authoritative absences and their owning commentary', async () => {
+  it('retains authoritative absences and their owning commentary', async () => {
     const existing = row({ pg_backend: true });
     await upsertAgentActivity(existing);
     await mergeAgentActivityCommentary([{
@@ -117,8 +117,8 @@ describe('agent activity db', () => {
       requestSnapshot: [existing],
     });
 
-    expect(await getAgentActivitiesForChannel('channel-1')).toEqual([]);
-    expect(await getAgentActivityCommentaryForChannel('channel-1')).toEqual([]);
+    expect(await getAgentActivitiesForChannel('channel-1')).toHaveLength(1);
+    expect(await getAgentActivityCommentaryForChannel('channel-1')).toHaveLength(1);
   });
 
   it('does not let a request-start absence snapshot delete a newer concurrent SSE turn', async () => {
