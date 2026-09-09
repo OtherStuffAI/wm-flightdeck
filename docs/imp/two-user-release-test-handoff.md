@@ -1,0 +1,44 @@
+# Implement isolated two-user Flight Deck / Tower / Docker Autopilot release test
+Task: @[Two-user Docker release test](mention:task:bdb6f02d-09aa-4e07-b14d-b877f3b518a0). Read task/comments using explicit workspace 2e5caefd-dd65-45d2-b747-ee874e8e5fc9. Manager owns chat posts and storage uploads.
+## Authority and outcome
+Pete explicitly requested implementation on 2026-09-09: "OK I want you to implement this test ... setup a local tower workspace and connect etc all through playwright with Nsecs that you can generate and control ... happy ... run a test autopilot in a docker container ... updated with latest build ... manage ... release testing."
+Deliver a working repeatable first full-stack two-human-user chat test, real browser setup/login and live PG synchronization, real Autopilot dispatch and signed reply publication, reproducible Docker test Autopilot build/up/down/health lifecycle, private screenshot/video evidence and safe generated test identities. No action by Pete expected unless a concrete blocker is proven. Do not stop at scaffolding or a mocked passing test.
+
+## Source and reporting
+Origin: @[Implementation request](mention:message:d8da2f88-cdbb-4881-94eb-36db23f63135) in @[Features](mention:channel:0617d526-88dc-4dc2-9876-08349ab60eca), thread 3e31af54-4c94-4a04-8eb8-697a83aa27a8, workspace 2e5caefd-dd65-45d2-b747-ee874e8e5fc9, scope 76d518f7-c477-4374-bf74-5d36fda570ed, Tower https://sb4.otherstuff.studio.
+Design: @[Two-user test plan](mention:document:698246cd-9b30-4af9-9eba-80698b57c6bb). Manager will create task and supply ID below before dispatch.
+Report implementation milestones, commands, failures, test evidence, commit hashes and sanitized local artifact paths on task when tooling available. Manager owns originating-thread posts and final uploads. Do not post to other channels/people. Read latest task/comments at intake and before handoff; if no task capability, report to manager and keep durable local evidence. No pipelines. Use supervised dispatch for any needed subworkers.
+
+## Repositories / write scope / Git
+Primary /Users/mini/code/wm/flightdeck; runtime /Users/mini/code/wm/autopilot; Tower /Users/mini/code/wingmanbefree/wingman-tower (verify live checkout). Cross-repo implementation is authorized for necessary test infrastructure/contract gaps, keep product ownership intact. Read each repo AGENTS and relevant docs. Default main, preserve concurrent work; never reset/revert/stash/discard. Inspect full worktree and commit all nonignored compatible tested state; report exceptions. Conventional commits. No production release/deployed pushes requested. Commit source. Test Docker builds and restarts are explicitly authorized; never restart/disrupt host Autopilot or unrelated live services. Use isolated ports, volumes, Docker project names, test database/storage. No production records/mounts/credentials.
+
+## Architecture
+Resolve latest architecture before consequential cross-repo changes. At intake latest locally published is v5, saved 2026-09-09 09:07 UTC:
+ /Users/mini/code/wingmanbefree/artifact-wapp/artifacts/Wingman_Suite/wingman-suite-arch/v5/excalidraw-scene.json
+Hosted https://pale-log-tank.rick.runwingman.com/artifacts/Wingman_Suite/wingman-suite-arch/v5/
+Wrapper has scene.elements. Explicit update path: Tower -> TowerSyncService (network/SSE/cursor recovery/polling/hydration/materialization) -> Dexie -> liveQuery -> Alpine. Do not add component polling/state injection that bypasses it. Current Forgejo authority correction supersedes old board Git label.
+
+## Confirmed baseline
+playwright.config.cjs, bun run test:e2e, 11 specs; most presentation tests inject Alpine/stubs. workspace-profile and workspace-admin-gating use real backend; older admin/member bootstrap uses legacy groups/keys. Both can skip missing credentials: required new suite must fail prerequisites explicitly.
+Current config Playwright 1.51.1 default cached chromium missing on host; installed Chrome works via channel chrome. Docker available server 28.5.1. No tests executed by manager.
+Autopilot process-manager-pi-acp.test.ts provides fake executable through real ProcessManager; flightdeck-session-turn-bridge and flightdeck-dispatch-outcome-store tests are local patterns, NOT existing full-stack service.
+
+## Required implementation and acceptance
+1. Document one repeatable runner command and lifecycle (build latest selected local revisions, start isolated stack, health, test, report, stop; opt-in retain for review). Record actual source hashes/builds/browser version. Do not silently reuse stale image/server.
+2. Generate ONLY new dedicated test-user A/B identities, secrets in ignored owner-only files/volumes. Pete explicitly authorizes generating and controlling these test-user nsecs. Never read/export/search existing Pete/Rick/bot secrets, copy host auth/session state, or weaken broker policy. New isolated Autopilot owns its own bot lifecycle/key; agent signing through broker. If test runtime bootstrap needs dedicated generated test identity, keep it confined and document, not an existing-key workaround.
+3. Use two independent browser contexts. A owner, B normal member. Setup local Tower connection/workspace/member access through real UI where supported; distinguish any administrative infrastructure/bootstrap API steps accurately, do not claim all-UI if API provisioning necessary. Prefer completing actual invitation/current PG onboarding where feasible for this request. No legacy group sharing shortcuts/direct database seed of tested behaviors.
+4. A sends unique marked message using actual composer/mention picker. Signed Tower authored record exactly once with A attribution and correct routing. B sees without refresh.
+5. Real Docker Autopilot consumes actual trigger and binds correct workspace/channel/thread. Deterministic adapter only at model/process boundary permitted; no fake Tower/network/dispatch/reply shortcut. Publish normal signed reply (kind33358 and exact-body NIP98) as test agent. Both browsers see one reply and terminal activity. Expose narrowly scoped test runtime configuration only, default off outside test stack.
+6. B follows up in bound thread; actual continuing-thread behavior yields correct B attribution and exactly one further reply. Reload both -> same durable history/order, no duplicate authored roots or replies.
+7. Include focused reconnect/replay and permission negative cases where feasible: B admin mutation rejected via API, no duplicate on retry/reconnect. Assert actual outcomes with bounded waits, no long sleeps or browser-store injection.
+8. Add only needed accessibility labels, names, stable record identifiers and ready/save/error/activity states. Preserve existing working animation/commentary UI.
+9. Capture A/B videos and screenshots; manifest with run/workspace/message/session/turn IDs, exact assertions/timings, output paths, failures, build hashes. Safeguard secrets: password masking alone does NOT protect trace/action logs. Disable capture around secret entry, no secret command args/logs/state export; sanitize any published traces and headers. Generate recording from actual run, label edited composite if used.
+10. Repeat run demonstrates isolation/idempotence. Cleanup only run-owned fixtures; retain safe evidence and report health. No production mutation. Docker lifecycle can stop/rebuild its own test Autopilot without further permission.
+11. Required Flight Deck validation: focused integration, bun run check:public-source, bun run test, release-note metadata per repo, bun run build, bun run verify:dist, git diff --check. Runtime/Tower changed code gets native relevant tests. Record any failures and fix in scope. Do not call green when new integration skipped.
+12. Complete actual first chat test before optional broader task/docs/files workflows. Those follow-on scenarios in design are not a reason to leave this first slice incomplete.
+13. Deliver docs explaining exactly what browser proves vs setup APIs vs deterministic adapter; repeat command, safe cleanup, local URLs and public test-user npubs, source/runtime versions, tests, artifact locations. Task review only after real evidence; manager independently reviews.
+
+Stop grinding if same hard blocker repeats twice: report precise evidence and pursue smaller verifiable next step. Do not ask Pete to do routine setup that is already authorized. Set worker session goal reflecting outcome and nextAction reflect until handoff, stop after delivered.
+
+## Live implementation coordination
+Runner status and cross-worker notes: ignored `test-results/release/coordination.md`. Docker pulls require empty run-owned DOCKER_CONFIG and DOCKER_BUILDKIT=0 on this host (BuildKit metadata hangs; legacy source build succeeds). Current runner `scripts/release-test/run.mjs`. Session send is denied by execution delegation; shared files and supervised callbacks are available.
