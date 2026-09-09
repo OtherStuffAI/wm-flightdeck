@@ -1,3 +1,4 @@
+import { exportTowerTransports } from './tower-transport.js';
 import { getExtensionPublicKey, signEventWithExtension } from './auth/nostr.js';
 import { exportDecryptedKeys, getActiveSessionNpub } from './crypto/group-keys.js';
 import { exportWorkspaceKeyForWorker } from './crypto/workspace-keys.js';
@@ -19,6 +20,7 @@ let _sseStatusCallback = null;
 let _workerDegradedCallback = null;
 
 let workerInstance = null;
+let detachNativeWorker = null;
 let nextRequestId = 1;
 const pendingRequests = new Map();
 const requestQueue = [];
@@ -32,6 +34,11 @@ function createWorkerInstance() {
   if (!supportsWorker()) return null;
   try {
     const worker = new Worker(new URL('./worker/sync-worker-runner.js', import.meta.url), { type: 'module' });
+    const nativeBridge = globalThis.window?.wingmanTowerTransport;
+    if (nativeBridge?.version === 2 && nativeBridge.available !== false) {
+      nativeBridge.attachWorker(worker);
+      detachNativeWorker = () => nativeBridge.detachWorker?.(worker);
+    }
     worker.addEventListener('message', handleWorkerMessage);
     worker.addEventListener('error', handleWorkerError);
     worker.addEventListener('messageerror', handleWorkerError);
@@ -48,6 +55,8 @@ function ensureWorkerInstance() {
 }
 
 function resetWorkerInstance() {
+  try { detachNativeWorker?.(); } catch { /* worker teardown must continue */ }
+  detachNativeWorker = null;
   if (workerInstance) {
     try {
       workerInstance.removeEventListener('message', handleWorkerMessage);
@@ -171,6 +180,8 @@ function deserializeWorkerError(error) {
 
 function syncKeysToWorker(worker) {
   if (!worker) return;
+  // Transport selection must arrive even if optional key export fails.
+  worker.postMessage({ type: 'sync-worker:tower-transports', towerTransports: exportTowerTransports() });
   try {
     worker.postMessage({
       type: BOOTSTRAP_KEYS_TYPE,

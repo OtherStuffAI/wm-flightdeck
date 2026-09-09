@@ -3,7 +3,8 @@
  * The UI never calls these directly; the worker or explicit user actions do.
  */
 
-import { SuperbasedClient } from '@nostr-superbased/core/client';
+import { towerFetch as fetch, resolveTowerSigningUrl, nativeTowerFetch, getTowerTransport, normalizeTowerConnectionResponse } from './tower-transport.js';
+import { SuperbasedClient, SuperbasedHttpError } from '@nostr-superbased/core/client';
 import { createNip98AuthHeader, createNip98AuthHeaderForSecret } from './auth/nostr.js';
 import { getActiveSessionNpub } from './crypto/group-keys.js';
 import { getActiveWorkspaceKeyNpub, getActiveWorkspaceKeySecretForAuth } from './crypto/workspace-keys.js';
@@ -101,6 +102,10 @@ function addWorkspaceKeyAuthBodyFields(body) {
 }
 
 async function createApiAuthHeader(requestUrl, method, body = null, options = {}) {
+  return createAuthHeaderForIntendedUrl(resolveTowerSigningUrl(requestUrl), method, body, options);
+}
+
+async function createAuthHeaderForIntendedUrl(requestUrl, method, body = null, options = {}) {
   const workspaceSecret = options.useWorkspaceKey === false
     ? null
     : getActiveWorkspaceKeySecretForAuth();
@@ -215,7 +220,7 @@ async function signedFetch(path, { method = 'GET', body } = {}, options = {}) {
 }
 
 function buildCoreApiClient() {
-  return new SuperbasedClient({
+  const client = new SuperbasedClient({
     connection: { url: _baseUrl },
     auth: {
       kind: 'wingman-fd-api',
@@ -233,6 +238,21 @@ function buildCoreApiClient() {
       },
     },
   });
+  if (getTowerTransport(_baseUrl).mode === 'fips') {
+    // The SDK owns checkout serialization/error mapping. Supply this client's
+    // request port so it cannot bypass the selected native transport.
+    client.requestJson = async (path, method, body) => {
+      const response = await signedFetch(path, { method, body });
+      if (!response.ok) {
+        const error = await buildApiError(response, { requestUrl: url(path), method });
+        throw new SuperbasedHttpError(error.message, {
+          status: response.status, method, url: url(path), body: error.payload, responseText: error.responseText,
+        });
+      }
+      return response.status === 204 ? undefined : response.json();
+    };
+  }
+  return client;
 }
 
 async function signedFetchAbsolute(requestUrl, { method = 'GET', body } = {}, options = {}) {
@@ -256,6 +276,13 @@ function resolveTowerPgUrl(pathOrUrl, baseUrl = _baseUrl) {
   if (!value) throw new Error('Tower PG request path is required');
   const base = String(baseUrl || _baseUrl || '').trim().replace(/\/+$/, '');
   if (/^https?:\/\//i.test(value)) {
+    const selected = getTowerTransport(base);
+    if (selected.mode === 'fips') {
+      const target = new URL(value);
+      if (target.origin !== new URL(base).origin && target.origin !== selected.endpoint) {
+        throw new Error('FIPS Tower response points outside the paired Tower; public requests are not permitted.');
+      }
+    }
     try {
       const absolute = new URL(value);
       const configuredBase = base ? new URL(base) : null;
@@ -425,7 +452,7 @@ export async function getTowerPgService({ baseUrl = _baseUrl, appNpub = FLIGHT_D
   const requestPath = '/api/v4/flightdeck-pg/service';
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
   const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
-  return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+  return normalizeTowerConnectionResponse(await json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' }));
 }
 
 export async function listTowerPgWorkspaces({ baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, limit = 50 } = {}) {
@@ -435,14 +462,14 @@ export async function listTowerPgWorkspaces({ baseUrl = _baseUrl, appNpub = FLIG
   const requestPath = `/api/v4/flightdeck-pg/workspaces?${params.toString()}`;
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
   const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
-  return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+  return normalizeTowerConnectionResponse(await json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' }));
 }
 
 export async function createTowerPgAdminWorkspace(body, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
   const requestPath = '/api/v4/admin/flightdeck-pg/workspaces';
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
   const resp = await signedTowerPgFetch(requestPath, { method: 'POST', body, baseUrl, appNpub });
-  return json(resp, { requestUrl, method: 'POST', prefix: 'Tower PG Admin API' });
+  return normalizeTowerConnectionResponse(await json(resp, { requestUrl, method: 'POST', prefix: 'Tower PG Admin API' }));
 }
 
 export async function updateTowerPgWorkspace(workspaceId, body, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
@@ -480,7 +507,7 @@ export async function getTowerPgWorkspaceDescriptor(workspaceId, { baseUrl = _ba
   const requestPath = path || `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/descriptor`;
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
   const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
-  return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+  return normalizeTowerConnectionResponse(await json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' }));
 }
 
 export async function getTowerPgWorkspaceMe(workspaceId, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, path = null } = {}) {
@@ -2251,7 +2278,7 @@ export async function prepareStorageObject(body) {
 export async function uploadStorageObject(prepared, bytes, contentType = 'application/octet-stream', options = {}) {
   const uploadUrl = String(prepared?.upload_url || '').trim();
   let directUploadFailure = null;
-  if (uploadUrl) {
+  if (uploadUrl && getTowerTransport(options.backendUrl || _baseUrl).mode !== 'fips') {
     let directResp;
     try {
       directResp = await fetch(uploadUrl, {
@@ -2498,4 +2525,23 @@ export async function fetchRecords({ owner_npub, viewer_npub, record_family_hash
     offset: 0,
     has_more: false,
   };
+}
+
+// Transport pairing is a connection/identity check, not workspace hydration.
+export async function verifyPairedTowerWorkspace(connection, workspaceId, ownerNpub, appNpub = FLIGHT_DECK_PG_APP_NPUB) {
+  const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/descriptor`;
+  const response = await nativeTowerFetch(`${connection.endpoint}${path}`, {
+    headers: {
+      Authorization: await createAuthHeaderForIntendedUrl(`${connection.endpoint}${path}`, 'GET'),
+      'x-flightdeck-pg-app-npub': appNpub,
+    },
+    credentials: 'omit', redirect: 'error', signal: createFetchTimeoutSignal(DEFAULT_FETCH_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new Error(`Paired Tower workspace check failed (${response.status}).`);
+  const result = await response.json();
+  if (result.identity?.tower_service_npub !== connection.serviceNpub
+    || result.identity?.workspace_id !== workspaceId
+    || result.identity?.workspace_owner_npub !== ownerNpub) {
+    throw new Error('Paired Tower does not match this workspace identity.');
+  }
 }

@@ -1,3 +1,6 @@
+import { acceptNativeTowerPort } from '../tower-native-worker-transport.js';
+import { createTowerEventSource } from '../tower-event-source.js';
+import { importTowerTransports } from '../tower-transport.js';
 import {
   runSync,
   flushPendingWrites,
@@ -329,7 +332,7 @@ function openSSEWithToken(message) {
     sseTokenRequestTimer = null;
   }
 
-  const source = new EventSource(accepted.eventSourceUrl);
+  const source = createTowerEventSource(accepted.eventSourceUrl);
   sseConnectionGeneration += 1;
   source.sseConnectionGeneration = sseConnectionGeneration;
   eventSource = source;
@@ -849,11 +852,17 @@ async function handleRequest(message) {
 self.addEventListener('message', async (event) => {
   const message = event.data;
   if (!message || typeof message !== 'object') return;
+  if (acceptNativeTowerPort(message)) return;
+  if (message.type === 'sync-worker:tower-transports') {
+    importTowerTransports(message.towerTransports);
+    return;
+  }
   if (message.type === AUTH_RESPONSE_TYPE) {
     handleAuthResponse(message);
     return;
   }
   if (message.type === BOOTSTRAP_KEYS_TYPE) {
+    if (Array.isArray(message.towerTransports)) importTowerTransports(message.towerTransports);
     if (message.sessionNpub) setActiveSessionNpub(message.sessionNpub);
     importDecryptedKeys(message.keys || []);
     importWorkspaceKeyFromMain(message.wsKey);

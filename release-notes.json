@@ -1376,6 +1376,20 @@
       "notes": [
         "Current answers animate while working. Click or use the keyboard to expand full working updates for that turn, with live counts and earlier-update paging. Older runs and diagnostics remain in Menu."
       ]
+    },
+    {
+      "buildNumber": 1914,
+      "label": "Paired Tower FIPS connection",
+      "notes": [
+        "Flight Deck can use a manually paired Tower FIPS endpoint through the native WMapp bridge while preserving its workspace, local data and queued writes. Public HTTPS remains available."
+      ]
+    },
+    {
+      "buildNumber": 1915,
+      "label": "FIPS availability and recovery",
+      "notes": [
+        "Unsupported clients show a clear FIPS message. Native worker recovery cancels old streams, retains queued writes and enforces a bounded request size."
+      ]
     }
   ]
 }

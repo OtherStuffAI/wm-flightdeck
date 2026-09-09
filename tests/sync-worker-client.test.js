@@ -9,6 +9,8 @@
  * in sync-worker.test.js and require vitest's vi.resetModules() + deep mocking.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { exportDecryptedKeys } from '../src/crypto/group-keys.js';
+import { importTowerTransports } from '../src/tower-transport.js';
 import { exportWorkspaceKeyForWorker } from '../src/crypto/workspace-keys.js';
 
 vi.mock('../src/auth/nostr.js', () => ({
@@ -134,6 +136,42 @@ describe('worker-only sync enforcement', () => {
     expect(result).toEqual({ pushed: 5 });
   });
 
+  it('detaches native requests before terminating a sync worker', () => {
+    const originalWindow = globalThis.window;
+    const order = [];
+    globalThis.window = { wingmanTowerTransport: { version: 2, available: true,
+      attachWorker: () => order.push('attach'), detachWorker: () => order.push('detach'),
+    } };
+    globalThis.Worker = class {
+      addEventListener() {} removeEventListener() {} postMessage() {}
+      terminate() { order.push('terminate'); }
+    };
+    try {
+      client.connectSSE('owner', 'viewer', 'https://backend.example.com', 'workspace');
+      client.shutdownSyncWorker();
+      expect(order).toEqual(['attach', 'detach', 'terminate']);
+    } finally {
+      if (originalWindow === undefined) delete globalThis.window;
+      else globalThis.window = originalWindow;
+    }
+  });
+
+  it('sends the selected transport before starting SSE even if optional key export fails', () => {
+    const messages = [];
+    globalThis.Worker = class {
+      addEventListener() {} removeEventListener() {} terminate() {}
+      postMessage(message) { messages.push(message); }
+    };
+    const connection = { logicalTower: 'https://backend.example.com', mode: 'fips', error: 'Native bridge unavailable' };
+    importTowerTransports([connection]);
+    vi.mocked(exportDecryptedKeys).mockImplementationOnce(() => { throw new Error('keys unavailable'); });
+    try {
+      client.connectSSE('owner', 'viewer', connection.logicalTower, 'same-workspace');
+      expect(messages[0]).toEqual({ type: 'sync-worker:tower-transports', towerTransports: [connection] });
+      expect(messages[1]).toMatchObject({ type: 'sync-worker:sse-connect', backendUrl: connection.logicalTower, workspaceDbKey: 'same-workspace' });
+    } finally { importTowerTransports([]); }
+  });
+
   it('startWorkerFlushTimer sends checkout policy config to the worker runner', () => {
     const messages = [];
     class MockWorker {
@@ -155,7 +193,8 @@ describe('worker-only sync enforcement', () => {
       { checkoutPolicyConfig: { familySuffixes: { task: 'checkout_required' } } },
     );
 
-    expect(messages[0]).toMatchObject({
+    expect(messages[0]).toMatchObject({ type: 'sync-worker:tower-transports', towerTransports: [] });
+    expect(messages[1]).toMatchObject({
       type: 'sync-worker:bootstrap-keys',
       wsKey: null,
     });
@@ -199,7 +238,8 @@ describe('worker-only sync enforcement', () => {
       { checkoutPolicyConfig: { familySuffixes: { task: 'checkout_required' } } },
     );
 
-    expect(messages[0]).toMatchObject({
+    expect(messages[0]).toMatchObject({ type: 'sync-worker:tower-transports', towerTransports: [] });
+    expect(messages[1]).toMatchObject({
       type: 'sync-worker:bootstrap-keys',
       wsKey: {
         workspaceUserKeyNpub: 'npub1workspacekey',

@@ -1602,7 +1602,7 @@ export function initApp() {
 
     get superbasedTransportLabel() {
       if (this.useCvmSync && this.superbasedConnectionConfig?.relayUrl) return 'CVM relay';
-      return this.backendUrl || 'Not configured';
+      return this.backendUrl ? this.towerTransportStatus : 'Not configured';
     },
 
     get hasHarnessLink() {
@@ -2275,6 +2275,7 @@ export function initApp() {
       }
       if (!this.backendUrl) this.backendUrl = guessDefaultBackendUrl();
       if (this.backendUrl) setBaseUrl(this.backendUrl);
+      this.loadTowerTransportSettings();
       if (!this.selectedWorkspaceKey && this.currentWorkspaceOwnerNpub) {
         const legacyMatch = this.knownWorkspaces.find((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub) || null;
         if (legacyMatch) this.selectedWorkspaceKey = legacyMatch.workspaceKey || '';

@@ -1,3 +1,4 @@
+import { towerFetch as fetch, connectTowerBridge, getTowerTransport, saveTowerTransportPreference } from './tower-transport.js';
 /**
  * Connection, settings, and agent-connect methods extracted from app.js.
  *
@@ -10,6 +11,7 @@ import {
   createWorkspace,
   getWorkspaces,
   getTowerPgService,
+  verifyPairedTowerWorkspace,
   getTowerPgWorkspaceDescriptor,
   getTowerPgWorkspaceMe,
   listTowerPgWorkspaces,
@@ -328,6 +330,71 @@ async function fetchTowerDiscovery(url, fallbackLabel = '') {
 // ---------------------------------------------------------------------------
 
 export const connectSettingsManagerMixin = {
+
+  towerTransportMode: 'https',
+  towerFipsEndpoint: '',
+  towerTransportBusy: false,
+  towerTransportError: '',
+
+  get towerFipsSupported() {
+    const bridge = globalThis.window?.wingmanTowerTransport;
+    return bridge?.version === 2 && bridge.available !== false;
+  },
+
+  get towerTransportStatus() {
+    const connection = getTowerTransport(this.backendUrl);
+    if (connection.mode !== 'fips') return 'Public HTTPS';
+    return connection.error || `FIPS via WMapp · ${connection.endpoint}`;
+  },
+
+  loadTowerTransportSettings() {
+    const connection = getTowerTransport(this.backendUrl);
+    this.towerTransportMode = connection.mode;
+    this.towerFipsEndpoint = connection.endpoint || '';
+    this.towerTransportError = connection.error || '';
+  },
+
+  async saveTowerTransportSettings() {
+    if (this.towerTransportBusy) return;
+    this.towerTransportBusy = true;
+    this.towerTransportError = '';
+    const logicalTower = this.backendUrl;
+    const workspaceId = this.currentWorkspace?.workspaceId || this.currentWorkspace?.workspace_id;
+    const ownerNpub = this.workspaceOwnerNpub;
+    const assertCurrent = () => {
+      if (this.backendUrl !== logicalTower || this.workspaceOwnerNpub !== ownerNpub
+        || (this.currentWorkspace?.workspaceId || this.currentWorkspace?.workspace_id) !== workspaceId) {
+        throw new Error('Workspace changed while pairing Tower. Try again from the selected workspace.');
+      }
+    };
+    try {
+      let preference = { mode: 'https' };
+      if (this.towerTransportMode === 'fips') {
+        if (!this.towerFipsSupported) throw new Error('FIPS requires WMapp with the paired Tower bridge. Select Public HTTPS on this client.');
+        if (!workspaceId || !this.isTowerPgMode) throw new Error('Select a Tower PG workspace before pairing FIPS.');
+        const current = getTowerTransport(logicalTower);
+        let serviceNpub = current.serviceNpub || this.superbasedConnectionConfig?.serverNpub;
+        if (!serviceNpub) {
+          const service = await getTowerPgService({ baseUrl: logicalTower });
+          serviceNpub = service.identity?.tower_service_npub || service.service?.service_npub;
+        }
+        preference = await connectTowerBridge(logicalTower, this.towerFipsEndpoint, serviceNpub);
+        assertCurrent();
+        await verifyPairedTowerWorkspace(preference, workspaceId, ownerNpub);
+      }
+      assertCurrent();
+      saveTowerTransportPreference(logicalTower, preference);
+      // Reload the same page origin. Stable backend, workspace keys, cursor and
+      // durable pending writes are unchanged; the usual service owns recovery.
+      await this.getTowerSyncService()?.prepareTransportReload();
+      window.location.reload();
+    } catch (error) {
+      this.towerTransportError = error.message || 'Unable to change Tower transport.';
+    } finally {
+      this.towerTransportBusy = false;
+    }
+  },
+
 
   get isTowerPgMode() {
     return isTowerPgBackendMode();

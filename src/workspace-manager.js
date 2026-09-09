@@ -1,3 +1,4 @@
+import { towerFetch as fetch } from './tower-transport.js';
 /**
  * Workspace management methods extracted from app.js.
  *

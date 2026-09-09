@@ -1,3 +1,4 @@
+import { nip19 } from 'nostr-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSyncState, setSyncState } from '../src/db.js';
 
@@ -76,6 +77,7 @@ describe('sync worker SSE handshake integration', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     vi.useRealTimers();
     if (originalSelf === undefined) delete globalThis.self;
     else globalThis.self = originalSelf;
@@ -104,6 +106,46 @@ describe('sync worker SSE handshake integration', () => {
       ...overrides,
     };
   }
+
+  it('runs native SSE under the existing worker and recovers only its committed logical-workspace cursor', async () => {
+    const endpoint = `http://${nip19.npubEncode('12'.repeat(32))}.fips:41080`;
+    const streams = [];
+    const nativeFetch = vi.fn(async () => new Response(new ReadableStream({ start(controller) { streams.push(controller); } }), { headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('window', { wingmanTowerTransport: { version: 2, fetch: nativeFetch } });
+    dispatch({ type: 'sync-worker:bootstrap-keys', towerTransports: [{ logicalTower: 'https://tower.example.com', mode: 'fips', transport: 'native', endpoint }] });
+    dispatch({
+      type: 'sync-worker:sse-connect', ownerNpub: 'npub1owner', viewerNpub: 'npub1viewer',
+      backendUrl: 'https://tower.example.com', workspaceDbKey: 'workspace-db',
+      options: { pgMode: true, workspaceId: 'workspace-1' },
+    });
+    await flushAsyncConnect();
+    const initial = latestStatus('token-needed');
+    dispatch({ type: 'sync-worker:sse-token', requestId: initial.requestId, connectionKey: initial.connectionKey, token: 'signed-mesh-token' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(MockEventSource.instances).toHaveLength(0);
+    expect(nativeFetch.mock.calls[0][0]).toBe(`${endpoint}/api/v4/flightdeck-pg/workspaces/workspace-1/events/stream?token=signed-mesh-token`);
+    streams[0].enqueue(new TextEncoder().encode('event: flightdeck_pg.event\ndata: {"cursor":"committed-7","entity_type":"task","entity_id":"task-1"}\n\n'));
+    await vi.advanceTimersByTimeAsync(301);
+    const batch = latestStatus('pull-complete');
+    expect(batch.pgEvents[0].entity_id).toBe('task-1');
+    dispatch({ type: 'sync-worker:sse-ack', batchId: batch.batchId, connectionKey: batch.connectionKey, connectionGeneration: batch.connectionGeneration });
+    await flushAsyncConnect();
+    expect(setSyncState).toHaveBeenCalledWith(expect.stringContaining('sse_pg_ack_cursor:v1'), 'committed-7');
+    expect(batch.connectionKey).toContain('https://tower.example.com');
+    expect(batch.connectionKey).not.toContain('.fips');
+    streams[0].error(new Error('mesh disconnected'));
+    await vi.advanceTimersByTimeAsync(1000);
+    const recovery = latestStatus('token-needed');
+    expect(recovery.requestId).not.toBe(initial.requestId);
+    expect(recovery.signingUrl).toContain('cursor=committed-7');
+    dispatch({ type: 'sync-worker:sse-token', requestId: recovery.requestId, connectionKey: recovery.connectionKey, token: 'fresh-mesh-token' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(nativeFetch.mock.calls[1][0]).toContain(`${endpoint}/api/`);
+    expect(nativeFetch.mock.calls[1][0]).toContain('cursor=committed-7&token=fresh-mesh-token');
+    dispatch({ type: 'sync-worker:sse-disconnect' });
+    streams[1].close();
+    await vi.advanceTimersByTimeAsync(0);
+  });
 
   it('seeds a missing acknowledgement cursor from the exact workspace materialisation context', async () => {
     dispatch({

@@ -1,3 +1,4 @@
+import { initializeTowerTransports } from './tower-transport.js';
 import './styles.css';
 import { initApp } from './app.js';
 import { maybePerformHardReset } from './hard-reset.js';
@@ -12,6 +13,7 @@ installWingmanIphoneWebViewMarker();
 
 async function boot() {
   if (await maybePerformHardReset()) return;
+  await initializeTowerTransports();
   initApp();
   installNotificationClickRouteHandler();
   initChatThreadFlowDispatchDomBridge();

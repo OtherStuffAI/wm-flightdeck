@@ -1,3 +1,4 @@
+import { resolveTowerSigningUrl } from './tower-transport.js';
 /**
  * Sync lifecycle, repair, and quarantine methods extracted from app.js.
  *
@@ -2681,8 +2682,8 @@ export const syncManagerMixin = {
     let authHeader;
     try {
       authHeader = workspaceSecret
-        ? await createNip98AuthHeaderForSecret(signingUrl, 'GET', null, workspaceSecret)
-        : await createNip98AuthHeader(signingUrl, 'GET', null);
+        ? await createNip98AuthHeaderForSecret(resolveTowerSigningUrl(signingUrl), 'GET', null, workspaceSecret)
+        : await createNip98AuthHeader(resolveTowerSigningUrl(signingUrl), 'GET', null);
     } catch (err) {
       if (this.sseTokenRequestId === requestId) this.sseTokenRequestId = null;
       flightDeckLog('error', 'sse', 'SSE auth failed — cannot mint NIP-98 token', {

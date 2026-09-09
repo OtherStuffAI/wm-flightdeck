@@ -214,6 +214,14 @@ export class TowerSyncService {
     return pending;
   }
 
+  async prepareTransportReload() {
+    this.assertActive();
+    this.clearFallbackTimer();
+    this.ports.disconnectSSE?.({ reason: 'transport-reload' });
+    this.ports.stopFlushTimer?.();
+    await Promise.allSettled([...this.inFlight.values()]);
+  }
+
   dispose(reason = 'dispose') {
     if (this.disposed) return;
     this.disposed = true;

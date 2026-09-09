@@ -164,3 +164,14 @@ read/transport exception set.
 Non-workspace exceptions remain outside this service: edit leases, application
 version checks, signer availability, external Nostr profiles, storage transfer,
 and command acknowledgements.
+
+## Optional native Tower transport
+
+The connection path is independent of the service workspace key. The shared
+Tower request resolver signs the selected physical endpoint while keeping
+backend/workspace identity and Dexie keys logical. WMapp supplies paired native
+byte transport; the existing worker continues to own SSE parsing, token requests,
+reconnect and cursor acknowledgements. `prepareTransportReload` pauses the
+existing lifecycle and settles in-flight service work before the same-origin
+reload. Pairing identity probes are connection checks, not materialized workspace
+reads. See `../fips-transport.md` for the v2 contract and storage behavior.
