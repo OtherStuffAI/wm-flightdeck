@@ -10,12 +10,17 @@ import { command, freePort, privateJson, snapshot, towerCompose, waitFor } from 
 import { addRuntime, connectRuntime, runtimeApi } from './runtime.mjs';
 import { cleanupRun } from './finalize.mjs';
 import { verifyDurableSignatures } from './verify.mjs';
+import { assertNoPublicTowerTraffic } from './fips-runtime.mjs';
+import { addMeshFaultProxy, installMeshFaults, verifyMeshFaults, captureFipsFaultEvidence } from './fips-faults.mjs';
+import { verifyFipsSettings } from './fips-settings.mjs';
+import { addTrustedTowerTls } from './fips-tls.mjs';
+import { addFipsMesh, establishMesh, verifyMeshNetwork } from './fips-mesh.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 process.umask(0o077);
 const args = process.argv.slice(2);
 const action = args[0] || 'run';
-if (['run', 'up'].includes(action) && (process.versions.bun || Number(process.versions.node.split('.')[0]) !== 22)) {
+if (['run', 'up', 'mesh'].includes(action) && (process.versions.bun || Number(process.versions.node.split('.')[0]) !== 22)) {
   const supportedNode = process.env.RELEASE_TEST_NODE || path.join(repo, 'test-results/release/node-v22.21.1-darwin-arm64/bin/node');
   if (!process.env.FLIGHTDECK_TEST_NODE_REEXEC && fs.existsSync(supportedNode) && supportedNode !== process.execPath) {
     const result = spawnSync(supportedNode, [fileURLToPath(import.meta.url), ...args], { stdio: 'inherit', env: { ...process.env, FLIGHTDECK_TEST_NODE_REEXEC: '1' } });
@@ -24,6 +29,7 @@ if (['run', 'up'].includes(action) && (process.versions.bun || Number(process.ve
   throw new Error('Use Node 22 LTS for Playwright 1.51 (set RELEASE_TEST_NODE to its executable); Node 26 and Bun are not validated');
 }
 const retained = args.includes('--retain');
+const fips = args.includes('--fips') || args.includes('--https') || action === 'mesh';
 const cleanEnv = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'DOCKER_HOST', 'DOCKER_CONTEXT'].filter(k => process.env[k]).map(k => [k, process.env[k]]));
 const runsRoot = path.join(repo, 'test-results/release');
 fs.mkdirSync(runsRoot, { recursive: true, mode: 0o700 });
@@ -75,7 +81,7 @@ if (['down', 'health'].includes(action)) {
     console.log(`health: ${health.healthy ? 'healthy' : 'not running or unhealthy'}; ${runDir}/health.json`);
     if (!health.healthy) process.exitCode = 1;
   }
-} else if (action === 'run' || action === 'up') {
+} else if (action === 'run' || action === 'up' || action === 'mesh') {
   const runId = `fd-release-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const runDir = path.join(runsRoot, runId);
   fs.mkdirSync(runDir, { mode: 0o700 });
@@ -84,6 +90,7 @@ if (['down', 'health'].includes(action)) {
   save();
   console.log(`Run: ${runDir}`);
   let server;
+  let runConfig;
   try {
     const identities = { a: identity(), b: identity(), tower: identity(), app: identity() };
     privateJson(path.join(runDir, 'identities.secret'), identities);
@@ -103,6 +110,14 @@ if (['down', 'health'].includes(action)) {
     delete definition.services.tower.build;
     definition.services.tower.image = `${runId}-tower`;
     addRuntime(definition, { runId, runtimePort });
+    if (fips) {
+      addFipsMesh(definition, { runDir, runId, runtimePort, towerPort });
+      if (args.includes('--faults')) {
+        addMeshFaultProxy(definition, { runDir, runId });
+        definition.services.autopilot.environment.FIPS_ACCEPTANCE_PROBES = '1';
+      }
+      await addTrustedTowerTls(definition, { runDir, runId, dockerEnv: cleanEnv });
+    }
     privateJson(path.join(runDir, 'compose.json'), definition);
     save();
     console.log('Building and starting isolated Tower/Postgres/storage');
@@ -111,11 +126,29 @@ if (['down', 'health'].includes(action)) {
     await command('docker', ['build', '-f', path.join(sources, 'autopilot/scripts/isolated-test/Dockerfile'),
       '--build-arg', `SOURCE_REVISION=${manifest.sources.autopilot.revision}`, '-t', `${runId}-autopilot`, path.join(sources, 'autopilot')],
     { env: cleanEnv, log: path.join(runDir, 'build-autopilot.log') });
+    let mesh;
+    const meshConfig = { runDir, runId, identities, dockerEnv: cleanEnv };
+    if (fips) runConfig = { ...meshConfig, useFips: args.includes('--fips'), fipsFaults: args.includes('--faults') };
+    if (fips) {
+      console.log('Starting isolated real FIPS peers');
+      await compose(runDir, 'up', '-d', '--wait', '--wait-timeout', '120', 'mesh-runtime', 'mesh-tower');
+      mesh = await establishMesh(meshConfig, definition, () => privateJson(path.join(runDir, 'compose.json'), definition));
+      manifest.mesh = mesh;
+    }
     await compose(runDir, 'up', '-d', '--wait', '--wait-timeout', '180');
+    if (fips) await verifyMeshNetwork(meshConfig, mesh);
     await waitFor(async () => (await fetch(`${towerUrl}/health`)).ok, 'Tower health');
+    await waitFor(async () => {
+      await compose(runDir, 'exec', '-T', 'storage', 'sh', '-c', 'mc alias set isolated http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc mb --ignore-existing isolated/release-test');
+      return true;
+    }, 'isolated storage bucket provisioned');
     manifest.towerHealthyAt = new Date().toISOString();
     manifest.runtimeUrl = `http://127.0.0.1:${runtimePort}`;
     for (const service of ['tower', 'autopilot']) manifest.sources[service].imageId = await command('docker', ['image', 'inspect', `${runId}-${service}`, '--format', '{{.Id}}'], { env: cleanEnv });
+    if (action === 'mesh') {
+      manifest.status = 'passed';
+      manifest.scenario = 'real-mesh-prerequisite-only';
+    } else {
     const frontend = path.join(sources, 'flightdeck');
     fs.symlinkSync(path.join(repo, 'node_modules'), path.join(frontend, 'node_modules'), 'dir');
     const meta = JSON.parse(fs.readFileSync(path.join(frontend, '.build-meta.json')));
@@ -149,17 +182,25 @@ if (['down', 'health'].includes(action)) {
       await new Promise(resolve => process.once('SIGINT', resolve));
     } else {
       const { runBrowserTest } = await import(pathToFileURL(path.join(frontend, 'scripts/release-test/browser.mjs')).href);
-      const config = { runDir, runId, baseURL, towerUrl, appNpub: identities.app.npub, identities, dockerEnv: cleanEnv };
+      const config = { runDir, runId, baseURL, towerUrl, runtimeUrl: manifest.runtimeUrl, appNpub: identities.app.npub, identities, dockerEnv: cleanEnv, mesh, useFips: args.includes('--fips'), fipsFaults: args.includes('--faults'), runtimeTowerUrl: fips ? 'https://tower-tls:3443' : 'http://tower:3100' };
+      runConfig = config;
+      if (config.fipsFaults) await installMeshFaults(config);
       const results = await Promise.allSettled([runBrowserTest(config), connectRuntime(config)]);
       for (const result of results) if (result.status === 'rejected') throw result.reason;
       manifest.browser = results[0].value;
       manifest.runtime = results[1].value;
       manifest.integrity = await verifyDurableSignatures(config, manifest.browser);
+      if (config.fipsFaults) {
+        manifest.fipsFaults = await verifyMeshFaults(config, manifest.browser);
+        await verifyFipsSettings(config);
+      }
       const verifyOutcomes = async () => {
         const outcomes = await runtimeApi(config, 'GET', '/api/agent-chat/dispatch-outcomes');
-        assert.equal(outcomes.total, 2, 'Expected exactly two real runtime dispatch outcomes');
-        assert.deepEqual(outcomes.rows.map(row => row.recordId).sort(), [manifest.browser.messageIds[0], manifest.browser.messageIds[2]].sort());
-        for (const row of outcomes.rows) {
+        assert.equal(outcomes.total, config.fipsFaults ? 5 : 2, 'Unexpected real runtime dispatch count');
+        const originalRows = outcomes.rows.filter(row => [manifest.browser.messageIds[0], manifest.browser.messageIds[2]].includes(row.recordId));
+        assert.equal(originalRows.length, 2);
+        assert.deepEqual(originalRows.map(row => row.recordId).sort(), [manifest.browser.messageIds[0], manifest.browser.messageIds[2]].sort());
+        for (const row of originalRows) {
           assert.equal(row.actionId, manifest.browser.runtimeSessionId);
           assert.equal(row.details.thread_id, manifest.browser.threadId);
           assert.equal(row.details.channel_id, manifest.browser.workspace.channelId);
@@ -169,6 +210,7 @@ if (['down', 'health'].includes(action)) {
       await verifyOutcomes();
       for (const video of manifest.browser.videos) assert.ok(video.path && fs.statSync(video.path).size > 1000, 'Missing or empty browser video');
       assert.equal(manifest.browser.videos.length, 2, 'Expected A and B recordings');
+      if (config.useFips) await assertNoPublicTowerTraffic(config);
       console.log("Restarting only this run's Autopilot and checking durable replay");
       await compose(runDir, 'restart', 'autopilot');
       await compose(runDir, 'up', '-d', '--wait', '--wait-timeout', '120');
@@ -180,13 +222,19 @@ if (['down', 'health'].includes(action)) {
       assert.ok(agents.agents.some(agent => agent.botNpub === manifest.runtime.npub), 'Runtime restart changed its generated bot identity');
       await verifyOutcomes();
       await verifyDurableSignatures(config, manifest.browser);
-      manifest.runtimeRestart = { healthyAt: new Date().toISOString(), identityPreserved: true, dispatchCount: 2, durableHistoryUnchanged: true };
+      manifest.runtimeRestart = { healthyAt: new Date().toISOString(), identityPreserved: true, dispatchCount: config.fipsFaults ? 5 : 2, durableHistoryUnchanged: true };
+      if (config.useFips) await assertNoPublicTowerTraffic(config);
       manifest.status = 'passed';
+    }
     }
   } catch (error) {
     manifest.status = 'failed'; manifest.failure = error.message;
     console.error(error.message); process.exitCode = 1;
   } finally {
+    try { if (runConfig?.useFips) await captureFipsFaultEvidence(runConfig); }
+    catch (error) {
+      manifest.status = 'failed'; manifest.evidenceFailure = error.message; process.exitCode = 1;
+    }
     if (server) await new Promise(resolve => server.close(resolve));
     if (!retained) {
       try { await cleanupRun(manifest, () => compose(runDir, 'down', '--volumes', '--remove-orphans')); }
@@ -195,4 +243,4 @@ if (['down', 'health'].includes(action)) {
     manifest.finishedAt = new Date().toISOString(); save();
     console.log(`Result: ${manifest.status}; ${runDir}/manifest.json`);
   }
-} else throw new Error('Usage: node scripts/release-test/run.mjs [run|up] [--retain] | down|health <run-directory>');
+} else throw new Error('Usage: node scripts/release-test/run.mjs [run|up|mesh] [--fips] [--retain] | down|health <run-directory>');

@@ -1,7 +1,13 @@
+import { editMessageAttachments, renderedSignedHistory } from "./message-attachments.mjs";
+import { verifyFipsContinuity } from "./fips-continuity.mjs";
+import { createHash } from 'node:crypto';
+import { meshExec } from './fips-mesh.mjs';
 import { writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { mkdir, stat, readFile, writeFile, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { interruptMeshStream, meshOutage, configureMeshFault } from './fips-faults.mjs';
+import { runtimeApi } from './runtime.mjs';
 import { finalizeBrowser } from './finalize.mjs';
 import { BrowserTestError, createApi, rows, poll } from './browser-api.mjs';
 
@@ -95,6 +101,7 @@ export async function runBrowserTest(config) {
   const recordedPages = [];
   let phase = 'prerequisites';
   let originalError;
+  let attachmentProbe;
   const setPhase = value => {
     phase = value;
     writeFileSync(join(evidence, 'progress.json'), JSON.stringify({ phase, at: new Date().toISOString(), assertions: report.assertions }), { mode: 0o600 });
@@ -208,11 +215,13 @@ export async function runBrowserTest(config) {
       return value.ready === true && /^npub1/.test(value.npub) && value.name ? value : false;
     }, 180000);
     report.agent = { npub: agent.npub, name: agent.name };
+    report.agentProfileId = agent.agentProfileId;
     // Reload after infrastructure bootstrap only; subsequent live delivery is
     // observed without refresh until the explicit reconnect/reload assertion.
     setPhase('select shared scope and channel');
     await channel(a.page, channelName, workspacePublic);
     await channel(b.page, channelName, workspacePublic);
+    if (config.fipsFaults) await interruptMeshStream(config);
     setPhase('root composer mention and live delivery');
     const marker = `release-root-${config.runId}`;
     const followupMarker = `release-followup-${config.runId}`;
@@ -247,10 +256,24 @@ export async function runBrowserTest(config) {
     check(author(root) === config.identities.a.npub, 'Root attribution is not A');
     check(JSON.stringify(root.mentions || root.metadata?.mentions || []).includes(agent.npub), 'Root is missing structured agent mention');
     check(root.thread_id && root.channel_id === channelId && root.workspace_id === workspaceId, 'Root routing does not match the created workspace/channel/thread');
-    const first = await poll('first agent reply', async () => (await messages()).find(m => author(m) === agent.npub && m.thread_id === root.thread_id), 180000);
+    const first = await poll('first agent reply', async () => {
+      const result = (await messages()).find(m => author(m) === agent.npub && m.thread_id === root.thread_id);
+      if (result) return result;
+      const state = await api(`${prefix}/agent-activities?channel_id=${channelId}&thread_id=${root.thread_id}&limit=50&history_limit=0`);
+      check(!rows(state, 'agent_activities').some(row => row.agent_npub === agent.npub && row.state === 'failed'), 'Real runtime turn failed before its first reply; inspect isolated runtime evidence');
+      return false;
+    }, 180000);
     await visibleHistory(a.page, [rootId, first.id]);
     await visibleHistory(b.page, [rootId, first.id]);
     assert('Both users saw exactly one first agent reply in the bound thread');
+    if (config.fipsFaults) {
+      await configureMeshFault(config, { blockSse: false, dropReply: false });
+      await poll('FIPS SSE healthy before outage', async () => {
+        const state = await runtimeApi(config, 'GET', '/api/agent-chat/subscriptions');
+        return state.subscriptions.some(row => row.workspaceId === workspaceId && row.sseStatus === 'connected' && row.healthStatus === 'healthy');
+      }, 90000);
+      await meshOutage(config, true);
+    }
     setPhase('B continuing thread and second reply');
     const reply = b.page.getByRole('textbox', { name: 'Reply to thread', exact: true });
     await reply.pressSequentially(`@${agent.name}`, { delay: 40 });
@@ -260,6 +283,17 @@ export async function runBrowserTest(config) {
     await reply.press('Enter');
     const followup = await poll('B followup persisted', async () => (await messages()).find(m => m.body?.includes(followupMarker)));
     check(author(followup) === config.identities.b.npub && followup.thread_id === root.thread_id, 'B followup attribution or thread routing is wrong');
+    if (config.fipsFaults) {
+      await poll('runtime explicitly unhealthy during mesh outage', async () => {
+        const result = await runtimeApi(config, 'GET', '/api/agent-chat/subscriptions');
+        const failed = result.subscriptions.find(row => row.workspaceId === workspaceId && row.healthStatus !== 'healthy' && row.lastEventPollErrorAt
+          && new Date(row.lastEventPollErrorAt).getTime() >= config.meshOutageStartedAt);
+        if (failed) report.fipsOutageFailure = { subscriptionId: failed.subscriptionId, health: failed.healthStatus, errorCode: failed.lastEventPollErrorCode, failedAt: failed.lastEventPollErrorAt };
+        return Boolean(failed);
+      }, 90000);
+      check((await messages()).filter(m => author(m) === agent.npub).length === 1, 'Mesh outage unexpectedly produced a new reply');
+      await meshOutage(config, false);
+    }
     const second = await poll('second agent reply', async () => (await messages()).find(m => author(m) === agent.npub && m.thread_id === root.thread_id && m.id !== first.id), 180000);
     const ids = [rootId, first.id, followup.id, second.id];
     for (const user of [a, b]) await visibleHistory(user.page, ids);
@@ -307,6 +341,14 @@ export async function runBrowserTest(config) {
     await b.page.waitForFunction(() => navigator.onLine === true);
     await visibleHistory(b.page, ids);
     assert('B received the missed message exactly once through live synchronization before any navigation or reload');
+    if (config.fipsFaults) {
+      attachmentProbe = JSON.parse(await meshExec(config, 'autopilot', ['bun', '-e', 'console.log(await Bun.file(process.argv[1]).text())',
+        `/app/data/isolated-test/fips-probe-${first.metadata.session_id}.json`]));
+      const currentAttachmentMessage = (await messages()).find(row => row.id === ids.at(-1));
+      check(author(currentAttachmentMessage) === config.identities.a.npub, 'Attachment message must belong to A');
+      await editMessageAttachments(api, config.identities.a, prefix, currentAttachmentMessage, [{ storage_object_id: attachmentProbe.attachment.objectId }]);
+      report.setup.push('A attached the dedicated unlinked mesh object through a normally signed PG revision edit; body, order and permissions retained.');
+    }
     setPhase('reload both browsers after live reconnect acceptance');
     await channel(a.page, channelName, workspacePublic);
     await channel(b.page, channelName, workspacePublic);
@@ -315,8 +357,52 @@ export async function runBrowserTest(config) {
     check(JSON.stringify(final.map(m => m.id)) === JSON.stringify(ids), 'Tower durable history differs from the exact five-message ordered conversation');
     check((await messages()).filter(m => m.body?.includes(marker)).length === 1, 'Duplicate root exists');
     assert('Offline reconnect and both reloads preserved identical order and exactly-once Tower and rendered history');
+    if (config.fipsFaults) {
+      setPhase('both users download the mesh-published attachment after reload');
+      const probe = attachmentProbe;
+      const downloads = [];
+      for (const [name, user] of [['a', a], ['b', b]]) {
+        const downloaded = user.page.waitForEvent('download');
+        const downloadError = await user.page.evaluate(async ({ objectId }) => {
+          const store = window.Alpine.store('chat');
+          const before = store.error;
+          await store.downloadStorageObjectAsFile(objectId, 'mesh-attachment.txt');
+          return store.error && store.error !== before ? store.error : null;
+        }, probe.attachment);
+        if (downloadError) { void downloaded.catch(() => {}); throw new BrowserTestError(`User ${name} attachment download failed: ${downloadError}`); }
+        const download = await downloaded;
+        const target = join(evidence, `attachment-${name}.txt`);
+        await download.saveAs(target);
+        const sha256 = createHash('sha256').update(await readFile(target)).digest('hex');
+        check(sha256 === probe.attachment.sha256, `User ${name} attachment bytes changed`);
+        downloads.push({ user: name, sha256, file: target });
+      }
+      // Remove the real message attachment link, prove the member's authenticated
+      // content/metadata routes revoke access, then restore the same signed row.
+      let attachmentMessage = (await messages()).find(row => row.id === ids.at(-1));
+      const attachments = attachmentMessage.metadata.attachments;
+      attachmentMessage = await editMessageAttachments(api, config.identities.a, prefix, attachmentMessage, []);
+      for (const suffix of ['', '/content']) await apiB(`/api/v4/storage/${probe.attachment.objectId}${suffix}`, { expectedStatus: 404 });
+      await editMessageAttachments(api, config.identities.a, prefix, attachmentMessage, attachments);
+      report.attachmentAccessRevoked = true;
+      report.attachmentDownloads = downloads;
+      assert('Both real browser identities downloaded identical mesh-published attachment bytes after reload');
+    }
+    const signedHistory = (await messages()).filter(row => row.thread_id === root.thread_id).map(row => ({ id: row.id, eventId: row.metadata.agent_instruction_signature.nostr_event.id,
+      bodySha256: row.metadata.agent_instruction_signature.body_sha256 }));
+    report.browserSignedHistory = {};
+    for (const [name, user] of [['a', a], ['b', b]]) {
+      await poll(`${name} reloaded signed history matches Tower`, async () => {
+        const actual = await renderedSignedHistory(user.page, ids, workspaceId);
+        report.browserSignedHistory[name] = actual;
+        if (JSON.stringify(actual) !== JSON.stringify(signedHistory)) return false;
+        report.browserSignedHistory[name] = actual; return true;
+      });
+    }
+
     report.messageIds = ids;
     report.threadId = root.thread_id;
+    if (config.fipsFaults) await verifyFipsContinuity(config, { a, b, report, channel, openThread, visibleHistory, messages, author, setPhase });
     for (const [key, user] of [['a', a], ['b', b]]) {
       check(!await user.page.locator('input[name="secret"]:visible').count(), 'Refusing screenshot while login is visible');
       const path = join(evidence, `${key}-complete.png`);

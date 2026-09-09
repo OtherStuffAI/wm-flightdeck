@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createApi } from './browser-api.mjs';
 import { privateJson, waitFor } from './stack.mjs';
+import { enableRuntimeFips } from './fips-runtime.mjs';
 
 export async function runtimeApi(config, method, route, body) {
   // Only the isolated container can access its generated bootstrap identity.
@@ -75,12 +76,12 @@ export async function connectRuntime(config) {
     } });
     const descriptor = await api(`${prefix}/descriptor`);
     // Locator identity is unchanged; use the physical run-owned Docker endpoint.
-    descriptor.tower_base_url = 'http://tower:3100';
+    descriptor.tower_base_url = config.runtimeTowerUrl || 'http://tower:3100';
     descriptor.capabilities = ['chat_intercept'];
     const imported = await runtimeApi(config, 'POST', '/api/agent-chat/agent-connect/import', {
       agentProfileId: profileId,
       package: { kind: 'coworker_agent_connect', version: 6, protocol: 'flightdeck_pg', generated_at: new Date().toISOString(),
-        service: { direct_https_url: 'http://tower:3100' }, auth: { scheme: 'NIP-98', app_npub: config.appNpub }, workspace_descriptor: descriptor },
+        service: { direct_https_url: descriptor.tower_base_url }, auth: { scheme: 'NIP-98', app_npub: config.appNpub }, workspace_descriptor: descriptor },
     });
     privateJson(path.join(config.runDir, 'runtime-import.json'), imported);
     const subscription = await waitFor(async () => {
@@ -89,6 +90,7 @@ export async function connectRuntime(config) {
       if (value) privateJson(path.join(config.runDir, 'runtime-health.json'), value);
       return value?.healthStatus === 'healthy' ? value : false;
     }, 'Autopilot Tower subscription healthy', 120_000);
+    if (config.useFips) await enableRuntimeFips(config, subscription, profileId);
     const ready = { runId: config.runId, ready: true, npub: agent.botNpub, name,
       agentProfileId: profileId, subscriptionId: subscription.subscriptionId };
     const target = path.join(config.runDir, 'agent.json');

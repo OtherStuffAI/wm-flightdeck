@@ -51,8 +51,9 @@ locator, and Tower's normal member/channel APIs authorize the new bot. The bot
 consumes real Tower events, dispatches through the real ProcessManager, and
 publishes through the normal turn bridge and signing broker. Only the Pi ACP
 executable is deterministic; it emits a repeatable response containing a prompt
-hash and never contacts Tower or possesses an agent signing key. This tests
-dispatch and publication, not model quality.
+hash and never possesses an agent signing key. The FIPS fault scenario additionally
+launches the brokered client probe described below. This tests dispatch and
+publication, not model quality.
 
 The verifier checks all five durable kind-33358 signatures, authors, body hashes
 and routing. Runtime dispatch outcomes must identify those two human triggers
@@ -134,3 +135,88 @@ and `pg-materialization-responsiveness.test.js` exceeds its 10-second limit.
 The public-source check also reports existing older documentation; this change
 adds no findings. Build, release-note and distribution checks pass. These baseline
 failures remain separate from the mandatory, non-skipped full-stack result.
+
+## Tower FIPS acceptance
+
+These scenarios use real isolated Linux FIPS 0.5 peers and the production
+Autopilot transport. Prerequisites include Docker Linux TUN support, NET_ADMIN
+inside owned containers, Bun, Node 22, Chromium, and network access for pinned
+build dependencies and the independent public HTTPS outage canary. No host
+FIPS installation or identity is used. Missing prerequisites fail the command.
+
+```sh
+# Real peer/TUN/full Tower ingress prerequisite; no browser acceptance claim
+node scripts/release-test/run.mjs mesh
+# Trusted TLS baseline, with the complete original A/B browser scenario
+node scripts/release-test/run.mjs run --https
+# Complete FIPS matrix, including two browser videos and fault/continuity phases
+node scripts/release-test/run.mjs run --fips --faults
+```
+
+The FIPS scenario first verifies the trusted TLS connection, provisions a
+workspace/profile-scoped signing policy for the exact generated mesh origin,
+then selects FIPS with `httpsEndpoint: null`. Node and Tower service identities
+are generated separately and verified separately. Persistent approved peer
+configuration supports reconnect without a discovery service. Each application
+shares its own daemon's namespace and TUN. Mesh requests enter Tower's full
+PG/storage ingress; a transparent proxy on that encrypted peer path can close
+streams or drop a response after a real committed write.
+
+Before measuring FIPS traffic the runner retires prior TLS keep-alive sockets.
+An nftables positive control must block observed packets; counters are then
+reset. Autopilot's public Tower TCP destinations are blocked independently of
+browser traffic. The measured phase requires zero blocked attempts, unchanged
+source-filtered TLS ingress and zero HTTPS requests in transport diagnostics.
+The peer outage blocks both UDP directions while `https://example.com` remains
+reachable. It must produce a newly timestamped runtime failure, followed by
+recovery of the waiting mention when the mesh is restored. No automatic HTTPS
+fallback is permitted. This measurement describes this fixture's explicit
+Tower destinations, not every unrelated Autopilot integration.
+
+The original five signed messages and two same-session dispatches remain exact
+assertions. Forced established-stream closure must precede successful mesh
+recovery polling. One committed agent response is lost and retried with the
+same idempotency key, same durable message ID and renewed valid signatures.
+The isolated ACP driver invokes a real child CLI/client acceptance probe through
+its inherited capability broker before returning deterministic model output.
+It never reads a bot key or substitutes an event dispatcher. Probe operations
+cover workspace reads, files, documents, task state/comments, precise broker
+approval denials, Tower authentication/ACL denials, incomplete storage and
+canonical document conflict preservation. Only disposable outsider identities
+are generated for negative authentication/ACL checks.
+
+Both recorded browsers reload the unchanged five-message history and download
+the same mesh-uploaded attachment bytes under their own identities. Removing
+its actual message attachment link must revoke B's authenticated metadata and
+content access before the link is restored. Presigned URL expiry is not used as
+a revocation oracle. Three additional roots in separate threads exercise fresh
+work across owned Autopilot stop/start, explicit HTTPS rollback with queued work,
+and return to FIPS while work is active. These remain in the A/B recordings,
+retain connection/subscription IDs and nonregressing cursors, and require exactly
+five total dispatches. The explicit rollback phase permits HTTPS deliberately;
+its traffic is outside the saved FIPS-only measurement. Returning to FIPS starts
+a new strictly blocked measurement with no HTTPS endpoint.
+
+In addition to the ordinary manifest/browser report, inspect:
+
+- `mesh.json`, `mesh-network.json`: public nodes, daemon versions, peer/TUN/routes.
+- `fips-phase.json`, `fips-network-assertions.json`: final measurement boundary,
+  positive control, independent counters/ingress and transport diagnostics.
+- `fips-before-rollback-*.json`: preserved earlier FIPS-only phase and proof.
+- `fips-fault-assertions.json`, `mesh-outage-*.json`: ordered stream/poll evidence,
+  committed-response replay, precise child probe outcomes and outage canary.
+- `fips-continuity.json`: separately counted restart/switch roots, replies,
+  signatures, sessions and cursor/connection continuity.
+- `tower-fips-settings.json` and `.png`: actual settings Test connection,
+  draft refresh/reload persistence, apply and reenabled controls.
+- `fips-terminal-network.json`: terminal rule/peer/subscription/fault metadata,
+  also captured on failure before owned cleanup.
+
+The normal command removes owned resources and exits nonzero on assertions,
+evidence failures or cleanup failures. `--retain` is diagnostic only; a run with
+retained resources is not final cleanup acceptance until `down` succeeds. Never
+share identity files, TLS private keys, Compose configuration or browser profiles.
+Review reports and both videos before any private publication. The live host
+Autopilot is never restarted by these commands. Operator activation remains a
+separate restart after implementation acceptance and manager review; explicit
+HTTPS selection is rollback only where an approved HTTPS endpoint is configured.
