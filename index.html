@@ -7152,26 +7152,29 @@
               </div>
             </div>
 
-            <form class="auth-form" @submit.prevent="$store.chat.saveTowerTransportSettings()" x-show="$store.chat.backendUrl">
-              <label>
-                <span>Tower connection path</span>
-                <select x-model="$store.chat.towerTransportMode" :disabled="$store.chat.towerTransportBusy">
-                  <option value="https">Public HTTPS</option>
-                  <option value="fips">FIPS via WMapp</option>
-                </select>
-              </label>
+            <form class="auth-form tower-transport-settings" @submit.prevent="$store.chat.saveTowerTransportSettings()" x-init="$store.chat.loadTowerTransportSettings(); $watch('$store.chat.backendUrl', () => $store.chat.loadTowerTransportSettings())">
+              <strong>Tower updates connection</strong>
+              <div class="tower-transport-switch" role="group" aria-label="Tower updates connection">
+                <button type="button" :aria-pressed="$store.chat.towerTransportMode === 'https'" @click="$store.chat.towerTransportMode = 'https'; $store.chat.towerTransportError = ''" :disabled="$store.chat.towerTransportBusy">Public HTTPS</button>
+                <button type="button" :aria-pressed="$store.chat.towerTransportMode === 'fips'" @click="$store.chat.towerTransportMode = 'fips'; $store.chat.towerTransportError = ''" :disabled="$store.chat.towerTransportBusy">FIPS</button>
+              </div>
+              <div class="auth-error" role="alert" x-show="$store.chat.towerBackendMisconfigured">
+                <p>A FIPS address is in the HTTP backend override. Restore the workspace Tower before applying a transport.</p>
+                <button type="button" x-show="$store.chat.towerRecoveryUrl" @click="$store.chat.restoreWorkspaceTower()" :disabled="$store.chat.towerTransportBusy" x-text="'Restore workspace Tower: ' + $store.chat.towerRecoveryUrl"></button>
+                <p x-show="!$store.chat.towerRecoveryUrl">Reconnect using the existing workspace descriptor. A public Tower URL cannot be inferred from a FIPS address.</p>
+              </div>
               <label x-show="$store.chat.towerTransportMode === 'fips'">
                 <span>Manual Tower FIPS endpoint</span>
-                <input type="url" x-model="$store.chat.towerFipsEndpoint" placeholder="http://npub1….fips:41080/" :disabled="$store.chat.towerTransportBusy" />
+                <input type="url" x-model="$store.chat.towerFipsEndpoint" placeholder="http://<node-npub>.fips:<port>/" :disabled="$store.chat.towerTransportBusy" />
               </label>
               <p class="settings-field-help">FIPS requires WMapp and an explicitly paired Tower. Applying reloads this page and retains the workspace, local data and queued writes.</p>
               <p class="settings-field-help" x-show="$store.chat.towerTransportMode === 'fips' && !$store.chat.towerFipsSupported">FIPS is unavailable in this client. Use WMapp with the paired Tower bridge, or select Public HTTPS.</p>
-              <p class="settings-field-help" x-text="$store.chat.towerTransportStatus"></p>
+              <p class="settings-field-help" role="status" x-text="'Active: ' + $store.chat.towerTransportStatus"></p>
               <p role="alert" x-show="$store.chat.towerTransportError" x-text="$store.chat.towerTransportError"></p>
-              <button class="auth-option secondary" type="submit" :disabled="$store.chat.towerTransportBusy" x-text="$store.chat.towerTransportBusy ? 'Checking connection…' : 'Apply and reload'"></button>
+              <button class="auth-option secondary" type="submit" :disabled="$store.chat.towerTransportBusy || !$store.chat.backendUrl || $store.chat.towerBackendMisconfigured" x-text="$store.chat.towerTransportBusy ? 'Checking connection…' : 'Apply and reload'"></button>
             </form>
 
-            <div class="cvm-toggle">
+            <div class="cvm-toggle" x-show="!$store.chat.isTowerPgMode">
               <label>
                 <input
                   type="checkbox"
@@ -7276,8 +7279,9 @@
               </label>
               <label>
                 <span>HTTP backend override</span>
-                <input type="text" x-model="$store.chat.backendUrl" placeholder="https://sb.example.com" />
+                <input type="text" x-model="$store.chat.backendOverrideDraft" :readonly="$store.chat.isTowerPgMode" placeholder="https://sb.example.com" />
               </label>
+              <p class="settings-field-help" x-show="$store.chat.isTowerPgMode">Tower PG uses the verified workspace descriptor; the HTTP override is read-only. Use the switch above to change transport.</p>
               <label>
                 <span>Default bot npub</span>
                 <input type="text" x-model="$store.chat.botNpub" placeholder="npub1..." />

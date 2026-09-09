@@ -53,3 +53,81 @@ it('validates a paired workspace then persists the logical Tower and reloads the
   expect(saveTowerTransportPreference).toHaveBeenCalledWith('https://tower.example', connection);
   expect(reload).toHaveBeenCalledTimes(1);
 });
+
+
+it('rejects the screenshot mesh override without saving a transport or reloading', async () => {
+  store.backendUrl = 'https://node.fips:43100';
+  store.towerTransportMode = 'https';
+  expect(store.towerTransportStatus).toContain('Unavailable');
+  await store.saveTowerTransportSettings();
+  expect(store.towerTransportError).toContain('HTTP backend override');
+  expect(saveTowerTransportPreference).not.toHaveBeenCalled();
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it('recovers only by explicit choice to the stored workspace Tower and keeps identity/outbox', async () => {
+  store.backendUrl = 'https://node.fips:43100';
+  store.superbasedTokenInput = 'http://node.fips:43100';
+  store.currentWorkspace.directHttpsUrl = 'https://tower.example';
+  store.currentWorkspace.connectionToken = '{"workspace_id":"workspace"}';
+  store.pendingWrites = [{ id: 'pending' }];
+  store.selectedWorkspaceKey = 'stable-key';
+  store.persistWorkspaceSettings = vi.fn();
+  store.loadTowerTransportSettings();
+  expect(store.backendUrl).toBe('https://node.fips:43100');
+  expect(store.towerFipsEndpoint).toBe('http://node.fips:43100');
+  await store.restoreWorkspaceTower();
+  expect(store.backendUrl).toBe('https://tower.example');
+  expect(store.superbasedTokenInput).toBe(store.currentWorkspace.connectionToken);
+  expect(store.workspaceOwnerNpub).toBe('owner');
+  expect(store.selectedWorkspaceKey).toBe('stable-key');
+  expect(store.pendingWrites).toEqual([{ id: 'pending' }]);
+  expect(store.persistWorkspaceSettings).toHaveBeenCalledOnce();
+  expect(saveTowerTransportPreference).not.toHaveBeenCalled();
+  expect(reload).toHaveBeenCalledOnce();
+});
+
+it('does not guess a recovery Tower when workspace metadata is missing', async () => {
+  store.backendUrl = 'http://node.fips:43100';
+  await store.restoreWorkspaceTower();
+  expect(store.towerRecoveryUrl).toBe('');
+  expect(store.backendUrl).toBe('http://node.fips:43100');
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it('returns to HTTPS with the same logical Tower through the existing sync owner', async () => {
+  store.towerTransportMode = 'https';
+  const prepare = vi.fn();
+  store.getTowerSyncService = () => ({ prepareTransportReload: prepare });
+  await store.saveTowerTransportSettings();
+  expect(saveTowerTransportPreference).toHaveBeenCalledWith('https://tower.example', { mode: 'https' });
+  expect(prepare).toHaveBeenCalledOnce();
+  expect(reload).toHaveBeenCalledOnce();
+});
+
+
+it('does not copy a mesh connection token back during recovery', async () => {
+  store.backendUrl = 'https://node.fips:43100';
+  store.superbasedTokenInput = 'http://node.fips:43100';
+  store.currentWorkspace.directHttpsUrl = 'https://tower.example';
+  store.currentWorkspace.connectionToken = 'http://node.fips:43100';
+  store.persistWorkspaceSettings = vi.fn();
+  await store.restoreWorkspaceTower();
+  expect(store.superbasedTokenInput).toBe('');
+  expect(store.backendUrl).toBe('https://tower.example');
+});
+
+it('rejects recovery if workspace changes while the sync owner drains', async () => {
+  store.backendUrl = 'https://node.fips:43100';
+  store.currentWorkspace.directHttpsUrl = 'https://tower.example';
+  let drained;
+  store.getTowerSyncService = () => ({ prepareTransportReload: () => new Promise(resolve => { drained = resolve; }) });
+  store.persistWorkspaceSettings = vi.fn();
+  const restoring = store.restoreWorkspaceTower();
+  store.currentWorkspace = { workspaceId: 'other', directHttpsUrl: 'https://other.example' };
+  drained();
+  await restoring;
+  expect(store.towerTransportError).toContain('Workspace changed');
+  expect(store.persistWorkspaceSettings).not.toHaveBeenCalled();
+  expect(reload).not.toHaveBeenCalled();
+});

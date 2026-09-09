@@ -26,7 +26,7 @@ import {
   workspaceFromToken,
 } from './workspaces.js';
 import { isTowerPgBackendMode } from './backend-mode.js';
-import { normalizeBackendUrl } from './utils/state-helpers.js';
+import { isFipsUrl, normalizeBackendUrl } from './utils/state-helpers.js';
 import { parseSuperBasedToken, buildSuperBasedConnectionToken } from './superbased-token.js';
 import { buildAgentConnectPackage } from './agent-connect.js';
 import { APP_NPUB, DEFAULT_SUPERBASED_URL, FLIGHT_DECK_PG_APP_NPUB } from './app-identity.js';
@@ -331,10 +331,47 @@ async function fetchTowerDiscovery(url, fallbackLabel = '') {
 
 export const connectSettingsManagerMixin = {
 
+  backendOverrideDraft: null,
   towerTransportMode: 'https',
   towerFipsEndpoint: '',
   towerTransportBusy: false,
   towerTransportError: '',
+
+  get towerBackendMisconfigured() {
+    return isFipsUrl(this.backendUrl);
+  },
+
+  get towerRecoveryUrl() {
+    const url = this.currentWorkspace?.directHttpsUrl;
+    try { return new URL(url).protocol === 'https:' && !isFipsUrl(url) ? url : ''; }
+    catch { return ''; }
+  },
+
+  async restoreWorkspaceTower() {
+    if (this.towerTransportBusy || !this.towerBackendMisconfigured || !this.towerRecoveryUrl) return;
+    this.towerTransportBusy = true;
+    this.towerTransportError = '';
+    const workspace = this.currentWorkspace;
+    const recoveryUrl = this.towerRecoveryUrl;
+    try {
+      // Explicit user recovery uses only the selected workspace's stored locator.
+      // Do not import a connection token or change workspace/key identity.
+      await this.getTowerSyncService()?.prepareTransportReload();
+      if (this.currentWorkspace !== workspace || this.towerRecoveryUrl !== recoveryUrl) {
+        throw new Error('Workspace changed during recovery. Try again from the selected workspace.');
+      }
+      this.backendUrl = recoveryUrl;
+      if (isFipsUrl(this.superbasedTokenInput)) {
+        this.superbasedTokenInput = isFipsUrl(workspace.connectionToken) ? '' : (workspace.connectionToken || '');
+      }
+      await this.persistWorkspaceSettings();
+      window.location.reload();
+    } catch (error) {
+      this.towerTransportError = error.message || 'Unable to restore the workspace Tower.';
+    } finally {
+      this.towerTransportBusy = false;
+    }
+  },
 
   get towerFipsSupported() {
     const bridge = globalThis.window?.wingmanTowerTransport;
@@ -342,15 +379,17 @@ export const connectSettingsManagerMixin = {
   },
 
   get towerTransportStatus() {
+    if (this.towerBackendMisconfigured) return 'Unavailable: FIPS address in HTTP backend override. Restore the workspace Tower, then choose FIPS.';
     const connection = getTowerTransport(this.backendUrl);
     if (connection.mode !== 'fips') return 'Public HTTPS';
     return connection.error || `FIPS via WMapp · ${connection.endpoint}`;
   },
 
   loadTowerTransportSettings() {
+    this.backendOverrideDraft = this.backendUrl;
     const connection = getTowerTransport(this.backendUrl);
     this.towerTransportMode = connection.mode;
-    this.towerFipsEndpoint = connection.endpoint || '';
+    this.towerFipsEndpoint = connection.endpoint || (isFipsUrl(this.superbasedTokenInput) ? this.superbasedTokenInput.trim() : '');
     this.towerTransportError = connection.error || '';
   },
 
@@ -368,6 +407,7 @@ export const connectSettingsManagerMixin = {
       }
     };
     try {
+      if (isFipsUrl(logicalTower)) throw new Error('A FIPS endpoint cannot be the HTTP backend override. Restore the workspace Tower before choosing a transport.');
       let preference = { mode: 'https' };
       if (this.towerTransportMode === 'fips') {
         if (!this.towerFipsSupported) throw new Error('FIPS requires WMapp with the paired Tower bridge. Select Public HTTPS on this client.');
@@ -524,6 +564,10 @@ export const connectSettingsManagerMixin = {
   async saveConnectionSettings() {
     this.superbasedError = null;
     const token = String(this.superbasedTokenInput || '').trim();
+    if (isFipsUrl(this.backendOverrideDraft ?? this.backendUrl) || isFipsUrl(token)) {
+      this.superbasedError = 'A FIPS address is not a connection key or HTTP backend override. Keep the workspace Tower URL and enter the exact http:// endpoint under FIPS above.';
+      return;
+    }
     if (isTowerPgBackendMode()) {
       if (!token) {
         this.superbasedError = 'Flight Deck PG requires a workspace descriptor. Connect through a Tower PG host or paste a descriptor.';
@@ -540,6 +584,7 @@ export const connectSettingsManagerMixin = {
       }
       return;
     }
+    if (this.backendOverrideDraft != null) this.backendUrl = normalizeBackendUrl(this.backendOverrideDraft);
     if (token) {
       const config = parseSuperBasedToken(token);
       if (!config.isValid || !config.directHttpsUrl) {

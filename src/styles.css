@@ -22530,3 +22530,19 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     padding: 0;
   }
 }
+
+/* Connection controls also live outside the legacy connection modal. */
+.settings-panel .tower-transport-settings {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f8fafc;
+  min-width: 0;
+}
+.tower-transport-switch { display: flex; flex-wrap: wrap; gap: .5rem; }
+.tower-transport-switch button { background: #fff; color: #1f2937; border: 1px solid #64748b; min-height: 44px; }
+.tower-transport-switch button[aria-pressed="true"] { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+.tower-transport-settings label { display: grid; gap: .4rem; min-width: 0; }
+.settings-panel .tower-transport-settings input { width: 100%; min-width: 0; box-sizing: border-box; padding: .65rem; border: 1px solid #64748b; border-radius: 6px; }
+.tower-transport-settings p, .tower-transport-settings button { overflow-wrap: anywhere; }
+.settings-panel .cvm-toggle input[type="checkbox"] { width: auto; flex: 0 0 auto; }

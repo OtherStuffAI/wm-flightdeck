@@ -80,6 +80,14 @@ describe('normalizeBackendUrl', () => {
     expect(normalizeBackendUrl('http://127.0.0.1:3100/')).toBe('http://127.0.0.1:3100');
   });
 
+  it('never upgrades manual mesh HTTP from HTTPS or the local app shell', () => {
+    for (const origin of ['https://app.example', 'http://127.0.0.1:47831']) {
+      globalThis.window = { location: { origin } };
+      expect(normalizeBackendUrl('http://node.fips:43100/')).toBe('http://node.fips:43100');
+      expect(normalizeBackendUrl('https://node.fips:43100/')).toBe('https://node.fips:43100');
+    }
+  });
+
   it('handles non-URL strings gracefully', () => {
     const result = normalizeBackendUrl('not-a-url');
     expect(typeof result).toBe('string');

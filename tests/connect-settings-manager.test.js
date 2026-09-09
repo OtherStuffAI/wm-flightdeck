@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { isTowerPgBackendMode } from '../src/backend-mode.js';
+vi.mock('../src/backend-mode.js', () => ({ isTowerPgBackendMode: vi.fn(() => true) }));
 import { connectSettingsManagerMixin } from '../src/connect-settings-manager.js';
 
 function createStore(overrides = {}) {
@@ -205,6 +207,43 @@ describe('settings methods', () => {
 
 // --- connection settings ---
 describe('saveConnectionSettings', () => {
+  it('applies a valid legacy override draft only on save', async () => {
+    vi.mocked(isTowerPgBackendMode).mockReturnValueOnce(false);
+    const { fn, store } = bindMethod('saveConnectionSettings', {
+      backendUrl: 'https://tower.example', backendOverrideDraft: 'https://alternate.example',
+      saveSettings: vi.fn(),
+    });
+    vi.stubGlobal('localStorage', { setItem: vi.fn() });
+    try {
+      expect(store.backendUrl).toBe('https://tower.example');
+      await fn();
+      expect(store.backendUrl).toBe('https://alternate.example');
+      expect(store.saveSettings).toHaveBeenCalledOnce();
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('keeps the PG descriptor authoritative rather than applying an override draft', async () => {
+    const descriptor = '{"workspace_id":"fixture"}';
+    const connectWithPgDescriptor = vi.fn();
+    const { fn, store } = bindMethod('saveConnectionSettings', {
+      backendUrl: 'https://tower.example', backendOverrideDraft: 'https://alternate.example',
+      superbasedTokenInput: descriptor, connectWithPgDescriptor,
+    });
+    await fn();
+    expect(store.backendUrl).toBe('https://tower.example');
+    expect(connectWithPgDescriptor).toHaveBeenCalledWith(descriptor, { closeModal: false });
+  });
+
+  it.each(['http://node.fips:43100', 'https://node.fips:43100'])('rejects mesh overrides without changing the active backend: %s', async (endpoint) => {
+    const { fn, store } = bindMethod('saveConnectionSettings', {
+      backendOverrideDraft: endpoint, backendUrl: 'https://tower.example', saveSettings: vi.fn(),
+    });
+    await fn();
+    expect(store.superbasedError).toContain('FIPS address');
+    expect(store.backendUrl).toBe('https://tower.example');
+    expect(store.saveSettings).not.toHaveBeenCalled();
+  });
+
   it('rejects legacy or invalid connection tokens in PG-only mode', async () => {
     const { fn, store } = bindMethod('saveConnectionSettings', {
       superbasedTokenInput: 'bad-token',

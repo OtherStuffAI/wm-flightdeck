@@ -8,6 +8,11 @@ export function toRaw(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
 
+export function isFipsUrl(value) {
+  try { return new URL(String(value || '').trim()).hostname.endsWith('.fips'); }
+  catch { return false; }
+}
+
 export function normalizeBackendUrl(url) {
   if (!url) return '';
 
@@ -22,6 +27,7 @@ export function normalizeBackendUrl(url) {
     const remoteBackend = !['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname);
     if (
       parsed.protocol === 'http:'
+      && !parsed.hostname.endsWith('.fips')
       && (current.protocol === 'https:' || (localAppShell && remoteBackend))
     ) {
       parsed.protocol = 'https:';

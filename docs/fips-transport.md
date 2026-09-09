@@ -16,7 +16,7 @@ same configured Tower share this transport. A raw HTTP `.fips` URL is insufficie
    the container. Shared runtime activation belongs to the supervising manager.
 2. Build/install WMapp's native Tower bridge following its
    `docs/fips-tower-bridge.md`. Keep Flight Deck open at its existing HTTPS origin.
-3. In Flight Deck Setup → Connection, select **FIPS via WMapp**, enter the exact
+3. In Flight Deck Setup → Connection, select **FIPS**, enter the exact
    `http://<node-npub>.fips:<mesh-port>/` Tower endpoint and choose **Apply and
    reload**. Approve the narrowly scoped native pairing when requested.
 4. Flight Deck checks the Tower service identity and performs a signed workspace
@@ -30,6 +30,27 @@ same configured Tower share this transport. A raw HTTP `.fips` URL is insufficie
 The paired endpoint is the Tower ingress, not the Autopilot control-plane or
 managed app port. Obtain its exact node identity and port from the operator's
 running gateway configuration; sample placeholders are not usable endpoints.
+
+## Incorrect connection fields
+
+The **Tower updates connection** buttons control the existing transport. They
+show the active path separately from the selection being edited. The old Context
+VM relay checkbox is not a Tower PG transport and is hidden in PG mode.
+
+Do not paste a mesh address into Connection key or HTTP backend override. The
+override is read-only in Tower PG mode, where the verified descriptor owns the
+backend locator. Legacy overrides use a form draft and apply only on Save. Saving
+a mesh address there is rejected with instructions to use the FIPS endpoint
+field. HTTP mesh URLs retain their exact scheme; they are never upgraded to HTTPS.
+
+For an already saved mesh override, Connection shows an unavailable state and
+blocks transport apply. **Restore workspace Tower** explicitly restores only the
+HTTPS locator already stored on the selected workspace, removes a raw mesh URL
+from the connection-key field, and reloads the same origin. It retains workspace
+identity, local records and queued writes. No public locator is guessed if the
+workspace has none. Then choose FIPS, enter the exact manual HTTP endpoint and
+apply; ordinary browsers report that WMapp is required. Recovery does not change
+an existing per-Tower transport preference.
 
 ## Native transport contract
 

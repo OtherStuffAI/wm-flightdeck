@@ -1390,6 +1390,27 @@
       "notes": [
         "Unsupported clients show a clear FIPS message. Native worker recovery cancels old streams, retains queued writes and enforces a bounded request size."
       ]
+    },
+    {
+      "buildNumber": 1916,
+      "label": "Visible Tower connection switch",
+      "notes": [
+        "Choose Public HTTPS or FIPS in Setup Connection. Mesh addresses in the HTTP override show a recovery action; manual HTTP mesh endpoints are no longer upgraded to HTTPS."
+      ]
+    },
+    {
+      "buildNumber": 1917,
+      "label": "Connection recovery safeguards",
+      "notes": [
+        "Keep the transport controls in step with the selected backend and prevent a misplaced mesh connection key from returning after workspace Tower recovery."
+      ]
+    },
+    {
+      "buildNumber": 1918,
+      "label": "Clarify workspace backend settings",
+      "notes": [
+        "The HTTP override is read-only for Tower PG workspaces, whose verified descriptor sets the backend. Legacy HTTP override drafts apply only when saved."
+      ]
     }
   ]
 }

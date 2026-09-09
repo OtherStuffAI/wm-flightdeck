@@ -1,5 +1,47 @@
 # Tower FIPS delivery validation
 
+## Connection switch follow-up — build 1918
+
+Build `20260909-0831-5-1918` adds visible Public HTTPS/FIPS buttons and explicit
+recovery from a mesh URL saved as the HTTP backend. The legacy checkbox inherited
+`width: 100%` from `.settings-panel input`, pushing its label toward the edge.
+The checkbox is hidden for PG; the active Tower control has its own layout.
+The supplied screenshot lacks the selector and shows the older raw-URL transport
+label, consistent with older loaded source; its actual build was not available.
+
+Validation on final source:
+
+- Focused settings, transport, API, native worker, sync owner, SSE, URL helpers and
+  release notes: **166 passed** in ten files.
+- Full `bun run test`: **3710 passed, 2 failed, 1 optional test skipped**.
+  Remaining failures are the previously documented chat attachment template
+  assertion and 20,000-row responsiveness 10-second timeout. The 100,000-reply
+  inbox test passed. No unrelated implementation or timeout thresholds changed.
+- Build, `verify:dist`, release-note tests and `git diff --check`: passed.
+- Public-source check: still fails on existing tracked handoffs and markers;
+  the final scan adds **zero findings**. Private operational briefs remain
+  untracked and excluded; no scanner changes or generated dist are committed.
+- Installed Chrome through Playwright, using the existing managed Flight Deck
+  runtime: **passed**. Its served version matched build 1918. The committed
+  `tests/e2e/fips-connection-switch.spec.cjs` covers desktop and 390px layouts,
+  visible buttons, mesh-override recovery warning, PG read-only backend field,
+  unsupported FIPS, and returning the selection to HTTPS. Use the configured
+  managed URL via `PLAYWRIGHT_BASE_URL`, `PLAYWRIGHT_BROWSER_CHANNEL=chrome`, and
+  `PLAYWRIGHT_DISABLE_VIDEO=1`; do not start a separate preview.
+
+The browser proof uses synthetic workspace state and blocks every other origin.
+It does not prove authenticated native mesh updates. Unit regressions cover
+explicit workspace-locator recovery, a workspace change during recovery, invalid
+mesh-token removal, legacy override saving and PG descriptor authority. Recovery
+and transport apply retain the existing sync owner and same-origin reload path.
+
+Native repackaging/publication and live signed workspace/storage/SSE/reconnect/ACL
+acceptance remain manager-owned. The previously activated native bundle is still
+1915; a passing managed browser proof does not update that bundle or grant mesh
+signing access.
+
+## Earlier native delivery — build 1915
+
 Flight Deck build **1915**, build ID `20260909-0637-2-1915`, contains the native
 v2 transport consumer. Setup and endpoint usage are in `fips-transport.md`.
 
