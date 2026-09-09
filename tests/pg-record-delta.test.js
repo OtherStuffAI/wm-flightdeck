@@ -369,3 +369,22 @@ it('preserves cached history metadata when a thread with a materialized source c
   await applyPgRecordChanges(store, page([{ ...thread, version: '100', row: { ...thread.row, title: 'Updated title', row_version: 2 } }], 'next-history'));
   expect(await db.chat_messages.get('history')).toMatchObject({ title: 'Updated title', pg_effective_message_ids: ['history-source'] });
 });
+
+it('hydrates the permitted member directory even when a fresh snapshot has an actor sidecar', async () => {
+  const { syncTowerPgWorkspace } = await import('../src/pg-read-hydrator.js');
+  const target = { ...store, currentWorkspace: { ...store.currentWorkspace, pgMe: { permissions: ['workspace.read'] } } };
+  let calls = 0;
+  const dependencies = {
+    getTowerPgRecordSync: async () => page([]),
+    getTowerPgResourceViewStates: async () => ({ states: [], baseline_created: true }),
+    getTowerPgWorkspaceMembers: async () => { calls++; return { members: [{ actor: { actor_id: 'unreferenced-agent', npub: 'npub1unreferenced-agent', kind: 'agent', display_name: 'Ready Agent' }, membership: { role: 'member' } }] }; },
+    getTowerPgWorkspaceGroups: async () => ({ groups: [] }),
+  };
+  await syncTowerPgWorkspace(target, {}, dependencies);
+  expect((await db.workspace_members.get('unreferenced-agent'))?.display_name).toBe('Ready Agent');
+  await resetPgRecordAuthority(target);
+  expect(await db.workspace_members.count()).toBe(0);
+  await syncTowerPgWorkspace(target, {}, dependencies);
+  expect(calls).toBe(2);
+  expect((await db.workspace_members.get('unreferenced-agent'))?.npub).toBe('npub1unreferenced-agent');
+});

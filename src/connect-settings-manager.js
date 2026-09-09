@@ -1240,6 +1240,14 @@ export const connectSettingsManagerMixin = {
           ...result.descriptor,
           tower_base_url: result.descriptor.tower_base_url || baseUrl,
         });
+        // Starter-space commands materialize their acknowledgements in Dexie.
+        // Select the verified workspace first so those writes use its database
+        // and TowerSyncService rather than an unopened or previous partition.
+        const workspace = await this.connectWithPgDescriptor(JSON.stringify(result.descriptor), {
+          closeModal: false,
+          selectWorkspaceOptions: { openWorkspaceHome: true },
+        });
+        if (this.workspaceSelectionError) throw new Error(this.workspaceSelectionError);
         this.updateConnectPgBootstrapProgress({
           phase: 'spaces',
           label: 'Workspace created. Preparing starter spaces...',
@@ -1258,9 +1266,7 @@ export const connectSettingsManagerMixin = {
           completed: 1 + this.connectPgBootstrapCounts().scopes + this.connectPgBootstrapCounts().channels,
           total: 1 + this.connectPgBootstrapCounts().scopes + this.connectPgBootstrapCounts().channels,
         });
-        const workspace = await this.connectWithPgDescriptor(JSON.stringify(result.descriptor), {
-          selectWorkspaceOptions: { openWorkspaceHome: true },
-        });
+        this.showConnectModal = false;
         this.connectNewWorkspaceName = '';
         this.connectNewWorkspaceDescription = '';
         this.resetConnectPgBootstrapState();

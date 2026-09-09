@@ -1458,8 +1458,8 @@ export const workspaceManagerMixin = {
         this.channels = [];
         this.messages = [];
         this.selectedChannelId = null;
-        this.pgContextSelectedChannelId = '';
-        this.pgContextSelectedThreadId = '';
+        // PG channel/thread context is derived from the selected board.
+        this.selectedBoardId = null;
         this.closeThread?.({ syncRoute: false });
         this.stopSelectedChannelLiveQuery?.();
         this.groups = [];
@@ -1499,8 +1499,6 @@ export const workspaceManagerMixin = {
         this.taskViewMode = 'kanban';
         this.taskSortMode = 'manual';
         this.selectedChannelId = null;
-        this.pgContextSelectedChannelId = '';
-        this.pgContextSelectedThreadId = '';
         await this.closeThread?.({ syncRoute: false });
         await this.closeTaskDetail?.({ syncRoute: false });
         this.selectedDocType = null;

@@ -970,10 +970,12 @@ export const channelsManagerMixin = {
   async refreshTowerPgWorkspaceMembers(options = {}) {
     const { workspaceId, workspaceOwnerNpub, baseUrl, appNpub } = resolveTowerPgWorkspaceContext(this);
     if (!workspaceId || !baseUrl) return [];
-    const selectedWorkspace = this.currentWorkspace;
+    const workspaceKey = this.currentWorkspaceKey;
+    const generation = this._workspaceSelectionGeneration;
     const isCurrent = () => {
       const current = resolveTowerPgWorkspaceContext(this);
-      return this.currentWorkspace === selectedWorkspace && current.workspaceId === workspaceId
+      return this.currentWorkspaceKey === workspaceKey && this._workspaceSelectionGeneration === generation
+        && current.workspaceOwnerNpub === workspaceOwnerNpub && current.workspaceId === workspaceId
         && current.baseUrl === baseUrl && current.appNpub === appNpub;
     };
     const currentActor = mapTowerPgActor(this.currentWorkspace?.pgMe?.actor || {});

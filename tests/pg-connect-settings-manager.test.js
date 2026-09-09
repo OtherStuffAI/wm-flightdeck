@@ -279,8 +279,10 @@ describe('PG connect settings manager', () => {
     }, { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
     expect(api.createTowerPgAdminWorkspace.mock.invocationCallOrder[0])
       .toBeLessThan(api.createTowerPgWorkspaceScope.mock.invocationCallOrder[0]);
-    expect(api.createTowerPgScopeChannel.mock.invocationCallOrder[0])
-      .toBeLessThan(api.getTowerPgWorkspaceDescriptor.mock.invocationCallOrder[0]);
+    expect(api.getTowerPgWorkspaceDescriptor.mock.invocationCallOrder[0])
+      .toBeLessThan(store.selectWorkspace.mock.invocationCallOrder[0]);
+    expect(store.selectWorkspace.mock.invocationCallOrder[0])
+      .toBeLessThan(api.createTowerPgWorkspaceScope.mock.invocationCallOrder[0]);
     expect(store.knownWorkspaces[0]).toMatchObject({
       pgBackendMode: true,
       workspaceOwnerNpub: 'npub1owner',

@@ -1809,7 +1809,11 @@ async function syncTowerPgRecordWorkspace(store, options, deps) {
       });
       viewBaselineInitialized = true;
     }
-    if (Array.isArray(page.actors)) directoryReady = true;
+    // Actor sidecars resolve record attribution; they are not the workspace
+    // member directory used by People and agent mentions. Rehydrate that
+    // directory after a fresh/ACL-reset snapshot when membership permits it.
+    const canReadDirectory = store.currentWorkspace?.pgMe?.permissions?.includes('workspace.read') === true;
+    if (Array.isArray(page.actors) && !canReadDirectory) directoryReady = true;
     if (!directoryReady) {
       let members = { members: [] };
       try { members = await (deps.getTowerPgWorkspaceMembers || getTowerPgWorkspaceMembers)(context.workspaceId, { baseUrl: context.baseUrl, appNpub: context.appNpub, limit: 200 }); }

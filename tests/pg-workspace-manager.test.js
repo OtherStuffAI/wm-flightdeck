@@ -95,8 +95,6 @@ async function buildStore(overrides = {}) {
     navSection: 'tasks',
     selectedChannelId: null,
     activeThreadId: null,
-    pgContextSelectedChannelId: '',
-    pgContextSelectedThreadId: '',
     showBoardDescendantTasks: true,
     taskViewMode: 'list',
     taskSortMode: 'modified_desc',
@@ -131,6 +129,10 @@ async function buildStore(overrides = {}) {
     },
     ...overrides,
   };
+  const { taskBoardStateMixin } = await import('../src/task-board-state.js');
+  for (const key of ['pgContextSelectedChannelId', 'pgContextSelectedThreadId']) {
+    Object.defineProperty(store, key, Object.getOwnPropertyDescriptor(taskBoardStateMixin, key));
+  }
   return applyWorkspaceMixin(store);
 }
 
@@ -505,8 +507,8 @@ describe('PG workspace manager mode', () => {
     expect(store.selectedBoardId).toBe('__all__');
     expect(store.persistSelectedBoardId).toHaveBeenCalledWith('__all__');
     expect(store.selectedChannelId).toBeNull();
-    expect(store.pgContextSelectedChannelId).toBe('');
-    expect(store.pgContextSelectedThreadId).toBe('');
+    expect(store.pgContextSelectedChannelId).toBeNull();
+    expect(store.pgContextSelectedThreadId).toBeNull();
     expect(store.selectedDocType).toBeNull();
     expect(store.selectedDocId).toBeNull();
     expect(store.selectedReportId).toBeNull();
@@ -641,8 +643,7 @@ describe('PG workspace manager mode', () => {
       localWorkspaceCoreLoadedForKey: 'pg:npub1user::tower:npub1tower::workspace:npub1oldworkspace::app:flightdeck_pg',
       selectedChannelId: 'old-channel',
       activeThreadId: 'old-thread',
-      pgContextSelectedChannelId: 'old-channel',
-      pgContextSelectedThreadId: 'old-thread',
+      selectedBoardId: '__pg_thread__:old-channel:old-thread',
       channels: [{ record_id: 'old-channel' }],
       messages: [{ record_id: 'old-message', channel_id: 'old-channel' }],
       loadLocalWorkspaceCoreData: vi.fn().mockResolvedValue({ scopes: [], channels: [] }),
@@ -653,8 +654,8 @@ describe('PG workspace manager mode', () => {
     await store.selectWorkspace(workspace.workspaceKey, { pgVerified: true });
 
     expect(store.selectedChannelId).toBeNull();
-    expect(store.pgContextSelectedChannelId).toBe('');
-    expect(store.pgContextSelectedThreadId).toBe('');
+    expect(store.pgContextSelectedChannelId).toBeNull();
+    expect(store.pgContextSelectedThreadId).toBeNull();
     expect(store.channels).toEqual([]);
     expect(store.messages).toEqual([]);
     expect(store.closeThread).toHaveBeenCalledWith({ syncRoute: false });
@@ -673,11 +674,9 @@ describe('PG workspace manager mode', () => {
       knownWorkspaces: [workspace],
       selectedWorkspaceKey: workspace.workspaceKey,
       localWorkspaceCoreLoadedForKey: '',
-      selectedBoardId: 'old-scope-id',
       selectedChannelId: 'old-channel',
       activeThreadId: 'old-thread',
-      pgContextSelectedChannelId: 'old-channel',
-      pgContextSelectedThreadId: 'old-thread',
+      selectedBoardId: '__pg_thread__:old-channel:old-thread',
       channels: [{ record_id: 'old-channel' }],
       messages: [{ record_id: 'old-message', channel_id: 'old-channel' }],
       documents: [{ record_id: 'old-doc' }],
@@ -692,8 +691,8 @@ describe('PG workspace manager mode', () => {
     expect(store.navSection).toBe('status');
     expect(store.selectedBoardId).toBe('__all__');
     expect(store.selectedChannelId).toBeNull();
-    expect(store.pgContextSelectedChannelId).toBe('');
-    expect(store.pgContextSelectedThreadId).toBe('');
+    expect(store.pgContextSelectedChannelId).toBeNull();
+    expect(store.pgContextSelectedThreadId).toBeNull();
     expect(store.channels).toEqual([]);
     expect(store.messages).toEqual([]);
     expect(store.documents).toEqual([]);

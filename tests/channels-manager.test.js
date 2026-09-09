@@ -2678,3 +2678,19 @@ it('discards a roster response after switching workspace databases', async () =>
   expect(await getWorkspaceMembers('workspace-1')).toEqual([]);
   expect(store.rememberPeople).not.toHaveBeenCalled();
 });
+
+it('materializes the roster when same-workspace metadata refreshes during the request', async () => {
+  const { openWorkspaceDb, getWorkspaceDb, getWorkspaceMembers } = await import('../src/db.js');
+  let finish;
+  getTowerPgWorkspaceMembers.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  const store = createPgGrantStore({ rememberPeople: vi.fn(async () => {}), _workspaceSelectionGeneration: 1 });
+  openWorkspaceDb('mention-roster-metadata-refresh');
+  await getWorkspaceDb().open();
+  const request = store.refreshTowerPgWorkspaceMembers();
+  store.currentWorkspace = { ...store.currentWorkspace, label: 'Refreshed workspace metadata' };
+  finish({ members: [{ actor: { actor_id: 'roster-agent', npub: 'npub1roster-agent', kind: 'agent', display_name: 'Roster Agent' } }] });
+  await request;
+  expect(await getWorkspaceMembers('workspace-1')).toEqual(expect.arrayContaining([
+    expect.objectContaining({ actor_id: 'roster-agent', display_name: 'Roster Agent' }),
+  ]));
+});

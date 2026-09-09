@@ -1418,6 +1418,28 @@
       "notes": [
         "Pair Tower using the selected workspace identity and mesh endpoint, without a native Tower URL or reachable public Tower. Update WMapp for this pairing contract; workspace data and queued writes stay in place."
       ]
+    },
+    {
+      "buildNumber": 1920,
+      "label": "Reliable new workspace onboarding",
+      "notes": [
+        "New Tower workspaces open their local database before creating starter scopes and channels.",
+        "Workspace selection resets derived channel and thread context without interrupting onboarding."
+      ]
+    },
+    {
+      "buildNumber": 1921,
+      "label": "Keep mentions ready during workspace refresh",
+      "notes": [
+        "Member and agent mentions remain available when workspace metadata refreshes while the roster is loading."
+      ]
+    },
+    {
+      "buildNumber": 1922,
+      "label": "Restore mentions after access changes",
+      "notes": [
+        "Workspace sync reloads the permitted member directory after an access reset so people and agent mentions remain available."
+      ]
     }
   ]
 }
