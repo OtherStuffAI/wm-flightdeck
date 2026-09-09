@@ -8,7 +8,9 @@ export async function verifyDurableSignatures(config, report) {
   const prefix = `/api/v4/flightdeck-pg/workspaces/${report.workspace.workspaceId}`;
   const route = `${prefix}/channels/${report.workspace.channelId}/messages`;
   const { messages } = await api(`${route}?limit=200`);
-  const expectedAuthors = [config.identities.a.npub, report.agent.npub, config.identities.b.npub, report.agent.npub];
+  const expectedAuthors = [config.identities.a.npub, report.agent.npub, config.identities.b.npub, report.agent.npub, config.identities.a.npub];
+  assert.equal(report.messageIds.length, expectedAuthors.length, 'Expected five signed durable messages');
+  assert.deepEqual(messages.filter(row => row.thread_id === report.threadId).map(row => row.id), report.messageIds, 'Durable thread history changed');
   const evidence = report.messageIds.map((id, index) => {
     const message = messages.find(row => row.id === id);
     assert.ok(message, 'Durable message missing');

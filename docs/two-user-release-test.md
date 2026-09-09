@@ -40,7 +40,10 @@ Chat through the sidebar. A uses the actual
 composer and structured mention picker; B observes live materialization and
 continues in the bound thread with another explicit mention. Shared-channel
 policy requires a mention per turn; the existing runtime session must be reused. Both users must see the
-same durable conversation and completed activity after reload.
+same durable conversation and completed activity after reload. B then stays offline
+while A publishes an unmentioned human marker in the thread. B must lack that
+message while offline and receive it exactly once on reconnect before any
+navigation or reload. The five-message history still produces exactly two agent dispatches.
 
 The runtime creates its own dedicated infrastructure administrator and bot keys
 inside a new Docker volume. Its ordinary Agent Connect API imports a PG workspace
@@ -51,7 +54,7 @@ executable is deterministic; it emits a repeatable response containing a prompt
 hash and never contacts Tower or possesses an agent signing key. This tests
 dispatch and publication, not model quality.
 
-The verifier checks all four durable kind-33358 signatures, authors, body hashes
+The verifier checks all five durable kind-33358 signatures, authors, body hashes
 and routing. Runtime dispatch outcomes must identify those two human triggers
 and the same actual session. Activity records currently retain provisional
 `pending:<turn>` session identifiers; actual binding is checked from replies
@@ -67,7 +70,12 @@ Each command prints its ignored `test-results/release/fd-release-…` directory.
 `manifest.json` records status, actual source/build identities and local URLs.
 `browser/report.json` records assertions, public workspace/message/session/turn
 IDs, screenshots, videos and failure phase. `browser/progress.json` identifies
-the current phase. The runner exits nonzero on a failed assertion or prerequisite.
+the current phase. The browser report stays `finalizing` until both contexts close successfully and
+both distinct A/B recordings resolve to files larger than 1000 bytes. Closure or
+recording failures produce a failed report and nonzero result, preserving any
+original assertion failure. Required Docker cleanup failure also marks the
+manifest failed and retains `cleanupFailure`. The runner exits nonzero on any
+failed assertion, prerequisite, finalization or required cleanup.
 
 Secret entry is unrecorded. Each user closes the login browser and reopens only
 their own run-created profile before video recording begins. Traces, console
@@ -107,11 +115,11 @@ The application source build still uses Bun.
 Focused infrastructure and signature-helper checks:
 
 ```sh
-node --test scripts/release-test/stack-check.mjs scripts/release-test/browser-api-check.mjs
+node --test scripts/release-test/*-check.mjs
 ```
 
 Unit checks and Docker health alone do not constitute a passing full-stack test.
-Only a manifest marked `passed` after browser and integrity assertions does.
+Only a manifest marked `passed` after browser finalization, integrity assertions and required cleanup does.
 
 ## Repository validation at implementation
 

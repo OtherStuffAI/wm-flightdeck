@@ -8,6 +8,7 @@ import { createServer } from 'node:http';
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import { command, freePort, privateJson, snapshot, towerCompose, waitFor } from './stack.mjs';
 import { addRuntime, connectRuntime, runtimeApi } from './runtime.mjs';
+import { cleanupRun } from './finalize.mjs';
 import { verifyDurableSignatures } from './verify.mjs';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -188,8 +189,8 @@ if (['down', 'health'].includes(action)) {
   } finally {
     if (server) await new Promise(resolve => server.close(resolve));
     if (!retained) {
-      try { await compose(runDir, 'down', '--volumes', '--remove-orphans'); manifest.cleanedUp = true; }
-      catch (error) { manifest.cleanupFailure = error.message; process.exitCode = 1; }
+      try { await cleanupRun(manifest, () => compose(runDir, 'down', '--volumes', '--remove-orphans')); }
+      catch { process.exitCode = 1; }
     }
     manifest.finishedAt = new Date().toISOString(); save();
     console.log(`Result: ${manifest.status}; ${runDir}/manifest.json`);

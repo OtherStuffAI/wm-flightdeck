@@ -1440,6 +1440,12 @@
       "notes": [
         "Workspace sync reloads the permitted member directory after an access reset so people and agent mentions remain available."
       ]
+    },
+    {
+      "buildNumber": 1923,
+      "label": "Release harness acceptance corrections",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }

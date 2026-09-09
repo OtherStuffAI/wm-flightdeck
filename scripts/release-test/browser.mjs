@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { mkdir, stat, readFile, writeFile, rename } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { finalizeBrowser } from './finalize.mjs';
 import { BrowserTestError, createApi, rows, poll } from './browser-api.mjs';
 
 function check(condition, message) {
@@ -93,6 +94,7 @@ export async function runBrowserTest(config) {
   const contexts = [];
   const recordedPages = [];
   let phase = 'prerequisites';
+  let originalError;
   const setPhase = value => {
     phase = value;
     writeFileSync(join(evidence, 'progress.json'), JSON.stringify({ phase, at: new Date().toISOString(), assertions: report.assertions }), { mode: 0o600 });
@@ -286,14 +288,31 @@ export async function runBrowserTest(config) {
     assert('B workspace administration PATCH rejected with HTTP 403');
     await b.context.setOffline(true);
     await b.page.waitForFunction(() => navigator.onLine === false);
+    setPhase('A publishes while B remains offline');
+    const offlineMarker = `release-offline-${config.runId}`;
+    const aReply = a.page.getByRole('textbox', { name: 'Reply to thread', exact: true });
+    await aReply.pressSequentially(offlineMarker, { delay: 10 });
+    await aReply.press('Enter');
+    const offlineMessage = await poll('A offline-window message persisted', async () => (await messages()).find(m => m.body === offlineMarker));
+    check(author(offlineMessage) === config.identities.a.npub && offlineMessage.thread_id === root.thread_id, 'Offline-window message attribution or routing is wrong');
+    check(!(offlineMessage.mentions || []).length && !(offlineMessage.metadata?.mentions || []).length, 'Offline-window marker must not mention an agent');
+    await visibleHistory(a.page, [...ids, offlineMessage.id]);
+    check(await b.page.evaluate(() => navigator.onLine === false), 'B must remain offline during A publication');
+    await visibleHistory(b.page, ids);
+    check(await b.page.locator(`[data-thread-message-id="${offlineMessage.id}"]`).count() === 0, 'B received the new message while offline');
+    assert('A published a new unmentioned thread message through UI while B was offline; B lacked it after Tower persistence');
+    ids.push(offlineMessage.id);
+    setPhase('B live reconnect before any navigation or reload');
     await b.context.setOffline(false);
     await b.page.waitForFunction(() => navigator.onLine === true);
-    setPhase('select shared scope and channel');
+    await visibleHistory(b.page, ids);
+    assert('B received the missed message exactly once through live synchronization before any navigation or reload');
+    setPhase('reload both browsers after live reconnect acceptance');
     await channel(a.page, channelName, workspacePublic);
     await channel(b.page, channelName, workspacePublic);
     for (const user of [a, b]) { await openThread(user.page, rootId); await visibleHistory(user.page, ids); }
     const final = (await messages()).filter(m => m.thread_id === root.thread_id);
-    check(JSON.stringify(final.map(m => m.id)) === JSON.stringify(ids), 'Tower durable history differs from the exact four-message ordered conversation');
+    check(JSON.stringify(final.map(m => m.id)) === JSON.stringify(ids), 'Tower durable history differs from the exact five-message ordered conversation');
     check((await messages()).filter(m => m.body?.includes(marker)).length === 1, 'Duplicate root exists');
     assert('Offline reconnect and both reloads preserved identical order and exactly-once Tower and rendered history');
     report.messageIds = ids;
@@ -304,8 +323,6 @@ export async function runBrowserTest(config) {
       await user.page.screenshot({ path });
       report.screenshots.push(path);
     }
-    report.status = 'passed';
-    return report;
   } catch (error) {
     report.status = 'failed';
     // Only retain a fixed phase label: Playwright errors may include DOM values.
@@ -323,20 +340,10 @@ export async function runBrowserTest(config) {
         report.screenshots.push(path);
       } catch { /* Evidence capture must not replace the original failure. */ }
     }
-    throw new Error(`Release browser failed during ${phase}: ${reason}. See browser/report.json.`);
+    originalError = new Error(`Release browser failed during ${phase}: ${reason}. See browser/report.json.`);
   } finally {
-    report.finishedAt = new Date().toISOString();
-    // Persist the result before shutdown so even a browser-close problem leaves
-    // the completed assertion/failure phase available to the supervising runner.
-    await publicJson(join(evidence, 'report.json'), report);
-    await Promise.allSettled(contexts.map(context => context.close()));
-    // Recorded pages were only opened after unrecorded login contexts closed.
-    // Resolve artifacts after context closure, including on failed attempts.
-    for (const { user, page } of recordedPages) {
-      try {
-        if (page.video()) report.videos.push({ user, path: await page.video().path() });
-      } catch { report.videos.push({ user, unavailable: true }); }
-    }
-    await publicJson(join(evidence, 'report.json'), report);
+    await finalizeBrowser({ report, contexts, recordedPages, originalError,
+      persist: value => publicJson(join(evidence, 'report.json'), value) });
   }
+  return report;
 }
