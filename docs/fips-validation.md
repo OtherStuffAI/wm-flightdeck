@@ -61,6 +61,25 @@ cancellation. The manager activated committed Tower source separately from
 unrelated worktree changes and reported HTTPS/mesh health with the same service
 identity and wrong-Host rejection.
 
+## Final native activation
+
+WMapp bridge commits `c878c37` and `423e9c5` were reviewed and the generated
+production JS contract rerun after worker-detach support. The local Flight Deck
+1915 dist was bundled into WMapp and committed as `9c4caa9`. That checkpoint also
+captured the concurrent iOS worker's staged implementation through the shared
+index. The mixed scope was reported immediately on the task; all work was
+preserved without rewriting history.
+
+The primary worker reran Flutter analysis (clean), the entire Flutter suite
+(**173 passed**), and the stock production WKWebView harness (**passed**) on that
+combined checkpoint. The macOS debug build passed. `runapp.sh` did not leave a
+persistent process from the command session, so the verified `.app` was opened
+through macOS Launch Services. The running local Flight Deck server at
+`http://127.0.0.1:47831/` returned HTTP 200 and its `version.json` reported
+**1915 / 20260909-0637-2-1915**. Native bundle activation is complete; no Autopilot
+restart was performed. Unrelated operational briefs/probe artifacts remain
+untracked in their respective repositories.
+
 ## Remaining live acceptance
 
 The manager owns final acceptance and task-state transition. Brokered live mesh
@@ -68,7 +87,7 @@ signing is currently denied by the session's allowed-origin grant. A narrowly
 issued/reissued broker capability is required; no raw-key fallback was used and
 no Autopilot restart was performed by this worker.
 
-After that grant and final native bundle activation, exercise actual signed
+After that grant, exercise actual signed
 workspace reads/writes and ACL denials over both transports, storage round trip,
 SSE committed-cursor recovery, offline queued-write recovery, same-origin reload
 and HTTPS/iPhone regression. Source, generated artifacts, native fixtures and
