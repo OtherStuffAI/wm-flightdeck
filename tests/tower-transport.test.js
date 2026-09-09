@@ -17,9 +17,10 @@ const storage = () => {
   return { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), values };
 };
 const bridge = () => ({
-  version: 2,
+  version: 2, pairingIdentity: 'service-npub',
   available: true,
-  connect: vi.fn(async (input) => ({ version: 2, transport: 'native', ...input })),
+  disconnect: vi.fn(),
+  connect: vi.fn(async (input) => ({ version: 2, pairingIdentity: 'service-npub', transport: 'native', ...input })),
   fetch: vi.fn(async () => Response.json({ status: 'ok', service_npub: serviceNpub })),
 });
 
@@ -37,7 +38,7 @@ describe('paired Tower transport', () => {
   it('verifies Tower identity through the native bridge before persisting only a preference', async () => {
     const native = bridge();
     const paired = await connectTowerBridge(logicalTower, endpoint, serviceNpub, { bridge: native });
-    expect(native.connect).toHaveBeenCalledWith({ logicalTower, endpoint });
+    expect(native.connect).toHaveBeenCalledWith({ serviceNpub, endpoint });
     expect(native.fetch).toHaveBeenCalledWith(`${endpoint}/health`, expect.objectContaining({ credentials: 'omit', redirect: 'error' }));
     const local = storage();
     saveTowerTransportPreference(logicalTower, paired, local);
@@ -179,18 +180,22 @@ it.each(['AbortError', 'TimeoutError'])('preserves %s through page fetch cancell
   await expect(request).rejects.toMatchObject({ name });
 });
 
-it('retains unsupported Tower preferences without redirecting them to the configured native Tower', async () => {
-  const local = storage();
-  saveTowerTransportPreference(logicalTower, connection, local);
-  saveTowerTransportPreference('https://another-tower.example', connection, local);
+it('service identity is the native authority even when compatibility URL changes', async () => {
   const native = bridge();
-  native.connect.mockImplementation(async (input) => {
-    if (input.logicalTower !== logicalTower) throw new Error('Not the configured trusted Tower');
-    return { version: 2, transport: 'native', ...input };
-  });
-  await initializeTowerTransports({ storage: local, bridge: native });
-  expect(getTowerTransport(logicalTower).transport).toBe('native');
-  expect(getTowerTransport('https://another-tower.example')).toMatchObject({ mode: 'fips', error: expect.stringContaining('Not the configured') });
-  await expect(towerFetch('https://another-tower.example/api/read')).rejects.toThrow('Not the configured');
-  expect([...local.values.values()].join('')).toContain('another-tower.example');
+  const publicFetch = vi.fn(() => { throw new Error('HTTPS unavailable'); });
+  vi.stubGlobal('fetch', publicFetch);
+  await connectTowerBridge('https://unreachable.invalid', endpoint, serviceNpub, { bridge: native });
+  expect(native.connect).toHaveBeenCalledWith({ endpoint, serviceNpub });
+  expect(publicFetch).not.toHaveBeenCalled();
+  native.fetch.mockResolvedValue(Response.json({ service_npub: 'mismatch' }));
+  await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { bridge: native })).rejects.toThrow('does not identify');
+  expect(native.disconnect).toHaveBeenCalledOnce();
+});
+
+it('recognizes older native v2 before approval and asks for an update', async () => {
+  const native = bridge();
+  delete native.pairingIdentity;
+  await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { bridge: native })).rejects.toThrow('Update WMapp');
+  expect(native.connect).not.toHaveBeenCalled();
+  expect(native.fetch).not.toHaveBeenCalled();
 });

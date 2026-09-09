@@ -12,11 +12,11 @@ let reload;
 beforeEach(() => {
   vi.clearAllMocks();
   reload = vi.fn();
-  vi.stubGlobal('window', { wingmanTowerTransport: { version: 2, available: true }, location: { reload } });
+  vi.stubGlobal('window', { wingmanTowerTransport: { version: 2, pairingIdentity: 'service-npub', available: true, disconnect: vi.fn() }, location: { reload } });
   store = Object.create(connectSettingsManagerMixin);
   Object.defineProperty(store, 'isTowerPgMode', { value: true });
   Object.assign(store, {
-    backendUrl: 'https://tower.example', workspaceOwnerNpub: 'owner', currentWorkspace: { workspaceId: 'workspace' },
+    backendUrl: 'https://tower.example', workspaceOwnerNpub: 'owner', currentWorkspace: { workspaceId: 'workspace', towerServiceNpub: 'service' },
     superbasedConnectionConfig: { serverNpub: 'service' }, towerTransportMode: 'fips', towerFipsEndpoint: 'paired-endpoint',
     getTowerSyncService: () => ({ prepareTransportReload: async () => {} }),
   });
@@ -130,4 +130,33 @@ it('rejects recovery if workspace changes while the sync owner drains', async ()
   expect(store.towerTransportError).toContain('Workspace changed');
   expect(store.persistWorkspaceSettings).not.toHaveBeenCalled();
   expect(reload).not.toHaveBeenCalled();
+});
+
+it('uses only selected workspace identity with public HTTPS unavailable', async () => {
+  const publicFetch = vi.fn(() => { throw new Error('HTTPS unavailable'); });
+  vi.stubGlobal('fetch', publicFetch);
+  store.superbasedConnectionConfig = null;
+  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service' });
+  await store.saveTowerTransportSettings();
+  expect(connectTowerBridge).toHaveBeenCalledWith('https://tower.example', 'paired-endpoint', 'service');
+  expect(publicFetch).not.toHaveBeenCalled();
+  expect(reload).toHaveBeenCalledOnce();
+});
+
+it('revokes native signing capability on workspace identity mismatch', async () => {
+  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service' });
+  verifyPairedTowerWorkspace.mockRejectedValueOnce(new Error('Workspace identity mismatch'));
+  await store.saveTowerTransportSettings();
+  expect(window.wingmanTowerTransport.disconnect).toHaveBeenCalledOnce();
+  expect(saveTowerTransportPreference).not.toHaveBeenCalled();
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it('fails closed without stored workspace Tower identity, never looks it up over HTTPS', async () => {
+  delete store.currentWorkspace.towerServiceNpub;
+  vi.stubGlobal('fetch', vi.fn());
+  await store.saveTowerTransportSettings();
+  expect(store.towerTransportError).toContain('no verified Tower service identity');
+  expect(fetch).not.toHaveBeenCalled();
+  expect(connectTowerBridge).not.toHaveBeenCalled();
 });

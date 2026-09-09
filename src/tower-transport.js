@@ -60,17 +60,26 @@ export async function connectTowerBridge(logicalTower, endpoint, expectedService
   if (!bridge || bridge.version !== 2 || bridge.available === false || typeof bridge.connect !== 'function' || typeof bridge.fetch !== 'function') {
     throw transportError('FIPS requires WMapp with the paired Tower bridge. Public HTTPS remains available in Connection settings.');
   }
-  const descriptor = await bridge.connect({ endpoint, logicalTower });
-  if (descriptor?.version !== 2 || descriptor.endpoint !== endpoint || descriptor.logicalTower !== logicalTower || descriptor.transport !== 'native') {
-    throw transportError('WMapp returned an incompatible paired Tower bridge.');
+  if (bridge.pairingIdentity !== 'service-npub') {
+    throw transportError('Update WMapp to pair using the workspace Tower identity, then reload Flight Deck.');
   }
-  const response = await bridge.fetch(`${endpoint}/health`, {
-    credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000),
-  });
-  if (!response.ok) throw transportError(`FIPS Tower health failed (${response.status}).`);
-  const health = await response.json();
-  if (!expectedServiceNpub || health.service_npub !== expectedServiceNpub) {
-    throw transportError('The paired endpoint does not identify the configured Tower.');
+  if (!expectedServiceNpub) throw transportError('The selected workspace has no verified Tower service identity.');
+  try {
+    const descriptor = await bridge.connect({ endpoint, serviceNpub: expectedServiceNpub });
+    if (descriptor?.version !== 2 || descriptor.endpoint !== endpoint || descriptor.serviceNpub !== expectedServiceNpub || descriptor.transport !== 'native') {
+      throw transportError('WMapp returned an incompatible paired Tower bridge.');
+    }
+    const response = await bridge.fetch(`${endpoint}/health`, {
+      credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw transportError(`FIPS Tower health failed (${response.status}).`);
+    const health = await response.json();
+    if (health.service_npub !== expectedServiceNpub) {
+      throw transportError('The paired endpoint does not identify the configured Tower.');
+    }
+  } catch (error) {
+    await bridge.disconnect?.();
+    throw error;
   }
   return { mode: 'fips', endpoint, transport: 'native', serviceNpub: expectedServiceNpub };
 }

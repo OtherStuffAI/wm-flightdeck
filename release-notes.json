@@ -1411,6 +1411,13 @@
       "notes": [
         "The HTTP override is read-only for Tower PG workspaces, whose verified descriptor sets the backend. Legacy HTTP override drafts apply only when saved."
       ]
+    },
+    {
+      "buildNumber": 1919,
+      "label": "Pair FIPS with workspace identity",
+      "notes": [
+        "Pair Tower using the selected workspace identity and mesh endpoint, without a native Tower URL or reachable public Tower. Update WMapp for this pairing contract; workspace data and queued writes stay in place."
+      ]
     }
   ]
 }

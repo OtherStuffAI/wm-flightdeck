@@ -375,7 +375,7 @@ export const connectSettingsManagerMixin = {
 
   get towerFipsSupported() {
     const bridge = globalThis.window?.wingmanTowerTransport;
-    return bridge?.version === 2 && bridge.available !== false;
+    return bridge?.version === 2 && bridge.available !== false && bridge.pairingIdentity === 'service-npub';
   },
 
   get towerTransportStatus() {
@@ -400,8 +400,10 @@ export const connectSettingsManagerMixin = {
     const logicalTower = this.backendUrl;
     const workspaceId = this.currentWorkspace?.workspaceId || this.currentWorkspace?.workspace_id;
     const ownerNpub = this.workspaceOwnerNpub;
+    const towerServiceNpub = this.currentWorkspace?.towerServiceNpub;
     const assertCurrent = () => {
-      if (this.backendUrl !== logicalTower || this.workspaceOwnerNpub !== ownerNpub
+      if (this.currentWorkspace?.towerServiceNpub !== towerServiceNpub
+        || this.backendUrl !== logicalTower || this.workspaceOwnerNpub !== ownerNpub
         || (this.currentWorkspace?.workspaceId || this.currentWorkspace?.workspace_id) !== workspaceId) {
         throw new Error('Workspace changed while pairing Tower. Try again from the selected workspace.');
       }
@@ -410,17 +412,19 @@ export const connectSettingsManagerMixin = {
       if (isFipsUrl(logicalTower)) throw new Error('A FIPS endpoint cannot be the HTTP backend override. Restore the workspace Tower before choosing a transport.');
       let preference = { mode: 'https' };
       if (this.towerTransportMode === 'fips') {
-        if (!this.towerFipsSupported) throw new Error('FIPS requires WMapp with the paired Tower bridge. Select Public HTTPS on this client.');
+        if (!this.towerFipsSupported) throw new Error('FIPS requires WMapp with workspace identity pairing. Update WMapp and reload Flight Deck.');
         if (!workspaceId || !this.isTowerPgMode) throw new Error('Select a Tower PG workspace before pairing FIPS.');
-        const current = getTowerTransport(logicalTower);
-        let serviceNpub = current.serviceNpub || this.superbasedConnectionConfig?.serverNpub;
-        if (!serviceNpub) {
-          const service = await getTowerPgService({ baseUrl: logicalTower });
-          serviceNpub = service.identity?.tower_service_npub || service.service?.service_npub;
+        const serviceNpub = this.currentWorkspace?.towerServiceNpub;
+        if (!serviceNpub) throw new Error('The selected workspace has no verified Tower service identity.');
+        try {
+          preference = await connectTowerBridge(logicalTower, this.towerFipsEndpoint, serviceNpub);
+          assertCurrent();
+          await verifyPairedTowerWorkspace(preference, workspaceId, ownerNpub);
+          assertCurrent();
+        } catch (error) {
+          await globalThis.window?.wingmanTowerTransport?.disconnect?.();
+          throw error;
         }
-        preference = await connectTowerBridge(logicalTower, this.towerFipsEndpoint, serviceNpub);
-        assertCurrent();
-        await verifyPairedTowerWorkspace(preference, workspaceId, ownerNpub);
       }
       assertCurrent();
       saveTowerTransportPreference(logicalTower, preference);

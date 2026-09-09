@@ -43,7 +43,7 @@ describe.skipIf(!fixturePath)('production WMapp JS / Flight Deck worker contract
     };
     runInNewContext(readFileSync(fixturePath, 'utf8'), context);
     const native = window.wingmanTowerTransport;
-    expect(await native.connect({ endpoint, logicalTower: 'https://tower.example' })).toMatchObject({ version: 2, endpoint, transport: 'native' });
+    expect(await native.connect({ endpoint, serviceNpub: nip19.npubEncode('34'.repeat(32)) })).toMatchObject({ version: 2, endpoint, transport: 'native' });
     const worker = { postMessage(message) { consumer.acceptNativeTowerPort(message); } };
     native.attachWorker(worker);
     const response = await consumer.nativeWorkerFetch(`${endpoint}/api/storage`, {

@@ -3,9 +3,10 @@
 Flight Deck can keep its existing HTTPS page, workspace and local database while
 using a manually paired Tower FIPS endpoint. Public HTTPS remains the default
 for browsers and iPhone. FIPS requires a WMapp build exposing native Tower bridge
-version 2. Current WMapp supports its configured trusted Tower; preferences for
-other Towers are retained but explicitly unavailable. Multiple workspaces on the
-same configured Tower share this transport. A raw HTTP `.fips` URL is insufficient for an HTTPS page.
+version 2 with `pairingIdentity: 'service-npub'`. The selected workspace's stored
+Tower service identity and an explicitly approved mesh endpoint define the pairing.
+No native Tower URL or reachable public Tower is required. The existing backend
+locator remains a compatibility key for local data, never a pairing prerequisite. A raw HTTP `.fips` URL is insufficient for an HTTPS page.
 
 ## Setup
 
@@ -55,7 +56,11 @@ an existing per-Tower transport preference.
 ## Native transport contract
 
 `window.wingmanTowerTransport.version` must be `2`. `connect({endpoint,
-logicalTower})` returns `{version:2, endpoint, logicalTower, transport:'native'}`.
+serviceNpub})` returns `{version:2, endpoint, serviceNpub, transport:'native'}`.
+Native code checks the mesh health service identity before enabling signing.
+Flight Deck then validates the signed workspace descriptor; failure revokes pairing.
+Service identity is not inferred from the mesh node npub. Older native builds and
+older Flight Deck callers receive an explicit update instruction.
 Its `fetch(actualMeshUrl, RequestInit)` returns a standard streaming Response.
 The bridge must explicitly pair and pin the destination, preserve method,
 Authorization and body bytes, reject redirects, omit cookies/forwarding headers,
