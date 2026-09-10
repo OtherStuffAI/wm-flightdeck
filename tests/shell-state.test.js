@@ -84,15 +84,16 @@ describe('shell navigation data retention', () => {
     return shell;
   }
 
-  it('resets repeated workspace avatar All entries to the mobile Deck Inbox', () => {
+  it('resets repeated workspace avatar All entries to the mobile Deck Inbox', async () => {
     const shell = buildNavigableShell();
+    shell.selectWorkContextBoard = taskBoardStateMixin.selectWorkContextBoard;
     shell.navSection = 'chat';
     shell.selectBoard = vi.fn(function selectBoard(boardId) {
       this.selectedBoardId = boardId;
     });
 
-    taskBoardStateMixin.openAllScopesOverview.call(shell);
-    taskBoardStateMixin.openAllScopesOverview.call(shell);
+    await taskBoardStateMixin.openAllScopesOverview.call(shell);
+    await taskBoardStateMixin.openAllScopesOverview.call(shell);
 
     expect(shell.selectedBoardId).toBe('__all__');
     expect(shell.navSection).toBe('status');

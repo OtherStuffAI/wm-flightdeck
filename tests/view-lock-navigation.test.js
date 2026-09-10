@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { createShellState } from '../src/shell-state.js';
-import { taskBoardStateMixin } from '../src/task-board-state.js';
+import { taskBoardStateMixin, computeBoardScopedTasks } from '../src/task-board-state.js';
 import { buildPgChannelTaskBoardId } from '../src/pg-record-context.js';
+
+import { filterDocItemsByScope } from '../src/docs-scope-filter.js';
+import { filesManagerMixin } from '../src/files-manager.js';
 
 function makeStore(section = 'tasks') {
   const store = createShellState({ initialSection: section });
@@ -54,6 +57,100 @@ describe('Lock into a content view', () => {
       expect(store.refreshStatusRecentChanges).toHaveBeenCalled();
     });
   }
+  for (const section of ['tasks', 'docs', 'chat', 'files']) {
+    it(`workspace Home retains locked ${section} and clears lower context and stale route detail`, async () => {
+      const store = makeStore(section);
+      store.selectedBoardId = buildPgChannelTaskBoardId('channel-new');
+      store.selectedChannelId = 'channel-new';
+      store.activeThreadId = 'thread-old';
+      store.currentFolderId = 'folder-old';
+      store.fileCurrentFolderId = 'file-folder-old';
+      store.fileChannelFilter = 'channel-new';
+      store.fileThreadFilter = 'thread-old';
+      store.closeThread = vi.fn(() => { store.activeThreadId = null; });
+      store.toggleCurrentViewLock();
+      await store.openAllScopesOverview();
+      expect(store.navSection).toBe(section);
+      expect(store.lockedView).toBe(section);
+      expect(store.selectedBoardId).toBe('__all__');
+      expect(store.selectedChannelId).toBeNull();
+      expect(store.pgContextScopeId).toBeNull();
+      expect(store.currentFolderId).toBeNull();
+      expect(store.fileCurrentFolderId).toBe('');
+      expect(store.fileChannelFilter).toBe('all');
+      expect(store.fileThreadFilter).toBe('all');
+      expect(store.activeThreadId).toBeNull();
+      expect(store.syncRoute.mock.invocationCallOrder.at(-1)).toBeGreaterThan(store.closeThread.mock.invocationCallOrder[0]);
+      expect(store.startWorkspaceLiveQueries).toHaveBeenCalled();
+      expect(store.refreshStatusRecentChanges).not.toHaveBeenCalled();
+    });
+    it(`unlocked workspace Home opens Deck from ${section}`, async () => {
+      const store = makeStore(section);
+      await store.openAllScopesOverview();
+      expect(store.navSection).toBe('status');
+      expect(store.selectedBoardId).toBe('__all__');
+      expect(store.lockedView).toBeNull();
+    });
+  }
+  it('broadens actual task, document, file and chat channel filters across scopes', async () => {
+    const rows = ['new', 'other'].map(id => ({
+      record_id: id, scope_id: `scope-${id}`, pg_channel_id: `channel-${id}`,
+      channel_id: `channel-${id}`, record_state: 'active',
+    }));
+    for (const section of ['tasks', 'docs', 'files', 'chat']) {
+      const store = makeStore(section);
+      store.channels = rows.map(row => ({ ...row, record_id: row.channel_id }));
+      store.scopes = rows.map(row => ({ record_id: row.scope_id, level: 'l1' }));
+      store.selectedBoardId = 'scope-new';
+      const filtered = () => {
+        if (section === 'tasks') return computeBoardScopedTasks(rows, store.selectedBoardId, store.selectedBoardScope, store.scopesMap);
+        if (section === 'docs') return filterDocItemsByScope(rows, [], store.selectedBoardId, store.selectedBoardScope, store.scopesMap).documents;
+        if (section === 'chat') return store.pgContextChannels;
+        const fixture = {
+          isTowerPgMode: true, fileBrowserRows: rows, currentFileFolderId: '',
+          selectedBoardId: store.selectedBoardId, taskBoards: store.taskBoards,
+          pgContextScopeId: store.pgContextScopeId,
+          pgContextSelectedChannelId: store.pgContextSelectedChannelId,
+          pgContextSelectedThreadId: store.pgContextSelectedThreadId,
+          scopesMap: store.scopesMap,
+        };
+        return Object.getOwnPropertyDescriptor(filesManagerMixin, 'filteredFileBrowserRows').get.call(fixture);
+      };
+      expect(filtered()).toHaveLength(1);
+      store.toggleCurrentViewLock();
+      await store.openAllScopesOverview();
+      expect(filtered()).toHaveLength(2);
+    }
+  });
+  it('closes an open task once before completing Home navigation', async () => {
+    const store = makeStore('tasks');
+    store.showTaskDetail = true;
+    store.closeTaskDetail = vi.fn(async () => {
+      await Promise.resolve();
+      store.showTaskDetail = false;
+      store.activeTaskId = null;
+    });
+    store.toggleCurrentViewLock();
+    await store.openAllScopesOverview();
+    expect(store.closeTaskDetail).toHaveBeenCalledTimes(1);
+    expect(store.showTaskDetail).toBe(false);
+  });
+  it('awaits document cleanup before publishing the workspace route', async () => {
+    const store = makeStore('docs');
+    store.docsEditorOpen = true;
+    store.selectedDocument = { record_id: 'doc-old' };
+    store.selectedDocId = 'doc-old';
+    store.selectedDocType = 'document';
+    store.resetOpenDocumentForContextChange = vi.fn(async () => {
+      await Promise.resolve();
+      store.selectedDocId = null;
+      store.selectedDocType = null;
+    });
+    store.toggleCurrentViewLock();
+    await store.openAllScopesOverview();
+    expect(store.resetOpenDocumentForContextChange).toHaveBeenCalled();
+    expect(store.selectedDocId).toBeNull();
+  });
   it('unlocks on a second click and starts a fresh view unlocked', () => {
     const store = makeStore();
     store.toggleCurrentViewLock();

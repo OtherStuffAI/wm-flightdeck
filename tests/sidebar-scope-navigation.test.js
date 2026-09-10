@@ -62,10 +62,10 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(html).toContain("'Open ' + ($store.chat.getScopeBreadcrumb(group.scope.record_id) || group.scope.title || group.scope.record_id) + ' home'");
   });
 
-  it('opens the all-scopes Deck from a workspace avatar control with current-page semantics', () => {
+  it('opens all workspace content from the avatar with current-page semantics in every view', () => {
     expect(html).toMatch(/<button\s+type="button"\s+class="sidebar-workspace-overview"/s);
     expect(html).toContain('@click="$store.chat.openAllScopesOverview()"');
-    expect(html).toContain("active: $store.chat.navSection === 'status' && $store.chat.pgContextAllScopesSelected");
+    expect(html).toContain("active: $store.chat.pgContextAllScopesSelected");
     expect(html).toContain("$store.chat.pgContextAllScopesSelected ? 'page' : null");
     expect(html).toContain('aria-label="All workspace activity"');
     expect(html).toContain('title="All workspace activity"');

@@ -1151,7 +1151,7 @@ describe('computeBoardScopedTasks', () => {
     expect(navigateTo).not.toHaveBeenCalled();
   });
 
-  it('opens all scopes from the workspace avatar reset action', () => {
+  it('opens all scopes from the workspace avatar reset action', async () => {
     const navigateTo = vi.fn();
     const store = Object.create(taskBoardStateMixin);
     Object.defineProperty(store, 'scopesMap', {
@@ -1178,13 +1178,13 @@ describe('computeBoardScopedTasks', () => {
       navigateTo,
     });
 
-    store.openAllScopesOverview();
+    await store.openAllScopesOverview();
 
     expect(store.selectedBoardId).toBe(ALL_TASK_BOARD_ID);
     expect(store.selectedChannelId).toBeNull();
     expect(store.activeThreadId).toBeNull();
     expect(store.focusMessageId).toBeNull();
-    expect(navigateTo).toHaveBeenCalledWith('status');
+    expect(store.navSection).toBe('status');
   });
 
   it('clears stale PG channel context when selecting All manually', () => {

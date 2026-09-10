@@ -2,7 +2,9 @@
 
 With Scopes > Channels expanded in the left sidebar, the selected Chat, Tasks,
 Docs or Files tab offers a grey padlock button. Press it to keep that view while
-selecting another scope or channel. The existing board context controls the
+selecting another scope or channel. Workspace Home (including its avatar) keeps
+the locked view and clears the scope/channel context to show all workspace
+content. Unlocked Home opens Deck. The existing board context controls the
 content filter and subscriptions; no records or backend contracts change.
 
 The closed padlock and pressed button state indicate a lock. Pressing it again

@@ -1468,6 +1468,14 @@
         "Rename channels in Channel settings. Scope actions stay onscreen and are reachable from desktop or mobile navigation, with scope-level permissions for rename and delete.",
         "Deletion confirmations explain archiving and retained content. Deleted scopes clear their channels from navigation; rename and delete failures stay visible."
       ]
+    },
+    {
+      "buildNumber": 1929,
+      "label": "Keep locked views at workspace Home",
+      "notes": [
+        "Workspace Home and its avatar retain the locked Chat, Tasks, Docs or Files view and clear lower scope and channel context.",
+        "Context navigation cleans up the previous thread and waits for document cleanup before publishing its route."
+      ]
     }
   ]
 }

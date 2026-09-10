@@ -1141,10 +1141,10 @@
           <button
             type="button"
             class="sidebar-workspace-overview"
-            :class="{ active: $store.chat.navSection === 'status' && $store.chat.pgContextAllScopesSelected }"
+            :class="{ active: $store.chat.pgContextAllScopesSelected }"
             x-show="$store.chat.currentWorkspaceKey || $store.chat.activeWorkspaceOwnerNpub"
             @click="$store.chat.openAllScopesOverview()"
-            :aria-current="$store.chat.navSection === 'status' && $store.chat.pgContextAllScopesSelected ? 'page' : null"
+            :aria-current="$store.chat.pgContextAllScopesSelected ? 'page' : null"
             aria-label="All workspace activity"
             title="All workspace activity"
           >

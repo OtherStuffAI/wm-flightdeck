@@ -1641,24 +1641,27 @@ export const taskBoardStateMixin = {
     // A locked content view keeps using the existing board selection/filtering
     // path. Unlocked context navigation still opens Deck before follow-up work.
     const destination = this.isCurrentViewLocked ? previousSection : 'status';
+    // Close the old thread before board selection clears its id, so its draft,
+    // subscriptions and Deck overlay state are cleaned up in the old context.
+    if (this.activeThreadId) {
+      if (this.deckThreadChannelId) this.closeDeckThread?.({ syncRoute: false, fromRoute: true });
+      else this.closeThread?.({ syncRoute: false });
+    }
     this.navSection = destination;
     this.mobileNavOpen = false;
     this.showWorkspaceSwitcherMenu = false;
     const selection = this.selectBoard(normalizedBoardId);
-    void Promise.resolve(selection).then(() => {
+    return Promise.resolve(selection).then(async () => {
       if (String(this.selectedBoardId || '') !== normalizedBoardId || this.navSection !== destination) return;
       if (previousSection !== destination) this.clearInactiveSectionData?.(destination);
-      if (this.chatTaskModalOpen) void this.closeChatTaskModal?.();
-      else if (this.showTaskDetail) void this.closeTaskDetail?.({ syncRoute: false });
-      if (this.activeThreadId) {
-        if (this.deckThreadChannelId) this.closeDeckThread?.({ syncRoute: false, fromRoute: true });
-        else this.closeThread?.({ syncRoute: false });
-      }
+      if (this.chatTaskModalOpen) await this.closeChatTaskModal?.();
+      else if (this.showTaskDetail) await this.closeTaskDetail?.({ syncRoute: false });
+      if (String(this.selectedBoardId || '') !== normalizedBoardId || this.navSection !== destination) return;
       if (destination === 'status') void this.refreshStatusRecentChanges?.({ force: true });
+      this.syncRoute();
       this.startWorkspaceLiveQueries?.();
       this.ensureBackgroundSync?.(true);
     });
-    return selection;
   },
 
   openWorkContextHome(event = null) {
@@ -1710,8 +1713,13 @@ export const taskBoardStateMixin = {
   },
 
   openAllScopesOverview() {
-    this.selectBoard(ALL_TASK_BOARD_ID);
-    if (typeof this.navigateTo === 'function') this.navigateTo('status');
+    if (!this.isCurrentViewLocked) this.resetDeckMobileEntry?.();
+    this.currentFolderId = null;
+    this.fileCurrentFolderId = '';
+    this.fileScopeFilter = 'all';
+    this.fileChannelFilter = 'all';
+    this.fileThreadFilter = 'all';
+    return this.selectWorkContextBoard(ALL_TASK_BOARD_ID);
   },
 
   selectPgThreadContext(channelId, threadId) {
@@ -2131,9 +2139,10 @@ export const taskBoardStateMixin = {
     }
     if (openDocument
       && typeof this.resetOpenDocumentForContextChange === 'function') {
-      void this.resetOpenDocumentForContextChange(openDocument, { syncRoute: false });
+      await this.resetOpenDocumentForContextChange(openDocument, { syncRoute: false });
     }
-    if (this.showTaskDetail) this.closeTaskDetail();
+    if (this.selectedBoardId !== nextBoardId) return;
+    if (this.showTaskDetail) await this.closeTaskDetail();
     else this.syncRoute();
     markNavigationTiming(scopeTiming, 'postPaintEndAt');
     publishNavigationTiming(this, scopeTiming);
