@@ -104,6 +104,37 @@ test('opening a document mounts the native Tiptap surface without acquiring edit
   expect(access).toEqual({ mode: 'rich', state: 'ready' });
 });
 
+test('short rich timeline preserves whitespace and list structure through browser reopen', async ({ page }) => {
+  test.setTimeout(45_000);
+  const { shortRichDocumentFixture } = require('../fixtures/short-rich-document.js');
+  const { markdownToProseMirrorDoc } = require('../../src/docs/editor/markdown-to-prosemirror.js');
+  const { validateDocumentContentModelRoundTrip } = require('../../src/docs/editor/document-content-integrity.js');
+  // This is an isolated rendering/serialization test; never contact a remote workspace.
+  await page.route('**/*', (route) => {
+    const host = new URL(route.request().url()).hostname;
+    return ['127.0.0.1', 'localhost', '::1'].includes(host) ? route.continue() : route.abort();
+  });
+  await page.goto('/');
+  await seedSelectedDocument(page, { enterEdit: false });
+  await expect(page.locator('.doc-rich-editor .ProseMirror')).toBeVisible();
+  const setState = (state) => page.evaluate((next) => {
+    const adapter = window.Alpine.store('chat').docRichEditorAdapter;
+    adapter.setContent(next);
+    return adapter.getContentModel();
+  }, state);
+  let model = await setState(shortRichDocumentFixture());
+  const withoutIds = (state) => JSON.parse(JSON.stringify(state, (key, value) => key === 'fdBlockId' ? undefined : value));
+  const original = withoutIds(model.editor_state);
+  for (let cycle = 0; cycle < 3; cycle++) {
+    expect(validateDocumentContentModelRoundTrip(model)).toEqual({ ok: true });
+    model = await setState(markdownToProseMirrorDoc(model.content, { contentBlocks: model.content_blocks }));
+    expect(withoutIds(model.editor_state)).toEqual(original);
+    expect(await page.locator('.ProseMirror h2').textContent()).toBe('Phase 1: Preparation\u00a0');
+    await expect(page.locator('.ProseMirror ol')).toHaveAttribute('start', '10');
+    expect(await page.locator('.ProseMirror strong').textContent()).toBe('Deliverables:\u00a0');
+  }
+});
+
 test('typing stays visible during delayed lease acquisition and continues in the same editor after success', async ({ page }) => {
   await page.goto('/');
   await seedSelectedDocument(page, { enterEdit: false });

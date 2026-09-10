@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Schema } from '@tiptap/pm/model';
+import { shortRichDocumentFixture } from './fixtures/short-rich-document.js';
+import { validateDocumentContentModelRoundTrip } from '../src/docs/editor/document-content-integrity.js';
 
 const {
   acquireRecordCheckoutMock,
@@ -2272,7 +2274,8 @@ describe('docsManagerMixin durable recovery drafts', () => {
 });
 
 describe('docsManagerMixin canonical row normalization', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await openWorkspaceDb('npub1signedinactor').open();
     updateTowerPgDocMock.mockReset();
   });
 
@@ -2655,7 +2658,7 @@ describe('docsManagerMixin canonical row normalization', () => {
     expect(updateTowerPgDocMock).toHaveBeenCalledTimes(1);
   });
 
-  it('refuses a changed model whose serialized Markdown drops semantic tail content', async () => {
+  it.each([false, true])('refuses a changed model whose serialized Markdown drops semantic tail content (autosave=%s)', async (autosave) => {
     isTowerPgBackendModeMock.mockReturnValue(true);
     const source = buildSyntheticLongDocumentFixture();
     const full = createDocumentEditorState({ content: source, content_blocks: [] }).contentModel;
@@ -2669,13 +2672,36 @@ describe('docsManagerMixin canonical row normalization', () => {
       contentFormat: null,
     });
 
-    await expect(store.saveSelectedPgDocItem(record, 'npub1owner', { autosave: false })).resolves.toBeNull();
+    await expect(store.saveSelectedPgDocItem(record, 'npub1owner', { autosave })).resolves.toBeNull();
     expect(store.docAutosaveState).toBe('error');
-    expect(store.error).toContain('complete document');
+    expect(store.docEditAccessMessage).toContain('complete document');
+    if (!autosave) expect(store.error).toContain('complete document');
     expect(store.docEditDraftDirty).toBe(true);
     expect(await getDocumentDraft('workspace-1', record.record_id)).toMatchObject({ content: lossy.content, editor_state: lossy.editor_state });
     expect(store.prepareDocumentContentForEnvelope).not.toHaveBeenCalled();
     expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('saves a complete short rich timeline and reopens it repeatedly (autosave=%s)', async (autosave) => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const original = shortRichDocumentFixture();
+    let model = prosemirrorToFlightDeckContentModel(original);
+    const markdown = model.content;
+    for (let cycle = 0; cycle < 3; cycle++) {
+      updateTowerPgDocMock.mockResolvedValueOnce(acceptedPgDoc(44, model.content));
+      const { store } = createSyncedPgDocSaveStore({ currentModel: model });
+      const saved = await store.saveSelectedDocItem({ autosave });
+      expect(saved).toMatchObject({ version: 44, content: markdown, editor_state: model.editor_state });
+      expect(store.docAutosaveState).toBe('saved');
+      expect(store.docEditDraftDirty).toBe(false);
+      expect(store.prepareDocumentContentForEnvelope.mock.calls[0][1]).toMatchObject(model);
+      expect(validateDocumentContentModelRoundTrip({ ...saved, editor_state: original })).toEqual({ ok: true });
+      // Exercise both rich-state reopen and Markdown-only compatibility reopen.
+      expect(createDocumentEditorState(saved).editorState).toEqual(model.editor_state);
+      model = createDocumentEditorState({ ...saved, editor_state: null }).contentModel;
+      expect(model.content).toBe(markdown);
+    }
+    expect(updateTowerPgDocMock).toHaveBeenCalledTimes(3);
   });
 
   it('saves a rich list with an insignificant trailing prose space', async () => {

@@ -144,7 +144,9 @@ function listItemFromToken(item = {}, taskList = false) {
   const attrs = taskList ? { checked: item.checked === true } : {};
   const children = (item.tokens || []).map(listItemContentFromToken).filter(Boolean);
   if (children.length === 0 || children[0]?.type !== 'paragraph') {
-    children.unshift(paragraphFromText(item.text || ''));
+    // A nested block can follow an empty parent item. Its raw Markdown is
+    // already represented by children; copying item.text duplicates it.
+    children.unshift(paragraphFromText(children.length ? '' : item.text || ''));
   }
   return { type: taskList ? 'taskItem' : 'listItem', attrs, content: children };
 }

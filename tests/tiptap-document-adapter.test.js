@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { markdownToProseMirrorDoc } from '../src/docs/editor/markdown-to-prosemirror.js';
 import { prosemirrorToFlightDeckContentModel } from '../src/docs/editor/prosemirror-to-flightdeck.js';
-import { validateDocumentContentModelRoundTrip } from '../src/docs/editor/document-content-integrity.js';
+import { documentEditorSemanticTokens, validateDocumentContentModelRoundTrip } from '../src/docs/editor/document-content-integrity.js';
 import { createDocumentEditorState } from '../src/docs/editor/document-editor-store.js';
+import { shortRichDocumentFixture } from './fixtures/short-rich-document.js';
 import {
   FLIGHTDECK_PROSEMIRROR_CONTENT_FORMAT,
   PROSEMIRROR_JSON_FORMAT,
@@ -13,6 +14,29 @@ import {
 } from './fixtures/synthetic-long-document.js';
 
 describe('Tiptap document adapter', () => {
+  it('preserves a short rich timeline with pasted whitespace and complete list-item blocks on reopen', () => {
+    const original = shortRichDocumentFixture();
+    const snapshot = structuredClone(original);
+    let current = prosemirrorToFlightDeckContentModel(original);
+    const semanticTree = (node) => ({
+      type: node.type,
+      ...(node.text ? { text: node.text } : {}),
+      ...(node.marks?.length ? { marks: node.marks } : {}),
+      ...(node.type === 'heading' ? { level: node.attrs.level } : {}),
+      ...(node.type === 'orderedList' ? { start: node.attrs.start } : {}),
+      ...(node.content ? { content: ['paragraph', 'heading'].includes(node.type)
+        ? documentEditorSemanticTokens({ type: 'doc', content: node.content })
+        : node.content.map(semanticTree) } : {}),
+    });
+    for (let cycle = 0; cycle < 4; cycle++) {
+      expect(validateDocumentContentModelRoundTrip(current)).toEqual({ ok: true });
+      // Force Markdown reopen instead of reusing the saved editor JSON.
+      const reopened = createDocumentEditorState({ ...current, editor_state: null }).contentModel;
+      expect(semanticTree(reopened.editor_state)).toEqual(semanticTree(original));
+      current = reopened;
+    }
+    expect(original).toEqual(snapshot);
+  });
   it('imports Markdown into ProseMirror JSON and exports Flight Deck compatibility fields', () => {
     const source = [
       '# Spec',
@@ -278,6 +302,20 @@ describe('prose boundary integrity', () => {
 });
 
 describe('editable whitespace serialization', () => {
+  it.each(['\u00a0', '\t', '\u2003', '\u202f', '\n'])('retains rich boundary whitespace %j in headings, marked prose and lists', (space) => {
+    const inline = [{ type: 'text', text: `${space}Label:${space}`, marks: [{ type: 'bold' }] }];
+    const state = { type: 'doc', content: [
+      { type: 'heading', attrs: { level: 3 }, content: [{ type: 'text', text: `Heading${space}` }] },
+      { type: 'paragraph', content: [{ type: 'text', text: 'Before' }, ...inline, { type: 'text', text: 'After' }] },
+      { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: inline }] }] },
+    ] };
+    let current = prosemirrorToFlightDeckContentModel(state);
+    for (let cycle = 0; cycle < 4; cycle++) {
+      expect(validateDocumentContentModelRoundTrip({ ...current, editor_state: state })).toEqual({ ok: true });
+      current = createDocumentEditorState({ ...current, editor_state: null }).contentModel;
+    }
+  });
+
   it.each(['bold', 'italic', 'strike'])('preserves %s boundary spaces and marks across repeated reopens', (type) => {
     const state = { type: 'doc', content: [{ type: 'paragraph', content: [
       { type: 'text', text: 'Before ' },

@@ -1484,6 +1484,21 @@
         "Image upload completion, failure and removal preserve intervening typing and selection, and update the originating draft after navigation.",
         "Channel and thread navigation retain unsent text. Unchanged message HTML keeps hydrated images in place during document updates."
       ]
+    },
+    {
+      "buildNumber": 1932,
+      "label": "Preserve short rich document saves",
+      "notes": [
+        "Rich document saves preserve pasted nonbreaking spaces and tabs, plus continuation paragraphs and nested lists, without triggering a false preservation failure.",
+        "Manual save and autosave retain complete document content while integrity checks continue to protect against content loss."
+      ]
+    },
+    {
+      "buildNumber": 1933,
+      "label": "Keep empty parent list items intact",
+      "notes": [
+        "Nested lists beneath an empty parent item reopen without duplicated text, preserving their structure during rich document saves."
+      ]
     }
   ]
 }

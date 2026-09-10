@@ -13,13 +13,16 @@ function markText(text, marks = [], { atStart = false, atEnd = false, encodeFirs
   // Markdown emphasis cannot open/close beside literal whitespace, and block
   // parsers trim boundary spaces. Character references preserve the exact text
   // (including its marks) without relaxing the independent integrity check.
-  let escaped = escapeText(text);
+  const whitespaceReferences = (value) => Array.from(value, (char) => `&#${char.codePointAt(0)};`).join('');
+  // Rich paste includes NBSPs/tabs, not just ASCII spaces. Preserve soft
+  // newlines as text too; literal newlines can become Markdown block syntax.
+  let escaped = escapeText(text).replace(/[\t\r\n]/g, whitespaceReferences);
   // An encoded marked space ends in ';'. Encode an adjacent word character
   // too, so Markdown's delimiter flanking rules still recognize the mark.
   if (encodeFirst) escaped = escaped.replace(/^[\p{L}\p{N}]/u, (char) => `&#${char.codePointAt(0)};`);
   if (encodeLast) escaped = escaped.replace(/[\p{L}\p{N}]$/u, (char) => `&#${char.codePointAt(0)};`);
-  if (marks.length || atStart) escaped = escaped.replace(/^ +/, (spaces) => '&#32;'.repeat(spaces.length));
-  if (marks.length || atEnd) escaped = escaped.replace(/ +$/, (spaces) => '&#32;'.repeat(spaces.length));
+  if (marks.length || atStart) escaped = escaped.replace(/^\s+/, whitespaceReferences);
+  if (marks.length || atEnd) escaped = escaped.replace(/\s+$/, whitespaceReferences);
   return (marks || []).reduce((out, mark) => {
     if (mark.type === 'bold') return `**${out}**`;
     if (mark.type === 'italic') return `_${out}_`;
@@ -52,8 +55,8 @@ function inlineMarkdown(nodes = []) {
     if (node.type === 'text') return markText(node.text || '', node.marks || [], {
       atStart: index === 0,
       atEnd: index === runs.length - 1,
-      encodeFirst: runs[index - 1]?.marks?.length > 0 && / $/.test(runs[index - 1]?.text || ''),
-      encodeLast: runs[index + 1]?.marks?.length > 0 && /^ /.test(runs[index + 1]?.text || ''),
+      encodeFirst: runs[index - 1]?.marks?.length > 0 && /\s$/.test(runs[index - 1]?.text || ''),
+      encodeLast: runs[index + 1]?.marks?.length > 0 && /^\s/.test(runs[index + 1]?.text || ''),
     });
     if (node.type === 'hardBreak') return '  \n';
     if (node.type === 'fdStorageImage' || node.type === 'image') {
@@ -76,16 +79,19 @@ function indent(value = '', spaces = 2) {
   return String(value || '').split('\n').map((line) => `${prefix}${line}`).join('\n');
 }
 
-function listMarkdown(node = {}, ordered = false, depth = 0) {
+function listMarkdown(node = {}, ordered = false) {
   return (node.content || []).map((item, index) => {
-    const paragraph = item.content?.find((child) => child.type === 'paragraph');
-    const nested = (item.content || []).filter((child) => child.type === 'bulletList' || child.type === 'orderedList' || child.type === 'taskList');
     const marker = node.type === 'taskList'
       ? `- [${item.attrs?.checked ? 'x' : ' '}]`
       : ordered ? `${index + (node.attrs?.start || 1)}.` : '-';
-    const line = `${'  '.repeat(depth)}${marker} ${inlineMarkdown(paragraph?.content || [])}`.trimEnd();
-    const nestedLines = nested.map((child) => listMarkdown(child, child.type === 'orderedList', depth + 1)).filter(Boolean);
-    return [line, ...nestedLines].join('\n');
+    // Every child belongs to the item, in order. Rich editors can create
+    // multiple paragraphs, headings and quotes as well as nested lists.
+    // Continuations align with the content after the actual Markdown marker
+    // (including multi-digit numbers); a task checkbox is part of that content.
+    const width = node.type === 'taskList' ? 2 : marker.length + 1;
+    const body = blockNodesMarkdown(item.content || []);
+    const [first = '', ...rest] = body.split('\n');
+    return `${marker} ${first}${rest.length ? `\n${indent(rest.join('\n'), width)}` : ''}`;
   }).join('\n');
 }
 
