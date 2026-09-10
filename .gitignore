@@ -50,6 +50,9 @@ apps/*.sqlite3
 # Design logs (scratch, not version controlled)
 docs/log/
 
+# Legacy operational records retained locally; new records belong in tmp/docs/handoffs/.
+/docs/handoffs/
+
 # Generated reports
 playwright-report/
 test-results/
