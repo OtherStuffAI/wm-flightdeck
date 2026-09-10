@@ -1570,31 +1570,82 @@
                 </button>
               </div>
             </div>
-            <nav class="mobile-section-switcher" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen" aria-label="Scope section navigation">
-              <button
-                type="button"
-                class="mobile-section-switcher-btn"
-                :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'status' }"
-                @click="$store.chat.navigateTo('status')"
-              >Deck</button>
-              <button
-                type="button"
-                class="mobile-section-switcher-btn"
-                :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'chat' }"
-                @click="$store.chat.navigateTo('chat')"
-              >Chat</button>
-              <button
-                type="button"
-                class="mobile-section-switcher-btn"
-                :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'tasks' }"
-                @click="$store.chat.navigateTo('tasks')"
-              >Tasks</button>
-              <button
-                type="button"
-                class="mobile-section-switcher-btn"
-                :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'docs' }"
-                @click="$store.chat.navigateTo('docs')"
-              >Docs</button>
+            <nav class="mobile-section-switcher" x-show="!$store.chat.mobileNavOpen"
+              @resize.window="$store.chat.updateNavigationViewport()" aria-label="Scope section navigation">
+              <div class="mobile-section-switcher-item">
+                <button type="button" class="mobile-section-switcher-btn"
+                  :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'status' }"
+                  :aria-current="$store.chat.navSection === 'status' ? 'page' : null"
+                  @click="$store.chat.navigateTo('status')">Deck</button>
+              </div>
+              <div class="mobile-section-switcher-item">
+                <button type="button" class="mobile-section-switcher-btn"
+                  :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'chat' }"
+                  :aria-current="$store.chat.navSection === 'chat' ? 'page' : null"
+                  @click="$store.chat.navigateTo('chat')">Chat</button>
+                <button type="button" class="view-lock-button mobile-view-lock-button"
+                  x-cloak x-show="$store.chat.canLockCurrentView && $store.chat.navSection === 'chat'"
+                  :class="{ 'view-lock-button-locked': $store.chat.isCurrentViewLocked }"
+                  :aria-pressed="$store.chat.isCurrentViewLocked" aria-label="Lock Chat view"
+                  :title="$store.chat.isCurrentViewLocked ? 'Unlock Chat view' : 'Keep Chat when changing scope or channel'"
+                  @click.stop="$store.chat.toggleCurrentViewLock()">
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+                    <path :d="$store.chat.isCurrentViewLocked ? 'M8 10V6a4 4 0 0 1 8 0v4' : 'M8 10V6a4 4 0 0 1 8 0'"></path>
+                  </svg>
+                </button>
+              </div>
+              <div class="mobile-section-switcher-item">
+                <button type="button" class="mobile-section-switcher-btn"
+                  :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'tasks' }"
+                  :aria-current="$store.chat.navSection === 'tasks' ? 'page' : null"
+                  @click="$store.chat.navigateTo('tasks')">Tasks</button>
+                <button type="button" class="view-lock-button mobile-view-lock-button"
+                  x-cloak x-show="$store.chat.canLockCurrentView && $store.chat.navSection === 'tasks'"
+                  :class="{ 'view-lock-button-locked': $store.chat.isCurrentViewLocked }"
+                  :aria-pressed="$store.chat.isCurrentViewLocked" aria-label="Lock Tasks view"
+                  :title="$store.chat.isCurrentViewLocked ? 'Unlock Tasks view' : 'Keep Tasks when changing scope or channel'"
+                  @click.stop="$store.chat.toggleCurrentViewLock()">
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+                    <path :d="$store.chat.isCurrentViewLocked ? 'M8 10V6a4 4 0 0 1 8 0v4' : 'M8 10V6a4 4 0 0 1 8 0'"></path>
+                  </svg>
+                </button>
+              </div>
+              <div class="mobile-section-switcher-item">
+                <button type="button" class="mobile-section-switcher-btn"
+                  :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'docs' }"
+                  :aria-current="$store.chat.navSection === 'docs' ? 'page' : null"
+                  @click="$store.chat.navigateTo('docs')">Docs</button>
+                <button type="button" class="view-lock-button mobile-view-lock-button"
+                  x-cloak x-show="$store.chat.canLockCurrentView && $store.chat.navSection === 'docs'"
+                  :class="{ 'view-lock-button-locked': $store.chat.isCurrentViewLocked }"
+                  :aria-pressed="$store.chat.isCurrentViewLocked" aria-label="Lock Docs view"
+                  :title="$store.chat.isCurrentViewLocked ? 'Unlock Docs view' : 'Keep Docs when changing scope or channel'"
+                  @click.stop="$store.chat.toggleCurrentViewLock()">
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+                    <path :d="$store.chat.isCurrentViewLocked ? 'M8 10V6a4 4 0 0 1 8 0v4' : 'M8 10V6a4 4 0 0 1 8 0'"></path>
+                  </svg>
+                </button>
+              </div>
+              <div class="mobile-section-switcher-item">
+                <button type="button" class="mobile-section-switcher-btn"
+                  :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'files' }"
+                  :aria-current="$store.chat.navSection === 'files' ? 'page' : null"
+                  @click="$store.chat.navigateTo('files')">Files</button>
+                <button type="button" class="view-lock-button mobile-view-lock-button"
+                  x-cloak x-show="$store.chat.canLockCurrentView && $store.chat.navSection === 'files'"
+                  :class="{ 'view-lock-button-locked': $store.chat.isCurrentViewLocked }"
+                  :aria-pressed="$store.chat.isCurrentViewLocked" aria-label="Lock Files view"
+                  :title="$store.chat.isCurrentViewLocked ? 'Unlock Files view' : 'Keep Files when changing scope or channel'"
+                  @click.stop="$store.chat.toggleCurrentViewLock()">
+                  <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="5" y="10" width="14" height="11" rx="2"></rect>
+                    <path :d="$store.chat.isCurrentViewLocked ? 'M8 10V6a4 4 0 0 1 8 0v4' : 'M8 10V6a4 4 0 0 1 8 0'"></path>
+                  </svg>
+                </button>
+              </div>
             </nav>
           </div>
 

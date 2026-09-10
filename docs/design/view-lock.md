@@ -11,8 +11,11 @@ The closed padlock and pressed button state indicate a lock. Pressing it again
 unlocks. Selecting another view clears it; Deck and Setup cannot be locked.
 Explicit Deck links still open Deck. Route-driven section changes also clear
 the lock. The lock lives in shell memory and is not restored on reload.
-Changing sidebar mode clears it. Mobile uses the same controls when the scope
-and channel sidebar is open.
+Changing desktop sidebar mode clears it. On mobile, Scopes > Channels is the
+drawer navigation mode, independent of whether the drawer is open. The normal
+bottom bar offers Chat, Tasks, Docs and Files locks beside the active view, with
+a separate 44px touch target. Opening or closing the drawer retains the lock.
+Returning to a collapsed desktop sidebar clears an inapplicable lock.
 
 The independent native button supports Tab, Enter and Space, has a stable
 accessible name and aria-pressed state, and shows an action tooltip. Scope and

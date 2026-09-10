@@ -15381,7 +15381,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
   .mobile-section-switcher {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, auto);
     position: fixed;
     right: 0;
     bottom: 0;
@@ -15416,6 +15416,20 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     font-weight: 800;
     background: #f8fafc;
   }
+
+  .mobile-section-switcher-item {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    border-right: 1px solid var(--border);
+  }
+  .mobile-section-switcher-item:last-child { border-right: 0; }
+  .mobile-section-switcher-item .mobile-section-switcher-btn {
+    flex: 1 1 auto;
+    min-width: 44px;
+    border-right: 0;
+  }
+  .mobile-section-switcher .mobile-view-lock-button { width: 44px; min-height: 44px; border-radius: 6px; }
 
   .chat-section {
     min-height: 0;

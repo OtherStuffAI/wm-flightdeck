@@ -28,7 +28,7 @@ describe('expanded left-column section switcher', () => {
     expect(sidebar).toContain('class="sidebar-nav" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen"');
     expect(globalBar).toContain('class="channel-row-scope-switcher"');
     expect(globalBar).toContain('class="chat-channel-tab-scroll" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen"');
-    expect(globalBar).toContain('class="mobile-section-switcher" x-show="$store.chat.navCollapsed && !$store.chat.mobileNavOpen"');
+    expect(globalBar).toContain('class="mobile-section-switcher" x-show="!$store.chat.mobileNavOpen"');
   });
 
   it('renders exactly one labelled section set in the shared top bar for either expanded-column state', () => {

@@ -7,11 +7,12 @@ import { buildPgChannelTaskBoardId } from '../src/pg-record-context.js';
 import { filterDocItemsByScope } from '../src/docs-scope-filter.js';
 import { filesManagerMixin } from '../src/files-manager.js';
 
-function makeStore(section = 'tasks') {
+function createStore(section = 'tasks', mobile = false) {
   const store = createShellState({ initialSection: section });
   Object.defineProperties(store, Object.getOwnPropertyDescriptors(taskBoardStateMixin));
   Object.assign(store, {
-    navCollapsed: false,
+    navCollapsed: mobile,
+    mobileViewport: mobile,
     selectedBoardId: 'scope-old',
     selectedChannelId: null,
     currentWorkspace: { pgBackendMode: true },
@@ -30,7 +31,8 @@ function makeStore(section = 'tasks') {
   return store;
 }
 
-describe('Lock into a content view', () => {
+describe.each([false, true])('Lock into a content view (mobile: %s)', (mobile) => {
+  const makeStore = (section) => createStore(section, mobile);
   for (const section of ['tasks', 'docs', 'chat', 'files']) {
     it(`retains ${section} through scope and channel selection with new filter context`, async () => {
       const store = makeStore(section);
@@ -185,7 +187,7 @@ describe('Lock into a content view', () => {
     expect(store.lockedView).toBeNull();
   });
   it('gates locking on the scope/channel sidebar and clears it when changing mode', async () => {
-    const store = makeStore();
+    const store = createStore();
     store.toggleCurrentViewLock();
     store.togglePrimaryNav();
     expect(store.lockedView).toBeNull();
@@ -207,8 +209,8 @@ describe('Lock into a content view', () => {
   });
   it('renders independent native toggle buttons with state, tooltip, and focus treatment', () => {
     const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-    const buttons = html.match(/<button type="button" class="view-lock-button"[\s\S]*?<\/button>/g);
-    expect(buttons).toHaveLength(4);
+    const buttons = html.match(/<button type="button" class="view-lock-button(?: mobile-view-lock-button)?"[\s\S]*?<\/button>/g);
+    expect(buttons).toHaveLength(8);
     for (const button of buttons) {
       expect(button).toContain(':aria-pressed="$store.chat.isCurrentViewLocked"');
       expect(button).toContain('aria-label="Lock ');

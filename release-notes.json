@@ -1499,6 +1499,13 @@
       "notes": [
         "Nested lists beneath an empty parent item reopen without duplicated text, preserving their structure during rich document saves."
       ]
+    },
+    {
+      "buildNumber": 1935,
+      "label": "Lock views from the mobile bottom bar",
+      "notes": [
+        "Keep Chat, Tasks, Docs or Files open while browsing scopes, channels and workspace Home using the grey lock beside the active mobile bottom-bar view. Tap again to unlock, or select another view."
+      ]
     }
   ]
 }
