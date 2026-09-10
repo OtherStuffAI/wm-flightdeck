@@ -1638,22 +1638,23 @@ export const taskBoardStateMixin = {
       this.saveChatComposerDraft?.('thread');
     }
 
-    // The shared work-context bar always opens Deck. Commit that visible
-    // destination before any section cleanup, refresh, or subscription work.
-    this.navSection = 'status';
+    // A locked content view keeps using the existing board selection/filtering
+    // path. Unlocked context navigation still opens Deck before follow-up work.
+    const destination = this.isCurrentViewLocked ? previousSection : 'status';
+    this.navSection = destination;
     this.mobileNavOpen = false;
     this.showWorkspaceSwitcherMenu = false;
     const selection = this.selectBoard(normalizedBoardId);
     void Promise.resolve(selection).then(() => {
-      if (String(this.selectedBoardId || '') !== normalizedBoardId) return;
-      if (previousSection !== 'status') this.clearInactiveSectionData?.('status');
+      if (String(this.selectedBoardId || '') !== normalizedBoardId || this.navSection !== destination) return;
+      if (previousSection !== destination) this.clearInactiveSectionData?.(destination);
       if (this.chatTaskModalOpen) void this.closeChatTaskModal?.();
       else if (this.showTaskDetail) void this.closeTaskDetail?.({ syncRoute: false });
       if (this.activeThreadId) {
         if (this.deckThreadChannelId) this.closeDeckThread?.({ syncRoute: false, fromRoute: true });
         else this.closeThread?.({ syncRoute: false });
       }
-      void this.refreshStatusRecentChanges?.({ force: true });
+      if (destination === 'status') void this.refreshStatusRecentChanges?.({ force: true });
       this.startWorkspaceLiveQueries?.();
       this.ensureBackgroundSync?.(true);
     });

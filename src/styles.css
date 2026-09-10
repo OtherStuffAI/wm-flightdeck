@@ -22546,3 +22546,21 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 .settings-panel .tower-transport-settings input { width: 100%; min-width: 0; box-sizing: border-box; padding: .65rem; border: 1px solid #64748b; border-radius: 6px; }
 .tower-transport-settings p, .tower-transport-settings button { overflow-wrap: anywhere; }
 .settings-panel .cvm-toggle input[type="checkbox"] { width: auto; flex: 0 0 auto; }
+
+/* Sibling buttons keep the view tab and its independent lock keyboard accessible. */
+.view-lock-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #64748b;
+}
+.view-lock-button:hover { background: #f1f5f9; }
+.view-lock-button-locked { background: #e2e8f0; color: #334155; }
+.view-lock-button:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }

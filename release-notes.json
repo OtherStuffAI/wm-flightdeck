@@ -1453,6 +1453,13 @@
       "notes": [
         "Flight Deck saves the Tower FIPS endpoint and identity locally, retaining them when switching to HTTPS so FIPS can be selected again after reload."
       ]
+    },
+    {
+      "buildNumber": 1925,
+      "label": "Lock into a view",
+      "notes": [
+        "Lock Chat, Tasks, Docs or Files while browsing scopes and channels in the expanded sidebar. Select a different view or change sidebar mode to unlock; Deck remains the default."
+      ]
     }
   ]
 }

@@ -57,7 +57,7 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(html).toMatch(/<h2\s+class="sidebar-scope-heading"[^>]*>\s*<span class="sidebar-scope-heading-row">\s*<button/s);
     expect(html).toContain('class="sidebar-scope-heading-control"');
     expect(html).toContain('@click="$store.chat.selectWorkContextScope(group.scope.record_id, $event)"');
-    expect(html).toContain("active: $store.chat.navSection === 'status' && $store.chat.pgContextScopeId === group.scope.record_id && $store.chat.pgContextHomeSelected");
+    expect(html).toContain("active: $store.chat.pgContextScopeId === group.scope.record_id && $store.chat.pgContextHomeSelected");
     expect(html).toContain("$store.chat.pgContextHomeSelected ? 'page' : null");
     expect(html).toContain("'Open ' + ($store.chat.getScopeBreadcrumb(group.scope.record_id) || group.scope.title || group.scope.record_id) + ' home'");
   });

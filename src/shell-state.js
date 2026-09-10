@@ -88,6 +88,10 @@ export const SHELL_STATE_KEYS = Object.freeze([
 
   // Navigation
   'navSection',
+  '_navSection',
+  'lockedView',
+  'canLockCurrentView',
+  'isCurrentViewLocked',
   'navCollapsed',
   'mobileNavOpen',
   'routeSyncPaused',
@@ -223,6 +227,7 @@ export const SHELL_METHOD_NAMES = Object.freeze([
   'updatePageTitle',
   'navigateTo',
   'togglePrimaryNav',
+  'toggleCurrentViewLock',
   'clearInactiveSectionData',
   'startExtensionSignerWatch',
   'stopExtensionSignerWatch',
@@ -272,7 +277,24 @@ export function createShellState(options = {}) {
     error: null,
 
     // ── Navigation ────────────────────────────────────────────
-    navSection: initialSection,
+    _navSection: initialSection,
+    lockedView: null,
+    get navSection() { return this._navSection; },
+    set navSection(section) {
+      if (section !== this._navSection) this.lockedView = null;
+      this._navSection = section;
+    },
+    get canLockCurrentView() {
+      return (!this.navCollapsed || this.mobileNavOpen)
+        && ['chat', 'tasks', 'docs', 'files'].includes(this.navSection);
+    },
+    get isCurrentViewLocked() {
+      return this.canLockCurrentView && this.lockedView === this.navSection;
+    },
+    toggleCurrentViewLock() {
+      this.lockedView = this.canLockCurrentView && !this.isCurrentViewLocked
+        ? this.navSection : null;
+    },
     navCollapsed: true,
     mobileNavOpen: false,
     routeSyncPaused: false,
@@ -935,6 +957,7 @@ export function createShellState(options = {}) {
     },
 
     togglePrimaryNav() {
+      this.lockedView = null;
       if (typeof window !== 'undefined' && window.innerWidth <= 768) {
         this.mobileNavOpen = !this.mobileNavOpen;
         return;
