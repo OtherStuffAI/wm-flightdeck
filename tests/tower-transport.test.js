@@ -5,6 +5,7 @@ import {
   initializeTowerTransports, normalizeFipsEndpoint, resolveTowerSigningUrl,
   saveTowerTransportPreference, towerFetch,
 } from '../src/tower-transport.js';
+import { getSharedDb } from '../src/db.js';
 import { NativeTowerEventSource } from '../src/tower-event-source.js';
 import { TowerSyncService } from '../src/tower-sync-service.js';
 
@@ -24,7 +25,10 @@ const bridge = () => ({
   fetch: vi.fn(async () => Response.json({ status: 'ok', service_npub: serviceNpub })),
 });
 
-beforeEach(() => importTowerTransports([]));
+beforeEach(async () => {
+  importTowerTransports([]);
+  await getSharedDb().tower_transport_preferences.clear();
+});
 afterEach(() => { importTowerTransports([]); vi.unstubAllGlobals(); });
 
 describe('paired Tower transport', () => {
@@ -41,14 +45,16 @@ describe('paired Tower transport', () => {
     expect(native.connect).toHaveBeenCalledWith({ serviceNpub, endpoint });
     expect(native.fetch).toHaveBeenCalledWith(`${endpoint}/health`, expect.objectContaining({ credentials: 'omit', redirect: 'error' }));
     const local = storage();
-    saveTowerTransportPreference(logicalTower, paired, local);
-    expect([...local.values.values()].join('')).not.toContain('proxyBaseUrl');
+    await saveTowerTransportPreference(logicalTower, paired);
+    expect(await getSharedDb().tower_transport_preferences.get(logicalTower)).toEqual({
+      logicalTower, mode: 'fips', endpoint, serviceNpub,
+    });
     expect(getTowerTransport(logicalTower)).toEqual({ mode: 'https' });
     await initializeTowerTransports({ storage: local, bridge: native });
     expect(getTowerTransport(logicalTower)).toEqual(connection);
     expect(exportTowerTransports()[0].logicalTower).toBe(logicalTower);
     expect(resolveTowerSigningUrl(`${logicalTower}/api/v4/read?cursor=123`)).toBe(`${endpoint}/api/v4/read?cursor=123`);
-    saveTowerTransportPreference(logicalTower, { mode: 'https' }, local);
+    await saveTowerTransportPreference(logicalTower, { mode: 'https' });
     await initializeTowerTransports({ storage: local });
     expect(getTowerTransport(logicalTower).mode).toBe('https');
   });
@@ -63,7 +69,7 @@ describe('paired Tower transport', () => {
 
   it('preserves a saved FIPS selection on unavailable reload and never issues public requests', async () => {
     const local = storage();
-    saveTowerTransportPreference(logicalTower, connection, local);
+    await saveTowerTransportPreference(logicalTower, connection);
     const publicFetch = vi.fn();
     vi.stubGlobal('fetch', publicFetch);
     await initializeTowerTransports({ storage: local, bridge: null });
@@ -144,13 +150,13 @@ it('retains local rows, queued writes and cursors across FIPS reload and HTTPS s
     await addPendingWrite({ record_id: 'local-task', record_family_hash: 'task-family', envelope: { version: 7, previous_version: 6 } });
     await setSyncState('logical-cursor', 'committed-42');
     const writes = await getPendingWrites();
-    saveTowerTransportPreference(logicalTower, connection, local);
+    await saveTowerTransportPreference(logicalTower, connection);
     await initializeTowerTransports({ storage: local, bridge: bridge() });
     expect(getCurrentWorkspaceDbKey()).toBe(workspaceKey);
     expect(await db.tasks.get('local-task')).toMatchObject({ title: 'Pending edit', version: 7 });
     expect(await getPendingWrites()).toEqual(writes);
     expect(await getSyncState('logical-cursor')).toBe('committed-42');
-    saveTowerTransportPreference(logicalTower, { mode: 'https' }, local);
+    await saveTowerTransportPreference(logicalTower, { mode: 'https' });
     await initializeTowerTransports({ storage: local });
     expect(await getPendingWrites()).toEqual(writes);
     expect(await db.tasks.count()).toBe(1);
@@ -159,7 +165,7 @@ it('retains local rows, queued writes and cursors across FIPS reload and HTTPS s
 
 it('waits for WMapp page-finished injection on saved FIPS reload', async () => {
   const local = storage();
-  saveTowerTransportPreference(logicalTower, connection, local);
+  await saveTowerTransportPreference(logicalTower, connection);
   const window = new EventTarget();
   vi.stubGlobal('window', window);
   const initializing = initializeTowerTransports({ storage: local });

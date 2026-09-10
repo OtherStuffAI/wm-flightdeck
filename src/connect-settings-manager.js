@@ -1,4 +1,4 @@
-import { towerFetch as fetch, connectTowerBridge, getTowerTransport, saveTowerTransportPreference } from './tower-transport.js';
+import { towerFetch as fetch, connectTowerBridge, getTowerTransport, getTowerTransportPreference, saveTowerTransportPreference } from './tower-transport.js';
 /**
  * Connection, settings, and agent-connect methods extracted from app.js.
  *
@@ -389,7 +389,7 @@ export const connectSettingsManagerMixin = {
     this.backendOverrideDraft = this.backendUrl;
     const connection = getTowerTransport(this.backendUrl);
     this.towerTransportMode = connection.mode;
-    this.towerFipsEndpoint = connection.endpoint || (isFipsUrl(this.superbasedTokenInput) ? this.superbasedTokenInput.trim() : '');
+    this.towerFipsEndpoint = getTowerTransportPreference(this.backendUrl).endpoint || connection.endpoint || (isFipsUrl(this.superbasedTokenInput) ? this.superbasedTokenInput.trim() : '');
     this.towerTransportError = connection.error || '';
   },
 
@@ -427,7 +427,12 @@ export const connectSettingsManagerMixin = {
         }
       }
       assertCurrent();
-      saveTowerTransportPreference(logicalTower, preference);
+      try {
+        await saveTowerTransportPreference(logicalTower, preference);
+      } catch (error) {
+        if (preference.mode === 'fips') await globalThis.window?.wingmanTowerTransport?.disconnect?.();
+        throw error;
+      }
       // Reload the same page origin. Stable backend, workspace keys, cursor and
       // durable pending writes are unchanged; the usual service owns recovery.
       await this.getTowerSyncService()?.prepareTransportReload();

@@ -1446,6 +1446,13 @@
       "label": "Release harness acceptance corrections",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1924,
+      "label": "Remember Tower FIPS connections",
+      "notes": [
+        "Flight Deck saves the Tower FIPS endpoint and identity locally, retaining them when switching to HTTPS so FIPS can be selected again after reload."
+      ]
     }
   ]
 }

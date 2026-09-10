@@ -160,3 +160,28 @@ it('fails closed without stored workspace Tower identity, never looks it up over
   expect(fetch).not.toHaveBeenCalled();
   expect(connectTowerBridge).not.toHaveBeenCalled();
 });
+
+it('waits for the database commit before draining sync or reloading', async () => {
+  store.towerTransportMode = 'https';
+  let commit;
+  saveTowerTransportPreference.mockImplementationOnce(() => new Promise(resolve => { commit = resolve; }));
+  const prepare = vi.fn();
+  store.getTowerSyncService = () => ({ prepareTransportReload: prepare });
+  const saving = store.saveTowerTransportSettings();
+  expect(prepare).not.toHaveBeenCalled();
+  expect(reload).not.toHaveBeenCalled();
+  commit();
+  await saving;
+  expect(prepare).toHaveBeenCalledOnce();
+  expect(reload).toHaveBeenCalledOnce();
+});
+
+it('revokes the new pairing if its database save fails and leaves the draft available', async () => {
+  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service' });
+  saveTowerTransportPreference.mockRejectedValueOnce(new Error('database unavailable'));
+  await store.saveTowerTransportSettings();
+  expect(store.towerTransportError).toBe('database unavailable');
+  expect(store.towerFipsEndpoint).toBe('paired-endpoint');
+  expect(window.wingmanTowerTransport.disconnect).toHaveBeenCalledOnce();
+  expect(reload).not.toHaveBeenCalled();
+});

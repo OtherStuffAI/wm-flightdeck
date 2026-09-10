@@ -1,10 +1,11 @@
 import { nativeWorkerFetch } from './tower-native-worker-transport.js';
 import { nip19 } from 'nostr-tools';
 
-// A connection preference never becomes a workspace/Dexie identity. Native
+// A connection preference never becomes a workspace identity. Native
 // route capabilities are ephemeral and must never be persisted or logged.
 const STORAGE_KEY = 'flightdeck:tower-transports:v1';
 let connections = new Map();
+let savedPreferences = new Map();
 
 function transportError(message) {
   return Object.assign(new Error(message), { code: 'fips_unavailable' });
@@ -30,12 +31,53 @@ function logicalOrigin(value) {
   return url.origin;
 }
 
-function readPreferences(storage = globalThis.localStorage) {
+function readLegacyPreferences(storage = globalThis.localStorage) {
   const raw = storage?.getItem(STORAGE_KEY);
   if (!raw) return {};
   const parsed = JSON.parse(raw);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Invalid Tower transport preferences.');
   return parsed;
+}
+
+function persistentPreference(preference) {
+  if (!['https', 'fips'].includes(preference?.mode)) throw new Error('Invalid Tower transport mode.');
+  const result = { mode: preference.mode };
+  if (preference.mode === 'fips' || preference.endpoint || preference.serviceNpub) {
+    try {
+      if (nip19.decode(preference.serviceNpub).type !== 'npub') throw new Error();
+    } catch { throw new Error('Verified Tower identity is required.'); }
+    result.endpoint = normalizeFipsEndpoint(preference.endpoint);
+    result.serviceNpub = preference.serviceNpub;
+  }
+  return result;
+}
+
+async function preferenceDb() {
+  // Persistence is only used by page boot/settings, never request routing.
+  return (await import('./db.js')).getSharedDb();
+}
+
+async function migratePreferences(db, storage) {
+  const legacy = readLegacyPreferences(storage);
+  const entries = Object.entries(legacy);
+  if (!entries.length) return;
+  await db.transaction('rw', db.tower_transport_preferences, async () => {
+    for (const [tower, preference] of entries) {
+      const logicalTower = logicalOrigin(tower);
+      // A committed choice always wins over a stale legacy copy, including HTTPS.
+      if (!await db.tower_transport_preferences.get(logicalTower)) {
+        await db.tower_transport_preferences.add({ logicalTower, ...persistentPreference(preference) });
+      }
+    }
+  });
+  // A failed write leaves the legacy source intact. Failed cleanup is harmless:
+  // migration is idempotent and cannot overwrite the committed database choice.
+  try { (storage ?? globalThis.localStorage)?.removeItem(STORAGE_KEY); } catch { /* retry next boot */ }
+}
+
+export function getTowerTransportPreference(logicalTower) {
+  try { return { ...(savedPreferences.get(logicalOrigin(logicalTower)) || { mode: 'https' }) }; }
+  catch { return { mode: 'https' }; }
 }
 
 export function getTowerTransport(logicalTower) {
@@ -85,7 +127,11 @@ export async function connectTowerBridge(logicalTower, endpoint, expectedService
 }
 
 export async function initializeTowerTransports(options = {}) {
-  const preferences = readPreferences(options.storage);
+  const db = await preferenceDb();
+  await migratePreferences(db, options.storage);
+  const rows = await db.tower_transport_preferences.toArray();
+  const preferences = Object.fromEntries(rows.map(({ logicalTower, ...preference }) => [logicalTower, preference]));
+  savedPreferences = new Map(Object.entries(preferences));
   const windowObject = globalThis.window;
   if (!Object.hasOwn(options, 'bridge') && Object.values(preferences).some((p) => p.mode === 'fips')
     && !windowObject?.wingmanTowerTransport && windowObject?.addEventListener) {
@@ -116,18 +162,17 @@ export async function initializeTowerTransports(options = {}) {
 
 // Save only after pairing and identity validation. Activation occurs on reload,
 // so in-flight acknowledgements are never reinterpreted under another route.
-export function saveTowerTransportPreference(logicalTower, preference, storage = globalThis.localStorage) {
-  const preferences = readPreferences(storage);
+export async function saveTowerTransportPreference(logicalTower, preference) {
   const origin = logicalOrigin(logicalTower);
-  if (preference.mode === 'https') delete preferences[origin];
-  else {
-    if (!preference.serviceNpub) throw new Error('Verified Tower identity is required.');
-    preferences[origin] = {
-      mode: 'fips', endpoint: normalizeFipsEndpoint(preference.endpoint), serviceNpub: preference.serviceNpub,
-    };
-  }
-  if (!storage) throw new Error('Browser storage is unavailable; connection preference was not saved.');
-  storage.setItem(STORAGE_KEY, JSON.stringify(preferences));
+  const db = await preferenceDb();
+  let saved;
+  await db.transaction('rw', db.tower_transport_preferences, async () => {
+    const previous = await db.tower_transport_preferences.get(origin);
+    saved = persistentPreference(preference.mode === 'https'
+      ? { ...previous, mode: 'https' } : preference);
+    await db.tower_transport_preferences.put({ logicalTower: origin, ...saved });
+  });
+  savedPreferences.set(origin, saved);
 }
 
 function resolveRequest(value) {

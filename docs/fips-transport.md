@@ -97,6 +97,25 @@ fields (`tower_base_url`, service `base_url`, workspace list/descriptor locators
 are mapped back to the configured logical Tower before persistence. User text
 and metadata are never rewritten.
 
+## Local connection preferences
+
+The shared Flight Deck Dexie database stores `tower_transport_preferences`, keyed
+by the logical Tower origin. Each row contains only the selected `mode` and, when
+paired, the saved `endpoint` and verified `serviceNpub`. Selecting HTTPS retains
+that endpoint and identity; reopening Connection after reload restores the saved
+endpoint for the next FIPS selection. Applying FIPS still requires native pairing,
+health identity validation and the signed workspace descriptor check.
+
+Boot migrates the legacy `flightdeck:tower-transports:v1` localStorage map in a
+single transaction. Existing database choices take precedence. Legacy data is
+removed only after commit; failed cleanup can safely retry. Invalid unmigrated
+configuration or a database failure stops transport initialization rather than
+starting public traffic with an unknown selection, and leaves the legacy source
+intact for recovery. Saves await the database commit before draining sync and
+reloading. A failed save retains the previous preference and editable draft.
+Native capabilities, proxy addresses and signing tokens are never stored in these
+rows. Preferences are local configuration, not a synced workspace record family.
+
 ## Storage and assets
 
 Tower metadata, signed reads, PG commands, checkout, sync and storage content use

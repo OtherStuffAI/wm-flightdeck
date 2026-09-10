@@ -35,6 +35,9 @@ sharedDb.version(2).stores({
   workspace_keys:      '&workspace_owner_npub, user_npub, ws_key_npub',
 });
 
+// Local connection choices are shared across workspaces, never synced to Tower.
+sharedDb.version(3).stores({ tower_transport_preferences: '&logicalTower' });
+
 // ---------------------------------------------------------------------------
 // Workspace DB — one per workspace identity key.
 // Contains ALL record / sync tables.
