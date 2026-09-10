@@ -1,3 +1,4 @@
+import { registerChatComposer, resolveChatUploadToken } from './chat-composer-draft.js';
 /**
  * Alpine.js app store — the single source of reactive UI state.
  * All data comes from Dexie; network goes through the sync worker.
@@ -8660,6 +8661,7 @@ export function initApp() {
     initMentionComposer(el, composer) {
       if (!el || !['message', 'thread', 'task-description', 'task-comment', 'doc-comment', 'doc-reply'].includes(composer)) return;
       el.dataset.chatComposer = composer;
+      registerChatComposer(this, el, composer);
       const value = composer === 'thread' ? this.threadInput
         : composer === 'message' ? this.messageInput
           : composer === 'task-description' ? this.editingTask?.description
@@ -8684,6 +8686,7 @@ export function initApp() {
     syncMentionComposerModel(el, options = {}) {
       const composer = String(el?.dataset?.chatComposer || '').trim();
       if (!['message', 'thread', 'task-description', 'task-comment', 'doc-comment', 'doc-reply'].includes(composer)) return '';
+      registerChatComposer(this, el, composer);
       const previousValue = MENTION_COMPOSER_MODELS.get(el);
       const { value, actorMentions: mentions } = serializeMentionComposerState(el);
       MENTION_COMPOSER_MODELS.set(el, value);
@@ -8744,6 +8747,7 @@ export function initApp() {
 
     syncMentionComposerFromModel(el, composer, value) {
       if (!el || !['message', 'thread', 'task-description', 'task-comment', 'doc-comment', 'doc-reply'].includes(composer)) return;
+      registerChatComposer(this, el, composer, false);
       const normalizedValue = String(value || '');
       if (['message', 'thread'].includes(composer)) {
         const hasText = Boolean(normalizedValue.trim());
@@ -9394,6 +9398,7 @@ export function initApp() {
         status: 'uploading',
         error: '',
         inline_upload_token: String(options.inlineUploadToken || ''),
+        composer_draft_key: this.getChatComposerDraftKey(context),
       };
       this.setChatFileDrafts(context, [...this.getChatFileDrafts(context), draft]);
       this.uploadChatFileDraft(draft.draft_id, context);
@@ -9430,33 +9435,20 @@ export function initApp() {
         this.resolveChatFileDraftInlineToken(draftId, context, this.createStorageMarkdown(
           prepared.object_id,
           draft.filename,
-        ));
+        ), draft);
       } catch (error) {
         this.setChatFileDrafts(context, this.getChatFileDrafts(context).map((item) => (
           item.draft_id === draftId
             ? { ...item, status: 'error', error: error?.message || 'Upload failed.' }
             : item
         )));
-        this.resolveChatFileDraftInlineToken(draftId, context, '[ Image upload failed ]');
+        this.resolveChatFileDraftInlineToken(draftId, context, '[ Image upload failed ]', draft);
       }
     },
 
-    resolveChatFileDraftInlineToken(draftId, context = 'message', replacement = '') {
-      const draft = this.getChatFileDrafts(context).find((item) => item.draft_id === draftId);
-      const token = String(draft?.inline_upload_token || '');
-      if (!token) return false;
-      const modelKey = context === 'thread' ? 'threadInput' : 'messageInput';
-      const current = String(this[modelKey] || '');
-      const index = current.indexOf(token);
-      if (index === -1) return false;
-      const next = `${current.slice(0, index)}${replacement}${current.slice(index + token.length)}`;
-      this[modelKey] = next;
-      const composer = typeof document !== 'undefined'
-        ? document.querySelector(`[data-chat-composer="${context}"]`)
-        : null;
-      if (composer) this.syncMentionComposerFromModel(composer, context, next);
-      this.scheduleComposerAutosize(context);
-      return true;
+    resolveChatFileDraftInlineToken(draftId, context = 'message', replacement = '', sourceDraft = null) {
+      const draft = sourceDraft || this.getChatFileDrafts(context).find((item) => item.draft_id === draftId);
+      return resolveChatUploadToken(this, draft, context, replacement);
     },
 
     removeChatFileDraft(draftId, context = 'message') {

@@ -1,3 +1,4 @@
+import { readLiveChatDraft, rebindChatComposer } from './chat-composer-draft.js';
 /**
  * Chat message management methods extracted from app.js.
  *
@@ -502,7 +503,7 @@ export const chatMessageManagerMixin = {
   },
 
   getChatComposerDraftKey(context = 'message', destination = {}) {
-    const channelId = String(destination.channelId ?? this.selectedChannelId ?? '').trim();
+    const channelId = String(destination.channelId ?? (context === 'thread' ? this.activeThreadChannelId : this.selectedChannelId) ?? this.selectedChannelId ?? '').trim();
     if (!channelId) return '';
     const channel = (this.channels || []).find((item) => item?.record_id === channelId) || null;
     const workspaceId = String(
@@ -515,7 +516,7 @@ export const chatMessageManagerMixin = {
     ).trim();
     const scopeId = String(destination.scopeId ?? channel?.scope_id ?? channel?.scope_l1_id ?? '').trim();
     const threadId = context === 'thread'
-      ? String(destination.threadId ?? this.activeThreadId ?? '').trim()
+      ? String(destination.threadId ?? this.activeThreadId ?? '').trim() || (this.deckThreadComposerOpen ? '__new_thread__' : '')
       : '';
     if (context === 'thread' && !threadId) return '';
     return [workspaceId, scopeId, channelId, threadId || '__channel__'].join(':');
@@ -525,8 +526,9 @@ export const chatMessageManagerMixin = {
     const key = this.getChatComposerDraftKey(context, destination);
     if (!key) return;
     const inputKey = context === 'thread' ? 'threadInput' : 'messageInput';
-    const mentions = this.selectedAgentMentionsByComposer?.[context] || [];
-    const value = String(this[inputKey] || '');
+    const live = readLiveChatDraft(this, context, key);
+    const mentions = live?.actorMentions ?? this.selectedAgentMentionsByComposer?.[context] ?? [];
+    const value = live?.value ?? String(this[inputKey] || '');
     const drafts = { ...(this.chatComposerDrafts || {}) };
     if (!value && mentions.length === 0) delete drafts[key];
     else drafts[key] = { value, mentions: [...mentions] };
@@ -537,7 +539,9 @@ export const chatMessageManagerMixin = {
     const key = this.getChatComposerDraftKey(context, destination);
     const draft = key ? this.chatComposerDrafts?.[key] : null;
     const inputKey = context === 'thread' ? 'threadInput' : 'messageInput';
+    const composer = rebindChatComposer(this, context);
     this[inputKey] = String(draft?.value || '');
+    if (composer) this.syncMentionComposerFromModel?.(composer, context, this[inputKey]);
     this.selectedAgentMentionsByComposer = {
       ...(this.selectedAgentMentionsByComposer || {}),
       [context]: Array.isArray(draft?.mentions) ? [...draft.mentions] : [],

@@ -1,3 +1,5 @@
+import Alpine from 'alpinejs';
+import { installStableHtml } from './stable-html.js';
 import { initializeTowerTransports } from './tower-transport.js';
 import './styles.css';
 import { initApp } from './app.js';
@@ -14,6 +16,7 @@ installWingmanIphoneWebViewMarker();
 async function boot() {
   if (await maybePerformHardReset()) return;
   await initializeTowerTransports();
+  installStableHtml(Alpine);
   initApp();
   installNotificationClickRouteHandler();
   initChatThreadFlowDispatchDomBridge();

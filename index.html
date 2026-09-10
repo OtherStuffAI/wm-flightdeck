@@ -3980,10 +3980,10 @@
                           <small>Anyone who receives this link can join.</small>
                         </div>
                       </template>
-                      <div class="chat-post-markdown" x-show="!$store.chat.isWorkroomAnnouncement(msg) && !$store.chat.isHangCallInvitation(msg)" x-html="$store.chat.renderMarkdown(msg.body)"></div>
+                      <div class="chat-post-markdown" x-show="!$store.chat.isWorkroomAnnouncement(msg) && !$store.chat.isHangCallInvitation(msg)" x-stable-html="$store.chat.renderMarkdown(msg.body)"></div>
                       <div class="chat-file-attachment-list" x-show="$store.chat.standaloneChatFileAttachments(msg).length > 0">
                         <template x-for="attachment in $store.chat.standaloneChatFileAttachments(msg)" :key="attachment.storage_object_id">
-                          <div class="chat-file-attachment"><div x-html="$store.chat.renderMarkdown($store.chat.chatAttachmentMarkdown(attachment))"></div><span x-text="[attachment.content_type, $store.chat.formatAttachmentSize(attachment.size_bytes)].filter(Boolean).join(' · ')"></span></div>
+                          <div class="chat-file-attachment"><div x-stable-html="$store.chat.renderMarkdown($store.chat.chatAttachmentMarkdown(attachment))"></div><span x-text="[attachment.content_type, $store.chat.formatAttachmentSize(attachment.size_bytes)].filter(Boolean).join(' · ')"></span></div>
                         </template>
                       </div>
                     </div>
@@ -4306,11 +4306,11 @@
                             <small>Anyone who receives this link can join.</small>
                           </div>
                         </template>
-                        <div class="chat-post-markdown" x-show="!$store.chat.isHangCallInvitation($store.chat.getThreadParentMessage())" x-html="$store.chat.renderMarkdown($store.chat.getThreadParentMessage()?.body || '')"></div>
+                        <div class="chat-post-markdown" x-show="!$store.chat.isHangCallInvitation($store.chat.getThreadParentMessage())" x-stable-html="$store.chat.renderMarkdown($store.chat.getThreadParentMessage()?.body || '')"></div>
                       </div>
                       <div class="chat-file-attachment-list" x-show="$store.chat.standaloneChatFileAttachments($store.chat.getThreadParentMessage()).length > 0">
                         <template x-for="attachment in $store.chat.standaloneChatFileAttachments($store.chat.getThreadParentMessage())" :key="attachment.storage_object_id">
-                          <div class="chat-file-attachment"><div x-html="$store.chat.renderMarkdown($store.chat.chatAttachmentMarkdown(attachment))"></div><span x-text="[attachment.content_type, $store.chat.formatAttachmentSize(attachment.size_bytes)].filter(Boolean).join(' · ')"></span></div>
+                          <div class="chat-file-attachment"><div x-stable-html="$store.chat.renderMarkdown($store.chat.chatAttachmentMarkdown(attachment))"></div><span x-text="[attachment.content_type, $store.chat.formatAttachmentSize(attachment.size_bytes)].filter(Boolean).join(' · ')"></span></div>
                         </template>
                       </div>
                       <div class="audio-attachment-list" x-show="($store.chat.getThreadParentMessage()?.attachments || []).length > 0">
@@ -4397,11 +4397,11 @@
                             <small>Anyone who receives this link can join.</small>
                           </div>
                         </template>
-                        <div class="chat-post-markdown" x-show="!$store.chat.isHangCallInvitation(reply)" x-html="$store.chat.renderMarkdown(reply.body)"></div>
+                        <div class="chat-post-markdown" x-show="!$store.chat.isHangCallInvitation(reply)" x-stable-html="$store.chat.renderMarkdown(reply.body)"></div>
                       </div>
                       <div class="chat-file-attachment-list" x-show="$store.chat.standaloneChatFileAttachments(reply).length > 0">
                         <template x-for="attachment in $store.chat.standaloneChatFileAttachments(reply)" :key="attachment.storage_object_id">
-                          <div class="chat-file-attachment"><div x-html="$store.chat.renderMarkdown($store.chat.chatAttachmentMarkdown(attachment))"></div><span x-text="[attachment.content_type, $store.chat.formatAttachmentSize(attachment.size_bytes)].filter(Boolean).join(' · ')"></span></div>
+                          <div class="chat-file-attachment"><div x-stable-html="$store.chat.renderMarkdown($store.chat.chatAttachmentMarkdown(attachment))"></div><span x-text="[attachment.content_type, $store.chat.formatAttachmentSize(attachment.size_bytes)].filter(Boolean).join(' · ')"></span></div>
                         </template>
                       </div>
                       <div class="audio-attachment-list" x-show="$store.chat.getAudioAttachmentsForRecord(reply).length > 0">
@@ -6003,7 +6003,7 @@
                           <div class="thread-msg-header"><span class="chat-sender" x-text="$store.chat.getSenderName(message.sender_npub)"></span><span class="chat-time" x-text="message.updated_at ? new Date(message.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''"></span></div>
                           <div class="thread-msg-text">
                             <template x-if="$store.chat.isWorkroomAnnouncement(message)"><div class="chat-workroom-announcement-card" x-data="{ card: $store.chat.workroomMessageCard(message) }"><div class="chat-workroom-announcement-heading"><strong x-text="`Workroom Started: ${card.title}, by ${card.starter}.`"></strong><span class="workroom-status-chip" x-text="card.status"></span></div><p class="chat-workroom-announcement-goal" x-show="card.goal" x-text="`Goal: ${card.goal}`"></p><button type="button" class="chat-workroom-enter-card" x-show="$store.chat.workroomsEnabled && card.roomId" @click.stop="$store.chat.openWorkroomDetail(card.roomId)"><span>Enter</span><strong x-text="card.title"></strong></button><a class="chat-workroom-enter-card" x-show="$store.chat.workroomsEnabled && !card.roomId && card.link" :href="card.link" target="_blank" rel="noreferrer" @click.stop><span>Enter</span><strong x-text="card.title"></strong></a></div></template>
-                            <div class="chat-post-markdown" x-show="!$store.chat.isWorkroomAnnouncement(message)" x-html="$store.chat.renderMarkdown(message.body || '')"></div>
+                            <div class="chat-post-markdown" x-show="!$store.chat.isWorkroomAnnouncement(message)" x-stable-html="$store.chat.renderMarkdown(message.body || '')"></div>
                           </div>
                           <div class="audio-attachment-list" x-show="(message.attachments || []).length > 0"><template x-for="attachment in (message.attachments || []).filter(item => item.kind === 'audio')" :key="attachment.audio_note_record_id"><button type="button" class="audio-card" @click="$store.chat.playAudioAttachment(attachment)"><div class="audio-card-main"><div class="audio-card-title" x-text="$store.chat.getAudioAttachmentPreview(attachment)"></div><div class="audio-card-meta"><span>Voice note</span><span x-text="$store.chat.getAudioAttachmentNote(attachment)?.duration_seconds ? $store.chat.formatAudioDuration($store.chat.getAudioAttachmentNote(attachment).duration_seconds) : ''"></span></div></div></button></template></div>
                         </div>

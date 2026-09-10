@@ -1476,6 +1476,14 @@
         "Workspace Home and its avatar retain the locked Chat, Tasks, Docs or Files view and clear lower scope and channel context.",
         "Context navigation cleans up the previous thread and waits for document cleanup before publishing its route."
       ]
+    },
+    {
+      "buildNumber": 1931,
+      "label": "Keep chat drafts and images stable",
+      "notes": [
+        "Image upload completion, failure and removal preserve intervening typing and selection, and update the originating draft after navigation.",
+        "Channel and thread navigation retain unsent text. Unchanged message HTML keeps hydrated images in place during document updates."
+      ]
     }
   ]
 }

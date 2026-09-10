@@ -23,7 +23,7 @@ describe('chat file drop upload', () => {
 
   it('wires accessible attachment pickers, draft controls, and persisted rendering for both composers', () => {
     expect(indexSource.match(/Attach photo or file/g)).toHaveLength(2);
-    expect(indexSource.match(/type="file" multiple aria-label=/g)).toHaveLength(2);
+    expect(indexSource.match(/type="file"[^>]* multiple aria-label=/g)).toHaveLength(2);
     expect(indexSource).toContain("handleChatAttachmentSelection($event, 'message')");
     expect(indexSource).toContain("handleChatAttachmentSelection($event, 'thread')");
     expect(indexSource).toContain("uploadChatFileDraft(draft.draft_id, 'message')");
