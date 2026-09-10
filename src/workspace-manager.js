@@ -416,7 +416,7 @@ export const workspaceManagerMixin = {
     const personalTabs = ['deck', 'notifications', 'apps'];
     const visibleTabs = this.canAdminWorkspace
       ? ['workspace', 'connection', ...personalTabs, 'permissions', 'scopes', 'sharing', ...advancedTabs, ...adminAdvancedTabs]
-      : ['connection', ...personalTabs, 'permissions', ...advancedTabs];
+      : ['connection', ...personalTabs, 'permissions', ...(this.canAccessScopeSettings ? ['scopes'] : []), ...advancedTabs];
     if (!visibleTabs.includes(this.settingsTab)) {
       this.settingsTab = 'connection';
     }

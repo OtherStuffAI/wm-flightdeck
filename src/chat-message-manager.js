@@ -1974,6 +1974,11 @@ export const chatMessageManagerMixin = {
       return;
     }
     if (isTowerPgBackendMode()) {
+      if (!this.canManageChannel(channel)) {
+        this.channelSettingsError = 'You need Manage access to delete this channel.';
+        return;
+      }
+      if (this.channelRenameSaving) return;
       if (!this.channelDeleteConfirmArmed) {
         const { workspaceId } = resolveTowerPgWorkspaceContext(this);
         this.channelSettingsChannelId = settingsChannelId;
@@ -2001,6 +2006,8 @@ export const chatMessageManagerMixin = {
         this.channelDeleteConfirmArmed = false;
         this.channelSettingsChannelId = '';
         this.channelSettingsWorkspaceId = '';
+        this.openAllScopesOverview?.();
+        this.syncRoute?.();
       };
       try {
         const { workspaceId, baseUrl, appNpub } = resolveTowerPgWorkspaceContext(this);

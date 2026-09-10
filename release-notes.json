@@ -1460,6 +1460,14 @@
       "notes": [
         "Lock Chat, Tasks, Docs or Files while browsing scopes and channels in the expanded sidebar. Select a different view or change sidebar mode to unlock; Deck remains the default."
       ]
+    },
+    {
+      "buildNumber": 1928,
+      "label": "Manage scopes and channels",
+      "notes": [
+        "Rename channels in Channel settings. Scope actions stay onscreen and are reachable from desktop or mobile navigation, with scope-level permissions for rename and delete.",
+        "Deletion confirmations explain archiving and retained content. Deleted scopes clear their channels from navigation; rename and delete failures stay visible."
+      ]
     }
   ]
 }

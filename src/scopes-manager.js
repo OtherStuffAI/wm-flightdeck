@@ -8,6 +8,7 @@
 
 import {
   getScopesByOwner,
+  deleteChannelRuntimeState,
   upsertScope,
   upsertTask,
   upsertDocument,
@@ -25,6 +26,7 @@ import {
   queueTowerPendingWrite,
   updateTowerPgDocumentMetadata,
 } from './tower-command-intents.js';
+import { isDmScope } from './dm-scope.js';
 import { writeAgentChatConfig } from './agent-direct-chat.js';
 import {
   outboundScope,
@@ -241,11 +243,32 @@ function splitChannelNames(text = '') {
 export const scopesManagerMixin = {
   canManageScope(scopeOrId) {
     const scope = typeof scopeOrId === 'string' ? this.scopesMap.get(scopeOrId) : scopeOrId;
-    if (!scope) return false;
+    if (!scope || scope.record_state === 'deleted' || scope.virtual || scope.system_key || scope.pg_kind === 'system' || isDmScope(scope)) return false;
     if (!isTowerPgBackendMode()) return Boolean(this.canAdminWorkspace);
     if (scope.pg_can_manage === true) return true;
     if (scope.pg_can_manage === false) return false;
     return Boolean(this.canAdminWorkspace);
+  },
+
+  get canAccessScopeSettings() {
+    return Boolean(this.canAdminWorkspace || (this.scopes || []).some((scope) => this.canManageScope(scope)));
+  },
+
+  openScopeManagement() {
+    this.navSection = 'settings';
+    this.mobileNavOpen = false;
+    this.openSettingsTab('scopes');
+    this.syncRoute();
+  },
+
+  async confirmDeleteScope(scopeId) {
+    if (!this.canManageScope(scopeId) || this.deletingScopeId) return;
+    const scope = this.scopesMap.get(scopeId);
+    const consequence = isTowerPgBackendMode()
+      ? 'This archives the scope and all its channels, including nonempty channels. Stored content is retained in Tower. There is no restore control in Flight Deck.'
+      : 'This deletes the scope. Records assigned to it are not deleted.';
+    if (!globalThis.confirm(`Delete “${scope.title}”? ${consequence}`)) return;
+    await this.deleteScope(scopeId);
   },
 
   get scopeTemplateOptions() {
@@ -1756,6 +1779,7 @@ export const scopesManagerMixin = {
   },
 
   async saveEditScope(options = {}) {
+    if (this.editingScopeSaving) return;
     if (!this.canManageScope(this.editingScopeId)) {
       this.editingScopeError = 'You do not have permission to manage this scope.';
       return;
@@ -1787,6 +1811,7 @@ export const scopesManagerMixin = {
           ...(typeof scope.pg_can_manage === 'boolean' ? { pg_can_manage: scope.pg_can_manage } : {}),
         };
         await upsertScope(updated);
+        this.scopes = this.scopes.map((item) => item.record_id === updated.record_id ? updated : item);
         this.editingScopeSaving = false;
         this.cancelEditScope();
       } catch (error) {
@@ -2483,21 +2508,38 @@ export const scopesManagerMixin = {
   },
 
   async deleteScope(scopeId) {
-    if (!this.canAdminWorkspace) {
-      this.error = 'Only workspace admins can manage scopes.';
+    if (this.deletingScopeId) return;
+    if (!this.canManageScope(scopeId)) {
+      this.error = 'You do not have permission to manage this scope.';
       return;
     }
     if (isTowerPgBackendMode()) {
       const scope = this.scopes.find(s => s.record_id === scopeId);
       if (!scope) return;
+      this.deletingScopeId = scopeId;
+      this.error = '';
       try {
         const { workspaceId, baseUrl, appNpub } = resolveTowerPgWorkspaceContext(this);
         if (!workspaceId || !baseUrl) throw new Error('Flight Deck PG workspace is not connected');
+        if (scope.pg_workspace_id && scope.pg_workspace_id !== workspaceId) throw new Error('This scope belongs to a different workspace.');
         await deleteTowerPgWorkspaceScope(this, workspaceId, scopeId, { baseUrl, appNpub });
         await upsertScope({ ...scope, record_state: 'deleted', sync_status: 'synced' });
-        if (this.selectedBoardId === scopeId) this.selectedBoardId = null;
+        const channelIds = new Set((this.channels || []).filter((channel) => channel.scope_id === scopeId).map((channel) => channel.record_id));
+        for (const channelId of channelIds) await deleteChannelRuntimeState(channelId);
+        const selectedDeleted = channelIds.has(this.selectedChannelId) || this.pgContextScopeId === scopeId || this.selectedBoardId === scopeId;
+        this.scopes = this.scopes.filter((item) => item.record_id !== scopeId);
+        this.channels = (this.channels || []).filter((item) => !channelIds.has(item.record_id));
+        if (selectedDeleted) {
+          this.selectedChannelId = null;
+          this.closeThread?.();
+          this.messages = [];
+          this.openAllScopesOverview?.();
+        }
+        this.syncRoute?.();
       } catch (error) {
         this.error = error?.message || 'Failed to delete scope';
+      } finally {
+        this.deletingScopeId = null;
       }
       return;
     }

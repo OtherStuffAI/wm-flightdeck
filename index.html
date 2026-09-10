@@ -429,7 +429,8 @@
         >
           <span>Scope: </span><strong x-text="$store.chat.focusScopeTitle"></strong>
         </button>
-        <span class="mobile-scope-row-spacer" aria-hidden="true"></span>
+        <button type="button" class="mobile-scope-workspace-avatar-btn" x-show="$store.chat.canAccessScopeSettings" @click="$store.chat.openScopeManagement()" title="Manage scopes" aria-label="Manage scopes">…</button>
+        <span class="mobile-scope-row-spacer" x-show="!$store.chat.canAccessScopeSettings" aria-hidden="true"></span>
         <ul class="board-picker-typeahead-results mobile-scope-results" x-show="open" x-cloak>
           <template x-for="board in $store.chat.filterFlightDeckScopeOptions('')" :key="board.id">
             <li
@@ -1155,6 +1156,7 @@
             </template>
             <span class="sidebar-workspace-overview-label">Home</span>
           </button>
+          <button type="button" class="sidebar-scope-heading-control" x-show="$store.chat.canAccessScopeSettings" @click="$store.chat.openScopeManagement()">Manage scopes</button>
           <p class="sidebar-scope-navigation-status" x-show="!$store.chat.scopesLoaded">Loading navigation…</p>
           <template x-for="group in $store.chat.sidebarScopeChannelGroups" :key="`sidebar-scope-${group.scope.record_id}`">
             <section class="sidebar-scope-group">
@@ -7050,7 +7052,7 @@
             <button class="settings-tab" :class="{ active: $store.chat.settingsTab === 'apps' }" @click="$store.chat.openSettingsTab('apps')">App Management</button>
             <button x-show="$store.chat.isTowerPgMode" class="settings-tab" :class="{ active: $store.chat.settingsTab === 'permissions' }" @click="$store.chat.openSettingsTab('permissions')">Permissions</button>
             <button x-show="false" x-cloak class="settings-tab" :class="{ active: $store.chat.settingsTab === 'schedules' }" @click="$store.chat.openSettingsTab('schedules')">Schedules</button>
-            <button x-show="$store.chat.canAdminWorkspace" class="settings-tab" :class="{ active: $store.chat.settingsTab === 'scopes' }" @click="$store.chat.openSettingsTab('scopes')">Scopes</button>
+            <button x-show="$store.chat.canAccessScopeSettings" class="settings-tab" :class="{ active: $store.chat.settingsTab === 'scopes' }" @click="$store.chat.openSettingsTab('scopes')">Scopes</button>
             <button x-show="$store.chat.workspaceAdvancedOptionsEnabled && !$store.chat.isTowerPgMode" class="settings-tab" :class="{ active: $store.chat.settingsTab === 'data' }" @click="$store.chat.settingsTab = 'data'">Sync</button>
             <button x-show="$store.chat.canAdminWorkspace" class="settings-tab" :class="{ active: $store.chat.settingsTab === 'sharing' }" @click="$store.chat.openSettingsTab('sharing')">Groups &amp; Members</button>
           </div>
@@ -7783,7 +7785,7 @@
             </section>
           </div>
 
-          <div class="settings-tab-content" x-show="$store.chat.canAdminWorkspace && $store.chat.settingsTab === 'scopes'">
+          <div class="settings-tab-content" x-show="$store.chat.canAccessScopeSettings && $store.chat.settingsTab === 'scopes'">
           <!-- Scopes page -->
           <div class="scopes-section">
           <div class="scopes-header">
@@ -7820,7 +7822,7 @@
 	                          <button type="button" @click.stop="$store.chat.copyFlightDeckReference('scope', s1.record_id, s1.title || 'Untitled scope'); actionsOpen = false">FD Ref</button>
 	                          <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.openRecordStatusModal({ familyId: 'scope', recordId: s1.record_id, label: s1.title || 'Untitled scope' }); actionsOpen = false">Check status</button>
 	                          <button type="button" x-show="!$store.chat.isTowerPgMode && $store.chat.canAdminWorkspace" @click.stop="$store.chat.reapplyScopeGroupCrypto(s1.record_id); actionsOpen = false" :disabled="$store.chat.scopePolicyRepairBusy">Reapply group crypto</button>
-                          <button type="button" class="doc-actions-delete" x-show="$store.chat.canAdminWorkspace" @click.stop="if(confirm('Delete this scope and its children?')) $store.chat.deleteScope(s1.record_id); actionsOpen = false">Delete scope</button>
+                          <button type="button" class="doc-actions-delete" x-show="$store.chat.canManageScope(s1)" :disabled="!!$store.chat.deletingScopeId" @click.stop="$store.chat.confirmDeleteScope(s1.record_id); actionsOpen = false">Delete scope</button>
                         </div>
                       </div>
                     </div>
@@ -7855,7 +7857,7 @@
 	                                <button type="button" @click.stop="$store.chat.copyFlightDeckReference('scope', s2.record_id, s2.title || 'Untitled scope'); actionsOpen = false">FD Ref</button>
 	                                <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.openRecordStatusModal({ familyId: 'scope', recordId: s2.record_id, label: s2.title || 'Untitled scope' }); actionsOpen = false">Check status</button>
 	                                <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.reapplyScopeGroupCrypto(s2.record_id); actionsOpen = false" :disabled="$store.chat.scopePolicyRepairBusy">Reapply group crypto</button>
-                                <button type="button" class="doc-actions-delete" @click.stop="if(confirm('Delete this scope and its children?')) $store.chat.deleteScope(s2.record_id); actionsOpen = false">Delete scope</button>
+                                <button type="button" class="doc-actions-delete" @click.stop="$store.chat.confirmDeleteScope(s2.record_id); actionsOpen = false">Delete scope</button>
                               </div>
                             </div>
                           </div>
@@ -7890,7 +7892,7 @@
 	                                      <button type="button" @click.stop="$store.chat.copyFlightDeckReference('scope', s3.record_id, s3.title || 'Untitled scope'); actionsOpen = false">FD Ref</button>
 	                                      <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.openRecordStatusModal({ familyId: 'scope', recordId: s3.record_id, label: s3.title || 'Untitled scope' }); actionsOpen = false">Check status</button>
 	                                      <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.reapplyScopeGroupCrypto(s3.record_id); actionsOpen = false" :disabled="$store.chat.scopePolicyRepairBusy">Reapply group crypto</button>
-                                      <button type="button" class="doc-actions-delete" @click.stop="if(confirm('Delete this scope and its children?')) $store.chat.deleteScope(s3.record_id); actionsOpen = false">Delete scope</button>
+                                      <button type="button" class="doc-actions-delete" @click.stop="$store.chat.confirmDeleteScope(s3.record_id); actionsOpen = false">Delete scope</button>
                                     </div>
                                   </div>
                                 </div>
@@ -7925,7 +7927,7 @@
 	                                            <button type="button" @click.stop="$store.chat.copyFlightDeckReference('scope', s4.record_id, s4.title || 'Untitled scope'); actionsOpen = false">FD Ref</button>
 	                                            <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.openRecordStatusModal({ familyId: 'scope', recordId: s4.record_id, label: s4.title || 'Untitled scope' }); actionsOpen = false">Check status</button>
 	                                            <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.reapplyScopeGroupCrypto(s4.record_id); actionsOpen = false" :disabled="$store.chat.scopePolicyRepairBusy">Reapply group crypto</button>
-                                            <button type="button" class="doc-actions-delete" @click.stop="if(confirm('Delete this scope and its children?')) $store.chat.deleteScope(s4.record_id); actionsOpen = false">Delete scope</button>
+                                            <button type="button" class="doc-actions-delete" @click.stop="$store.chat.confirmDeleteScope(s4.record_id); actionsOpen = false">Delete scope</button>
                                           </div>
                                         </div>
                                       </div>
@@ -7959,7 +7961,7 @@
 	                                                  <button type="button" @click.stop="$store.chat.copyFlightDeckReference('scope', s5.record_id, s5.title || 'Untitled scope'); actionsOpen = false">FD Ref</button>
 	                                                  <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.openRecordStatusModal({ familyId: 'scope', recordId: s5.record_id, label: s5.title || 'Untitled scope' }); actionsOpen = false">Check status</button>
 	                                                  <button type="button" x-show="!$store.chat.isTowerPgMode" @click.stop="$store.chat.reapplyScopeGroupCrypto(s5.record_id); actionsOpen = false" :disabled="$store.chat.scopePolicyRepairBusy">Reapply group crypto</button>
-                                                  <button type="button" class="doc-actions-delete" @click.stop="if(confirm('Delete this scope?')) $store.chat.deleteScope(s5.record_id); actionsOpen = false">Delete scope</button>
+                                                  <button type="button" class="doc-actions-delete" @click.stop="$store.chat.confirmDeleteScope(s5.record_id); actionsOpen = false">Delete scope</button>
                                                 </div>
                                               </div>
                                             </div>
@@ -8078,7 +8080,7 @@
           </div>
 
           <div class="doc-modal-backdrop" x-show="$store.chat.showNewScopeForm || $store.chat.editingScopeId" x-cloak @click.self="$store.chat.showNewScopeForm ? $store.chat.cancelNewScope() : $store.chat.cancelEditScope()">
-            <div class="doc-modal-card scope-edit-modal" :class="{ 'scope-wizard-modal': $store.chat.showNewScopeForm && $store.chat.isTowerPgMode }">
+            <div class="doc-modal-card scope-edit-modal" role="dialog" aria-modal="true" aria-label="Scope settings" :class="{ 'scope-wizard-modal': $store.chat.showNewScopeForm && $store.chat.isTowerPgMode }">
               <button class="modal-close" type="button" @click="$store.chat.showNewScopeForm ? $store.chat.cancelNewScope() : $store.chat.cancelEditScope()">&times;</button>
               <h3>
                 <span x-text="$store.chat.showNewScopeForm ? 'New' : 'Edit'"></span>
@@ -8417,6 +8419,8 @@
                   <input
                     type="text"
                     x-model="$store.chat.editingScopeTitle"
+                    aria-label="Scope name"
+                    :disabled="$store.chat.editingScopeSaving"
                     placeholder="Scope name..."
                     @keydown.enter.prevent="$store.chat.saveEditScope()"
                     @keydown.escape="$store.chat.cancelEditScope()"
@@ -8427,6 +8431,8 @@
                   <input
                     type="text"
                     x-model="$store.chat.editingScopeDescription"
+                    aria-label="Scope description"
+                    :disabled="$store.chat.editingScopeSaving"
                     placeholder="Optional description..."
                     @keydown.enter.prevent="$store.chat.saveEditScope()"
                     @keydown.escape="$store.chat.cancelEditScope()"
@@ -9295,10 +9301,22 @@
         </div>
 
         <div class="doc-modal-backdrop channel-settings-modal-backdrop" x-show="$store.chat.showChannelSettingsModal" x-cloak @click.self="$store.chat.closeChannelSettings()">
-          <div class="doc-modal-card new-doc-modal channel-settings-modal">
+          <div class="doc-modal-card new-doc-modal channel-settings-modal" role="dialog" aria-modal="true" aria-label="Channel settings" @keydown.escape="$store.chat.closeChannelSettings()">
             <h3>Channel settings</h3>
             <p class="docs-browser-empty" x-text="$store.chat.selectedChannel ? $store.chat.getChannelLabel($store.chat.selectedChannel) : ''"></p>
             <p class="docs-browser-empty" x-text="$store.chat.selectedChannel ? (($store.chat.getChannelParticipants($store.chat.selectedChannel) || []).length + ' participants') : ''"></p>
+
+            <section class="channel-metadata-panel" x-show="$store.chat.isTowerPgMode && $store.chat.canManageSettingsChannel">
+              <label class="task-field-label" for="channel-name-input">Channel name</label>
+              <form class="channel-metadata-actions" @submit.prevent="$store.chat.renameSettingsChannel()">
+                <input id="channel-name-input" class="new-channel-input" x-model="$store.chat.channelSettingsName" required :disabled="$store.chat.channelRenameSaving || $store.chat.channelDeleteSubmitting" />
+                <button type="submit" class="btn-confirm" :disabled="$store.chat.channelRenameSaving || $store.chat.channelDeleteSubmitting || !$store.chat.channelSettingsName.trim()" x-text="$store.chat.channelRenameSaving ? 'Renaming…' : 'Rename channel'"></button>
+              </form>
+            </section>
+            <p role="alert" class="channel-access-error" x-show="$store.chat.channelSettingsError" x-text="$store.chat.channelSettingsError"></p>
+            <p role="status" class="settings-success" x-show="$store.chat.channelSettingsNotice" x-text="$store.chat.channelSettingsNotice"></p>
+            <p x-show="$store.chat.isTowerPgMode && $store.chat.channelDeleteConfirmArmed">This archives the channel, including nonempty channels. Stored content is retained in Tower. There is no restore control in Flight Deck.</p>
+            <button type="button" class="btn-cancel" x-show="$store.chat.channelDeleteConfirmArmed" :disabled="$store.chat.channelDeleteSubmitting" @click="$store.chat.channelDeleteConfirmArmed = false">Cancel deletion</button>
 
             <section class="channel-metadata-panel" x-show="$store.chat.isTowerPgMode">
               <label class="task-field-label">Unread threads</label>
@@ -9527,7 +9545,8 @@
                 type="button"
                 class="btn-delete-doc"
                 :class="{ 'btn-delete-doc-confirm': $store.chat.channelDeleteConfirmArmed }"
-                :disabled="$store.chat.channelDeleteSubmitting"
+                x-show="!$store.chat.isTowerPgMode || $store.chat.canManageSettingsChannel"
+                :disabled="$store.chat.channelDeleteSubmitting || $store.chat.channelRenameSaving"
                 @click.stop.prevent="$store.chat.deleteSelectedChannel()"
                 x-text="$store.chat.channelDeleteSubmitting ? 'Deleting...' : ($store.chat.channelDeleteConfirmArmed ? 'Confirm delete' : 'Delete channel')"></button>
             </div>

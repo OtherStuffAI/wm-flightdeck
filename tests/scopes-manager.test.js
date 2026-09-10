@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  deleteTowerPgWorkspaceScope: vi.fn(),
+  deleteChannelRuntimeState: vi.fn(),
   createTowerPgScopeChannel: vi.fn(),
   createTowerPgWorkspaceScope: vi.fn(),
   updateTowerPgWorkspaceScope: vi.fn(),
@@ -42,6 +44,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/api.js', () => ({
+  deleteTowerPgWorkspaceScope: mocks.deleteTowerPgWorkspaceScope,
   createTowerPgScopeChannel: mocks.createTowerPgScopeChannel,
   createTowerPgWorkspaceScope: mocks.createTowerPgWorkspaceScope,
   updateTowerPgWorkspaceScope: mocks.updateTowerPgWorkspaceScope,
@@ -50,6 +53,7 @@ vi.mock('../src/api.js', () => ({
 
 vi.mock('../src/db.js', async (importOriginal) => ({
   ...(await importOriginal()),
+  deleteChannelRuntimeState: mocks.deleteChannelRuntimeState,
   upsertScope: mocks.upsertScope,
   upsertChannel: mocks.upsertChannel,
 }));
@@ -815,5 +819,67 @@ describe('scopes-manager pure utilities', () => {
       });
       expect(patch.group_ids).toEqual(['group-a', 'group-b']);
     });
+  });
+});
+
+
+describe('PG scope deletion', () => {
+  function deletionStore(overrides = {}) {
+    mocks.isTowerPgBackendMode.mockReturnValue(true);
+    const scope = { record_id: 'scope-1', title: 'Scope', pg_can_manage: true };
+    return createScopeStore({
+      canAdminWorkspace: false, scopes: [scope], scopesMap: new Map([[scope.record_id, scope]]),
+      channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }, { record_id: 'channel-2', scope_id: 'scope-2' }],
+      selectedChannelId: 'channel-1', selectedBoardId: 'scope-1', messages: [{ record_id: 'message-1' }],
+      closeThread: vi.fn(), openAllScopesOverview: vi.fn(), syncRoute: vi.fn(), ...overrides,
+    });
+  }
+
+  it('allows a scope manager and removes archived channels and selected navigation only after Tower success', async () => {
+    const store = deletionStore();
+    await store.deleteScope('scope-1');
+    expect(mocks.deleteTowerPgWorkspaceScope).toHaveBeenCalledWith('workspace-1', 'scope-1', expect.any(Object));
+    expect(mocks.upsertScope).toHaveBeenCalledWith(expect.objectContaining({ record_state: 'deleted', sync_status: 'synced' }));
+    expect(mocks.deleteChannelRuntimeState).toHaveBeenCalledWith('channel-1');
+    expect(store.channels.map((channel) => channel.record_id)).toEqual(['channel-2']);
+    expect(store.scopes).toEqual([]);
+    expect(store.selectedChannelId).toBeNull();
+    expect(store.messages).toEqual([]);
+    expect(store.openAllScopesOverview).toHaveBeenCalledOnce();
+  });
+
+  it('leaves records and navigation intact when Tower rejects deletion', async () => {
+    mocks.deleteTowerPgWorkspaceScope.mockRejectedValueOnce(new Error('Denied by Tower'));
+    const store = deletionStore();
+    await store.deleteScope('scope-1');
+    expect(store.error).toBe('Denied by Tower');
+    expect(store.scopes).toHaveLength(1);
+    expect(store.channels).toHaveLength(2);
+    expect(store.selectedChannelId).toBe('channel-1');
+    expect(mocks.deleteChannelRuntimeState).not.toHaveBeenCalled();
+    expect(mocks.upsertScope).not.toHaveBeenCalled();
+  });
+
+  it('describes the archive cascade and cancel leaves data intact', async () => {
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirm);
+    try {
+      const store = deletionStore();
+      await store.confirmDeleteScope('scope-1');
+      expect(confirm).toHaveBeenCalledWith(expect.stringContaining('scope and all its channels'));
+      expect(mocks.deleteTowerPgWorkspaceScope).not.toHaveBeenCalled();
+      expect(store.scopes).toHaveLength(1);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it('rejects unauthorized and protected scopes', async () => {
+    const store = deletionStore({ canManageScope: () => false });
+    await store.deleteScope('scope-1');
+    expect(mocks.deleteTowerPgWorkspaceScope).not.toHaveBeenCalled();
+    expect(store.error).toContain('permission');
+    const admin = deletionStore({ canAdminWorkspace: true });
+    for (const scope of [{ record_id: '__dm__' }, { record_id: 'system', pg_kind: 'system' }, { record_id: 'virtual', virtual: true }]) {
+      expect(admin.canManageScope(scope)).toBe(false);
+    }
   });
 });

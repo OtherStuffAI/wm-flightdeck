@@ -5,17 +5,17 @@ import { resolve } from 'node:path';
 const INDEX_PATH = resolve(process.cwd(), 'index.html');
 
 describe('settings admin gating template', () => {
-  it('hides admin-only settings tabs and panes behind canAdminWorkspace', () => {
+  it('gates workspace administration separately from scope management', () => {
     const html = readFileSync(INDEX_PATH, 'utf8');
 
     expect(html).toContain('x-show="$store.chat.canAdminWorkspace" class="settings-tab" :class="{ active: $store.chat.settingsTab === \'workspace\' }"');
     expect(html).toContain('x-show="false" x-cloak class="settings-tab" :class="{ active: $store.chat.settingsTab === \'schedules\' }"');
-    expect(html).toContain('x-show="$store.chat.canAdminWorkspace" class="settings-tab" :class="{ active: $store.chat.settingsTab === \'scopes\' }"');
+    expect(html).toContain('x-show="$store.chat.canAccessScopeSettings" class="settings-tab" :class="{ active: $store.chat.settingsTab === \'scopes\' }"');
     expect(html).toContain('x-show="$store.chat.canAdminWorkspace" class="settings-tab" :class="{ active: $store.chat.settingsTab === \'sharing\' }"');
     expect(html).toContain('Groups &amp; Members');
     expect(html).toContain('<div class="settings-tab-content" x-show="$store.chat.canAdminWorkspace && $store.chat.settingsTab === \'workspace\'">');
     expect(html).toContain('<div class="settings-tab-content" x-show="false">');
-    expect(html).toContain('<div class="settings-tab-content" x-show="$store.chat.canAdminWorkspace && $store.chat.settingsTab === \'scopes\'">');
+    expect(html).toContain('<div class="settings-tab-content" x-show="$store.chat.canAccessScopeSettings && $store.chat.settingsTab === \'scopes\'">');
     expect(html).toContain('<div class="settings-tab-content" x-show="$store.chat.canAdminWorkspace && $store.chat.settingsTab === \'sharing\'">');
   });
 

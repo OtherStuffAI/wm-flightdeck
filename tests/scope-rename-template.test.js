@@ -12,6 +12,10 @@ describe('scope rename surface', () => {
     expect(html).toContain("copyFlightDeckReference('scope', s1.record_id");
   });
 
+  it('keeps the scope menu at the card edge when the PG level badge is hidden', () => {
+    expect(css).toMatch(/\.scope-card-actions\s*\{[^}]*margin-left:\s*auto/);
+  });
+
   it('renders validation and saving state in the rename modal', () => {
     expect(html).toContain('class="scope-edit-error" role="alert"');
     expect(html).toContain('$store.chat.editingScopeSaving ? \'Saving…\'');

@@ -1367,6 +1367,65 @@ export const channelsManagerMixin = {
     return sortChannelsByScopePosition((this.channels || []).filter((channel) => String(channel?.scope_id || '').trim() === scopeId));
   },
 
+  canManageChannel(channel) {
+    if (!channel?.record_id || channel.record_state === 'deleted' || isDmChannel(channel)
+      || channel.virtual || channel.system_key || (channel.pg_kind || channel.channel_type) === 'system') return false;
+    if (!isTowerPgBackendMode()) return Boolean(this.canAdminWorkspace);
+    if (this.canAdminWorkspace || pgMePermissionNames(this.currentWorkspace || {}).includes('channel.manage')) return true;
+    return canManagePgChannelFromRows({
+      grants: String(this.channelGrantsChannelId || '') === channel.record_id
+        ? this.getSelectedChannelGrantRows(channel.record_id) : embeddedChannelGrants(channel),
+      actorId: pgMeActorId(this.currentWorkspace || {}),
+      viewerNpub: pgMeActorNpub(this.currentWorkspace || {}) || this.session?.npub || '',
+      groups: Array.isArray(this.currentWorkspaceGroups) && this.currentWorkspaceGroups.length > 0
+        ? this.currentWorkspaceGroups
+        : (this.groups || []),
+    });
+  },
+
+  get canManageSettingsChannel() {
+    const channelId = this.channelSettingsChannelId || this.selectedChannelId;
+    return this.canManageChannel((this.channels || []).find((channel) => channel.record_id === channelId));
+  },
+
+  async renameSettingsChannel() {
+    if (!isTowerPgBackendMode() || this.channelRenameSaving || this.channelDeleteSubmitting) return;
+    this.channelSettingsNotice = '';
+    this.channelSettingsError = '';
+    const channel = (this.channels || []).find((item) => item.record_id === this.channelSettingsChannelId);
+    const name = String(this.channelSettingsName || '').trim();
+    if (!this.canManageChannel(channel)) {
+      this.channelSettingsError = 'You need Manage access to rename this channel.';
+      return;
+    }
+    if (!name) {
+      this.channelSettingsError = 'Channel name is required.';
+      return;
+    }
+    this.channelRenameSaving = true;
+    try {
+      const { workspaceId, baseUrl, appNpub, workspaceOwnerNpub } = resolveTowerPgWorkspaceContext(this);
+      if (!workspaceId || !baseUrl) throw new Error('Flight Deck PG workspace is not connected');
+      if ((this.channelSettingsWorkspaceId && this.channelSettingsWorkspaceId !== workspaceId)
+        || (channel.pg_workspace_id && channel.pg_workspace_id !== workspaceId)) {
+        throw new Error('The workspace changed. Close settings and select the channel again.');
+      }
+      const result = await updateTowerPgChannel(this, workspaceId, channel.record_id, { name }, { baseUrl, appNpub });
+      if (!result?.channel?.id) throw new Error('Tower did not return the renamed channel. Refresh and try again.');
+      const updated = { ...channel, ...mapPgChannelToLocal(result.channel, { workspaceOwnerNpub }) };
+      // PATCH responses need not repeat the grants from the readable channel projection.
+      if (!Array.isArray(result.channel.channel_grants) && !Array.isArray(result.channel.grants)) updated.channel_grants = channel.channel_grants || [];
+      await upsertChannel(updated);
+      this.channels = this.channels.map((item) => item.record_id === updated.record_id ? updated : item);
+      this.channelSettingsName = updated.title;
+      this.channelSettingsNotice = 'Channel renamed.';
+    } catch (error) {
+      this.channelSettingsError = error?.message || 'Failed to rename channel.';
+    } finally {
+      this.channelRenameSaving = false;
+    }
+  },
+
   get canReorderSelectedChannel() {
     if (!isTowerPgBackendMode()) return Boolean(this.canAdminWorkspace);
     const workspace = this.currentWorkspace || {};
@@ -1427,6 +1486,7 @@ export const channelsManagerMixin = {
   },
 
   openChannelSettings(channelId = null) {
+    if (this.channelRenameSaving || this.channelDeleteSubmitting) return;
     const normalizedChannelId = String(channelId || '').trim();
     if (normalizedChannelId) this.selectedChannelId = normalizedChannelId;
     const selectedChannel = this.selectedChannel || this.channels?.find((channel) => channel?.record_id === this.selectedChannelId);
@@ -1437,6 +1497,7 @@ export const channelsManagerMixin = {
     const agentChat = readAgentChatConfig(selectedChannel.metadata);
     this.channelSettingsAgentChatEnabled = agentChat.enabled;
     this.channelSettingsBasePrompt = agentChat.context_prompt;
+    this.channelSettingsName = selectedChannel.title || '';
     this.channelSettingsNotice = '';
     this.channelSettingsError = '';
     this.channelSettingsChannelId = String(selectedChannel.record_id || '').trim();
@@ -1454,6 +1515,7 @@ export const channelsManagerMixin = {
   },
 
   closeChannelSettings() {
+    if (this.channelRenameSaving || this.channelDeleteSubmitting) return;
     this.closeChannelScopePicker();
     this.channelDeleteConfirmArmed = false;
     this.channelSettingsNotice = '';

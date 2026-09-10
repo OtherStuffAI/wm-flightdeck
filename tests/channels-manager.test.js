@@ -2694,3 +2694,74 @@ it('materializes the roster when same-workspace metadata refreshes during the re
     expect.objectContaining({ actor_id: 'roster-agent', display_name: 'Roster Agent' }),
   ]));
 });
+
+
+describe('PG channel lifecycle controls', () => {
+  const channel = { record_id: 'channel-1', title: 'Original', scope_id: 'scope-a', pg_workspace_id: 'workspace-1', channel_type: 'channel', channel_grants: [] };
+  function store(overrides = {}) {
+    return createPgGrantStore({ canAdminWorkspace: true, channels: [{ ...channel }], channelSettingsChannelId: channel.record_id,
+      channelSettingsWorkspaceId: 'workspace-1', channelSettingsName: '  Renamed  ', ...overrides });
+  }
+
+  it('renames with a trimmed signed PG command and persists the returned row', async () => {
+    updateTowerPgChannel.mockResolvedValueOnce({ channel: { id: channel.record_id, name: 'Renamed', scope_id: 'scope-a', kind: 'channel' } });
+    const state = store();
+    await state.renameSettingsChannel();
+    expect(updateTowerPgChannel).toHaveBeenCalledWith('workspace-1', 'channel-1', { name: 'Renamed' }, expect.any(Object));
+    expect(upsertChannel).toHaveBeenCalledWith(expect.objectContaining({ record_id: 'channel-1', title: 'Renamed' }));
+    expect(state.channels[0].title).toBe('Renamed');
+    expect(state.channelSettingsNotice).toBe('Channel renamed.');
+  });
+
+  it('rejects empty names and server failures without claiming success', async () => {
+    const state = store({ channelSettingsName: '   ' });
+    await state.renameSettingsChannel();
+    expect(updateTowerPgChannel).not.toHaveBeenCalled();
+    expect(state.channelSettingsError).toContain('required');
+    state.channelSettingsName = 'Renamed';
+    updateTowerPgChannel.mockRejectedValueOnce(new Error('Duplicate name'));
+    await state.renameSettingsChannel();
+    expect(state.channelSettingsError).toBe('Duplicate name');
+    expect(state.channelSettingsNotice).toBe('');
+    expect(state.channels[0].title).toBe('Original');
+    expect(upsertChannel).not.toHaveBeenCalled();
+  });
+
+  it('gates management separately from grant management and protects system/DM channels', () => {
+    const state = store({ canAdminWorkspace: false });
+    expect(state.canManageChannel(channel)).toBe(false);
+    expect(state.canManageChannel({ ...channel, channel_grants: [{ principal_type: 'actor', principal_id: 'actor-manager', permissions: ['channel.manage'] }] })).toBe(true);
+    state.canAdminWorkspace = true;
+    expect(state.canManageChannel(channel)).toBe(true);
+    expect(state.canManageChannel({ ...channel, channel_type: 'dm' })).toBe(false);
+    expect(state.canManageChannel({ ...channel, channel_type: 'system' })).toBe(false);
+  });
+
+  it('uses hydrated group membership when the workspace group projection is still empty', () => {
+    const state = store({ canAdminWorkspace: false, currentWorkspaceGroups: [],
+      groups: [{ group_id: 'managers', member_npubs: ['npub1manager'] }] });
+    const managed = { ...channel, channel_grants: [{ principal_type: 'group', principal_id: 'managers', permissions: ['channel.manage'] }] };
+    expect(state.canManageChannel(managed)).toBe(true);
+    state.groups = [{ group_id: 'managers', member_npubs: ['npub1someoneelse'] }];
+    expect(state.canManageChannel(managed)).toBe(false);
+  });
+
+  it('blocks unauthorized writes and stale workspace settings', async () => {
+    const state = store({ canAdminWorkspace: false });
+    await state.renameSettingsChannel();
+    expect(state.channelSettingsError).toContain('Manage access');
+    state.canAdminWorkspace = true;
+    state.channelSettingsWorkspaceId = 'different-workspace';
+    await state.renameSettingsChannel();
+    expect(state.channelSettingsError).toContain('workspace changed');
+    expect(updateTowerPgChannel).not.toHaveBeenCalled();
+  });
+
+  it('closing settings discards drafts without writing and cancels deletion', () => {
+    const state = store({ closeChannelScopePicker: vi.fn(), channelDeleteConfirmArmed: true });
+    state.closeChannelSettings();
+    expect(state.showChannelSettingsModal).toBe(false);
+    expect(state.channelDeleteConfirmArmed).toBe(false);
+    expect(updateTowerPgChannel).not.toHaveBeenCalled();
+  });
+});

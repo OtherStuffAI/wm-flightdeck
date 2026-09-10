@@ -18776,6 +18776,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 }
 
 .scope-card-actions {
+  margin-left: auto;
   display: flex;
   gap: 0.25rem;
   flex-shrink: 0;
