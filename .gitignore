@@ -52,6 +52,12 @@ docs/log/
 
 # Legacy operational records retained locally; new records belong in tmp/docs/handoffs/.
 /docs/handoffs/
+/docs/fips-delivery-handoff-2026-09-09.md
+/docs/fips-native-bridge-worker-brief.md
+/docs/fips-tower-runtime-pickup.md
+/docs/fips-tower-worker-brief.md
+/docs/imp/two-user-release-test-handoff.md
+/docs/wapp-image-upload-handoff-2026-09-07.md
 
 # Generated reports
 playwright-report/
