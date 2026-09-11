@@ -1,6 +1,6 @@
-// Offline WebKit verification of the real Inbox action, production store and
+// Offline browser verification of the real Inbox action, production store and
 // actual conversation modal. No preview server, auth, or external Tower calls.
-import { webkit } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { JSDOM } from 'jsdom';
 import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
@@ -23,7 +23,8 @@ if (process.env.FLIGHTDECK_VERIFY_BUILT_WORKER === '1') {
   const entry = built.match(/src="(\/assets\/index-[^"]+\.js)"/)[1];
   worker = (await readFile(path.join(root, entry), 'utf8')).match(/tower-pg-materialization-worker-[\w-]+\.js/)[0];
 } else build('src/worker/tower-pg-materialization-worker.js', worker);
-const browser = await webkit.launch();
+const browserType = process.env.FLIGHTDECK_VERIFY_BROWSER === 'chromium' ? chromium : webkit;
+const browser = await browserType.launch();
 let page;
 try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 950 } });
@@ -55,9 +56,9 @@ try {
     const channel = window.probeStore.channels[0];
     const changes = [];
     window.threadFixtures = {};
-    for (const [id, count] of [['history-a', 241], ['history-b', 151], ['cold-thread', 151]]) {
+    for (const [id, count] of [['history-a', 241], ['history-b', 151], ['cold-thread', 251]]) {
       const thread = { ...originals.thread.row, id, channel_id: channel.record_id, title: `Conversation ${id}`, source_message_id: `${id}-source`, created_at: '2030-01-01T00:00:00Z', updated_at: '2030-01-01T00:00:00Z', row_version: 1 };
-      const messages = Array.from({ length: count }, (_, n) => ({ ...originals.message.row, id: n === 0 ? `${id}-source` : `${id}-${n}`, thread_id: id, channel_id: channel.record_id, body: `${id} reply ${n}`, row_version: 1, created_at: new Date(Date.UTC(2030, 0, 1, 0, n)).toISOString(), updated_at: new Date(Date.UTC(2030, 0, 1, 0, n)).toISOString() }));
+      const messages = Array.from({ length: count }, (_, n) => ({ ...originals.message.row, client_request_id: null, id: n === 0 ? `${id}-source` : `${id}-${n}`, thread_id: id, channel_id: channel.record_id, body: `${id} reply ${n}`, row_version: 1, created_at: new Date(Date.UTC(2030, 0, 1, 0, n)).toISOString(), updated_at: new Date(Date.UTC(2030, 0, 1, 0, n)).toISOString() }));
       window.threadFixtures[id] = { thread, messages };
       changes.push({ ...originals.thread, id, channel_id: channel.record_id, row: thread });
       if (id !== 'cold-thread') changes.push(...messages.map(row => ({ ...originals.message, id: row.id, channel_id: channel.record_id, row })));
@@ -65,7 +66,7 @@ try {
     // More unrelated threads than the Inbox source prefix.
     for (let i = 0; i < 125; i++) {
       const id = `unrelated-${i}`;
-      const row = { ...originals.message.row, id, thread_id: id, channel_id: channel.record_id, body: `Unrelated ${i}`, updated_at: new Date(Date.UTC(2029, 0, 1, 0, i)).toISOString() };
+      const row = { ...originals.message.row, client_request_id: null, id, thread_id: id, channel_id: channel.record_id, body: `Unrelated ${i}`, updated_at: new Date(Date.UTC(2029, 0, 1, 0, i)).toISOString() };
       changes.push({ ...originals.message, id, channel_id: channel.record_id, row });
     }
     for (let i = 0; i < changes.length; i += 100) await window.materializeThreadProbe({ ...bundle, mode: 'delta', changes: changes.slice(i, i + 100), next_cursor: `thread-probe-${i}` });
@@ -84,11 +85,10 @@ try {
   await page.locator('[data-thread-message-id="history-a-240"]').waitFor({ state: 'visible' });
   assert.equal(await page.locator('[data-thread-message-id]').count(), 7);
   await page.waitForFunction(() => getComputedStyle(document.querySelector('.chat-thread-modal-backdrop')).opacity === '1');
-  await page.screenshot({ path: '/tmp/flightdeck-open-thread-recent-webkit.png', fullPage: true });
+  await page.screenshot({ path: 'tmp/docs/handoffs/flightdeck-open-thread-recent-browser.png', fullPage: true });
   assert.equal(await page.evaluate(() => window.probeStore.selectedChannelId), selectedChannel);
-  await page.locator('.thread-load-more-btn').filter({ hasText: 'older' }).click();
-  await page.waitForFunction(() => window.probeStore.visibleThreadMessages.length === 12);
-  await page.evaluate(() => { for (let i = 0; i < 39; i++) window.probeStore.showMoreThreadMessages(); });
+  await page.getByRole('button', { name: 'Load all messages in thread', exact: true }).click();
+  await page.waitForFunction(() => window.probeStore.visibleThreadMessages.length === 240);
   await page.waitForFunction(() => window.probeStore.visibleThreadMessages.some(row => row.body === 'history-a reply 1'));
   await page.evaluate(async () => {
     await window.probeDb.chat_messages.update('history-a-240', { body: 'History edited', version: 2 });
@@ -102,7 +102,7 @@ try {
       messages: [{ ...messages.at(-1), id: 'live-new-reply', body: 'New live reply', created_at: '2030-02-01T00:00:00Z', updated_at: '2030-02-01T00:00:00Z' }], nextCursor: null } });
   });
   await page.locator('.chat-thread-modal-backdrop').getByText('New live reply', { exact: true }).waitFor();
-  await page.screenshot({ path: '/tmp/flightdeck-open-thread-webkit.png', fullPage: true });
+  await page.screenshot({ path: 'tmp/docs/handoffs/flightdeck-open-thread-browser.png', fullPage: true });
   // Real next/previous handlers, including overlapping remote completion.
   await page.evaluate(async () => {
     const rows = ['history-a', 'history-b'].map(id => ({ id, rootRecordId: id, channelId: window.threadFixtures[id].thread.channel_id, inboxKind: 'chat' }));
@@ -122,8 +122,18 @@ try {
   await page.waitForFunction(() => !window.probeStore.threadHistoryLoading);
   await page.waitForFunction(() => window.probeStore.threadHistoryCursor === '100');
   await page.locator('[data-thread-message-id="cold-thread-99"]').waitFor({ state: 'visible' });
-  await page.getByRole('button', { name: 'Load more conversation history', exact: true }).click();
-  await page.waitForFunction(() => !window.probeStore.threadHistoryLoading && !window.probeStore.threadHistoryCursor && window.probeStore.visibleThreadMessages.at(-1)?.body === 'cold-thread reply 150');
+  await page.locator('[data-thread-replies]').evaluate(async el => {
+    el.scrollTop = el.scrollHeight;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  const coldAnchorOffset = await page.locator('[data-thread-message-id="cold-thread-99"]').evaluate(el => el.getBoundingClientRect().top);
+  // Invoke the visible action without Playwright scrolling to its top-of-history button.
+  await page.getByRole('button', { name: 'Load all messages in thread', exact: true }).evaluate(button => button.click());
+  await page.waitForFunction(() => !window.probeStore.threadHistoryLoading && !window.probeStore.threadHistoryCursor && window.probeStore.visibleThreadMessages.at(-1)?.body === 'cold-thread reply 250');
+  await page.waitForFunction(expected => Math.abs(document.querySelector('[data-thread-message-id="cold-thread-99"]').getBoundingClientRect().top - expected) < 2, coldAnchorOffset);
+  const coldMessageCount = await page.evaluate(() => window.probeStore.visibleThreadMessages.length);
+  assert.equal(coldMessageCount, 251);
+  const coldAnchorDelta = await page.locator('[data-thread-message-id="cold-thread-99"]').evaluate((el, expected) => el.getBoundingClientRect().top - expected, coldAnchorOffset);
   // A fully cached inherited transcript must survive the first partial refresh
   // and a real close/reopen, using the selected production worker and templates.
   await page.evaluate(async ({ bundle }) => {
@@ -132,7 +142,7 @@ try {
     const channelId = window.probeStore.channels[0].record_id;
     const thread = { ...originalThread.row, id: 'inherited-branch', source_message_id: 'inherited-source', channel_id: channelId,
       parent_thread_id: 'inherited-origin', branch_point_message_id: 'inherited-origin-240', row_version: 1 };
-    const messages = Array.from({ length: 241 }, (_, n) => ({ ...originalMessage.row, id: `inherited-origin-${n}`, thread_id: 'inherited-origin',
+    const messages = Array.from({ length: 241 }, (_, n) => ({ ...originalMessage.row, client_request_id: null, id: `inherited-origin-${n}`, thread_id: 'inherited-origin',
       channel_id: channelId, body: `Inherited reply ${n}`, created_at: new Date(Date.UTC(2031, 0, 1, 0, n)).toISOString(),
       updated_at: new Date(Date.UTC(2031, 0, 1, 0, n)).toISOString(), row_version: 1, inherited: true, read_only: true, effective_thread_id: thread.id }));
     const changes = [{ ...originalThread, id: thread.id, row: thread }, ...messages.map(row => ({ ...originalMessage, id: row.id, row }))];
@@ -156,19 +166,24 @@ try {
     draftPreserved: !!(await window.probeDb.document_drafts.get('upgrade-proof')),
     openThread: window.probeStore.activeThreadId,
   }));
-  assert.deepEqual(evidence.coldReads, [{ cursor: null, limit: 100 }, { cursor: '100', limit: 100 }]);
+  Object.assign(evidence, { coldMessageCount, coldAnchorDelta });
+  assert.deepEqual(evidence.coldReads, [{ cursor: null, limit: 100 }, { cursor: '100', limit: 100 }, { cursor: '200', limit: 100 }]);
   assert(await page.evaluate(async () => !!(await window.probeDb.document_drafts.get('upgrade-proof'))));
   assert.equal(errors.length, 0, errors.join('\n'));
-  await writeFile('/tmp/flightdeck-open-thread-webkit.json', JSON.stringify({ ...evidence, errors, assetRoot: root, templates: process.env.FLIGHTDECK_VERIFY_BUILT_WORKER === '1' ? 'built' : 'source', store: 'real source with fixture transport', coldCacheLimit: 'Tower oldest-first contract: newest cold reply appears only after explicit forward pages', worker }, null, 2));
+  await writeFile('tmp/docs/handoffs/flightdeck-open-thread-browser.json', JSON.stringify({ ...evidence, errors, browser: browserType.name(), assetRoot: root, templates: process.env.FLIGHTDECK_VERIFY_BUILT_WORKER === '1' ? 'built' : 'source', store: 'real source with fixture transport', coldCacheLimit: 'Tower oldest-first contract: newest cold reply appears only after explicit forward pages', worker }, null, 2));
   console.log(JSON.stringify(evidence));
 } catch (error) {
-  console.error('Thread probe failure state', await page?.evaluate(() => ({
+  console.error('Thread probe failure state', await page?.evaluate(async () => ({
+    persisted: await window.probeDb?.sync_state.get('thread-history-page:cold-thread'),
+    databaseCount: await window.probeDb?.chat_messages.where('channel_id').equals(window.probeStore.deckThreadChannelId).count(),
     active: window.probeStore?.activeThreadId, nav: window.probeStore?.navSection,
     count: window.probeStore?.threadVisibleReplyCount,
+    history: { cursor: window.probeStore?.threadHistoryCursor, error: window.probeStore?.threadHistoryError, loading: window.probeStore?.threadHistoryLoading, all: window.probeStore?.threadHistoryLoadAll, generation: window.probeStore?.threadHistoryGeneration },
+    reads: window.threadReads?.map(({threadId, cursor}) => ({threadId, cursor})),
     rows: window.probeStore?.messages?.slice(-3).map(row => [row.record_id, row.body]),
     visible: window.probeStore?.visibleThreadMessages?.slice(-3).map(row => [row.record_id, row.body]),
     modal: document.querySelector('.chat-thread-modal-backdrop')?.getAttribute('style'),
   })));
-  await page?.screenshot({ path: '/tmp/flightdeck-thread-probe-failure.png', fullPage: true });
+  await page?.screenshot({ path: 'tmp/docs/handoffs/flightdeck-thread-probe-failure.png', fullPage: true });
   throw error;
 } finally { await browser.close(); await rm(temporary, { recursive: true, force: true }); }

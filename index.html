@@ -4289,20 +4289,16 @@
                 <p>Your first message starts this thread in <strong x-text="'#' + ($store.chat.getChannelLabel($store.chat.activeThreadChannel) || 'channel')"></strong>.</p>
               </div>
               <div class="thread-replies" data-thread-replies x-show="!$store.chat.deckThreadComposerOpen">
-                <template x-if="$store.chat.navSection === 'status'">
-                  <div>
-                    <p x-show="$store.chat.threadHistoryLoading" role="status">Loading conversation history…</p>
-                    <p x-show="$store.chat.threadHistoryError" x-text="$store.chat.threadHistoryError" role="alert"></p>
-                    <button type="button" class="thread-load-more-btn" x-show="$store.chat.threadHistoryCursor || $store.chat.threadHistoryError" :disabled="$store.chat.threadHistoryLoading" @click="$store.chat.loadDeckThreadHistoryPage()">Load more conversation history</button>
-                  </div>
-                </template>
+                <p x-show="$store.chat.threadHistoryLoading || $store.chat.threadHistoryLoadAll" role="status">Loading conversation history…</p>
+                <p x-show="$store.chat.threadHistoryError" x-text="$store.chat.threadHistoryError" role="alert"></p>
                 <button
                   type="button"
                   class="thread-load-more-btn"
-                  x-show="$store.chat.hasMoreThreadMessages"
+                  x-show="$store.chat.hasMoreThreadMessages || $store.chat.threadHistoryCursor || $store.chat.threadHistoryError || $store.chat.threadHistoryLoading || $store.chat.threadHistoryLoadAll"
+                  :disabled="$store.chat.threadHistoryLoading || $store.chat.threadHistoryLoadAll"
+                  :aria-busy="($store.chat.threadHistoryLoading || $store.chat.threadHistoryLoadAll).toString()"
                   @click="$store.chat.showMoreThreadMessages()"
-                  x-text="`Show ${Math.min($store.chat.hiddenThreadReplyCount, $store.chat.THREAD_REPLY_PAGE_SIZE)} older repl${Math.min($store.chat.hiddenThreadReplyCount, $store.chat.THREAD_REPLY_PAGE_SIZE) === 1 ? 'y' : 'ies'}`"
-                ></button>
+                >Load all messages in thread</button>
                 <template x-if="$store.chat.getThreadParentMessage()">
                   <div class="thread-message" :class="{ 'thread-message-focused': $store.chat.isFocusedMessage($store.chat.getThreadParentMessage()?.record_id) }" :data-thread-message-id="$store.chat.getThreadParentMessage()?.record_id || ''">
                     <div class="chat-msg-actions-menu" @click.outside="$store.chat.isMessageActionsMenuOpen($store.chat.getThreadParentMessage()?.record_id) && $store.chat.closeMessageActionsMenu()">
@@ -4400,7 +4396,7 @@
                 </template>
 
                 <template x-for="reply in $store.chat.visibleThreadMessages" :key="reply.record_id">
-                  <div class="thread-message" :class="{ 'thread-message-focused': $store.chat.isFocusedMessage(reply.record_id) }" :data-thread-message-id="reply.record_id">
+                  <div class="thread-message" :class="{ 'thread-message-focused': $store.chat.isFocusedMessage(reply.record_id) }" data-thread-reply :data-thread-message-id="reply.record_id">
                     <div class="chat-msg-actions-menu" @click.outside="$store.chat.isMessageActionsMenuOpen(reply.record_id) && $store.chat.closeMessageActionsMenu()">
                       <button type="button" class="chat-msg-actions-toggle" title="Message actions" aria-label="Message actions" @click.stop="$store.chat.toggleMessageActionsMenu(reply.record_id)">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">

@@ -803,6 +803,8 @@ export function initApp() {
     threadVisibleReplyCount: 6,
     threadHistoryCursor: null,
     threadHistoryLoading: false,
+    threadHistoryLoadAll: false,
+    threadHistoryGeneration: 0,
     threadHistoryError: '',
     threadSize: 'default',
     focusMessageId: null,

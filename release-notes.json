@@ -1527,6 +1527,19 @@
       "notes": [
         "Distinguish completed local saves, completed exports and dismissed export sheets, including cancellation after a save has finished."
       ]
+    },
+    {
+      "buildNumber": 1939,
+      "label": "Load complete thread history",
+      "notes": [
+        "Load all messages in a thread with one click, including inherited history, while preserving the visible reply until every page is fetched."
+      ]
+    },
+    {
+      "buildNumber": 1940,
+      "label": "Drive branch runtime integration",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }

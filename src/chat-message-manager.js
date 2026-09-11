@@ -976,6 +976,9 @@ export const chatMessageManagerMixin = {
   // --- messages ---
 
   async applyMessages(messages = [], options = {}) {
+    // Keep the reader's current window intact while history pages commit.
+    // The explicit completion refresh publishes the expanded transcript once.
+    if (this.threadHistoryLoadAll && options.threadDetail && !options.historyComplete) return;
     const startingRevision = Number(this.messageCollectionRevision || 0);
     if (options.isCurrent && !options.isCurrent()) return;
     const selectionGeneration = options.selectionGeneration;
@@ -1051,10 +1054,14 @@ export const chatMessageManagerMixin = {
     const threadRepliesAnchor = messagesChanged
       ? this.captureScrollAnchor({
         containerSelector: '[data-thread-replies]',
-        itemSelector: '[data-thread-message-id]',
+        itemSelector: this.threadHistoryLoadAll ? '[data-thread-reply]' : '[data-thread-message-id]',
         itemAttribute: 'data-thread-message-id',
       })
       : null;
+
+    // Explicit history expansion preserves the visible message even when the
+    // reader started at the bottom; new pages may append newer messages.
+    if (threadRepliesAnchor && this.threadHistoryLoadAll) threadRepliesAnchor.atBottom = false;
 
     if (messagesChanged) {
       const incrementalPatch = incrementalMessagePatch(this.messages, nextMessages);
@@ -1091,7 +1098,8 @@ export const chatMessageManagerMixin = {
     }
 
     const shouldScrollChatToLatest = options.scrollToLatest === true || this.pendingChatScrollToLatest || chatFeedAnchor?.atBottom;
-    const shouldScrollThreadToLatest = options.scrollThreadToLatest === true || this.pendingThreadScrollToLatest || threadRepliesAnchor?.atBottom;
+    const shouldScrollThreadToLatest = !this.threadHistoryLoadAll
+      && (options.scrollThreadToLatest === true || this.pendingThreadScrollToLatest || threadRepliesAnchor?.atBottom);
 
     const enrichAndRestore = () => {
       if (options.isCurrent && !options.isCurrent()) return;
@@ -1608,6 +1616,11 @@ export const chatMessageManagerMixin = {
     ) {
       this.selectPgChannelContext?.(message.channel_id);
     }
+    this.threadHistoryGeneration = (this.threadHistoryGeneration || 0) + 1;
+    this.threadHistoryCursor = null;
+    this.threadHistoryError = '';
+    this.threadHistoryLoading = false;
+    this.threadHistoryLoadAll = false;
     this.activeThreadId = recordId;
     if (this.navSection === 'status' && this.deckThreadChannelId) this.messages = [];
     this.threadMenuOpen = false;
@@ -1633,26 +1646,34 @@ export const chatMessageManagerMixin = {
     if (options.syncRoute !== false) this.syncRoute();
   },
 
-  async loadDeckThreadHistoryPage() {
+  async loadDeckThreadHistoryPage({ all = false } = {}) {
     if (this.threadHistoryLoading || !this.requestTowerSyncFamily) return;
     const rootId = this.activeThreadId;
-    const channelId = this.deckThreadChannelId;
-    let threadId = this.deckThreadTowerId || resolvePgThreadId(this, rootId);
+    const channelId = this.navSection === 'status' ? this.deckThreadChannelId : this.selectedChannelId;
+    let threadId = (this.navSection === 'status' ? this.deckThreadTowerId : null) || resolvePgThreadId(this, rootId);
     const workspaceKey = this.currentWorkspaceKey;
-    const generation = this.autopilotOverviewThreadOpenRequestId;
+    const generation = this.threadHistoryGeneration;
     if (!rootId || !channelId) return;
-    const isCurrent = () => this.activeThreadId === rootId && this.deckThreadChannelId === channelId
-      && this.currentWorkspaceKey === workspaceKey && this.autopilotOverviewThreadOpenRequestId === generation;
+    const isCurrent = () => this.activeThreadId === rootId
+      && (this.navSection === 'status' ? this.deckThreadChannelId : this.selectedChannelId) === channelId
+      && this.currentWorkspaceKey === workspaceKey && this.threadHistoryGeneration === generation;
     this.threadHistoryLoading = true;
     this.threadHistoryError = '';
     try {
       if (!threadId) threadId = (await getMessageById(rootId))?.pg_thread_id || rootId;
       if (!isCurrent()) return;
-      const result = await this.requestTowerSyncFamily('thread-history-page', `${channelId}:${threadId}:${this.threadHistoryCursor || 'first'}`, {
-        channelId, threadId, cursor: this.threadHistoryCursor, limit: 100,
-      });
-      if (!isCurrent()) return;
-      this.threadHistoryCursor = result?.nextCursor || null;
+      const seen = new Set();
+      do {
+        const cursor = this.threadHistoryCursor || null;
+        seen.add(cursor);
+        const result = await this.requestTowerSyncFamily('thread-history-page', `${channelId}:${threadId}:${cursor || 'first'}`, {
+          channelId, threadId, cursor, limit: 100, force: all,
+        });
+        if (!isCurrent()) return;
+        if (!result || !Object.hasOwn(result, 'nextCursor')) throw new Error('Unable to load conversation history; retry');
+        if (result.nextCursor && seen.has(result.nextCursor)) throw new Error('Conversation history cursor did not advance; retry');
+        this.threadHistoryCursor = result.nextCursor || null;
+      } while (all && this.threadHistoryCursor);
     } catch (error) {
       if (isCurrent()) this.threadHistoryError = error?.message || 'Unable to load conversation history';
     } finally {
@@ -1668,6 +1689,9 @@ export const chatMessageManagerMixin = {
     if (this.messageEdit?.context === 'thread' && this.messageEdit.submitting) return false;
     if (this.messageEdit?.context === 'thread') this.cancelMessageEdit();
     if (options.saveDraft !== false) this.saveChatComposerDraft?.('thread');
+    this.threadHistoryGeneration = (this.threadHistoryGeneration || 0) + 1;
+    this.threadHistoryLoading = false;
+    this.threadHistoryLoadAll = false;
     this.activeThreadId = null;
     this.threadMenuOpen = false;
     this.threadTitleEditing = false;
@@ -1686,15 +1710,35 @@ export const chatMessageManagerMixin = {
     return true;
   },
 
-  showMoreThreadMessages() {
+  async showMoreThreadMessages() {
+    if (this.threadHistoryLoading || this.threadHistoryLoadAll) return;
+    const generation = this.threadHistoryGeneration;
+    const rootId = this.activeThreadId;
+    const workspace = this.currentWorkspaceKey;
+    const isCurrent = () => this.threadHistoryGeneration === generation
+      && this.activeThreadId === rootId && this.currentWorkspaceKey === workspace;
     const anchor = this.captureScrollAnchor({
       containerSelector: '[data-thread-replies]',
-      itemSelector: '[data-thread-message-id]',
+      itemSelector: '[data-thread-reply]',
       itemAttribute: 'data-thread-message-id',
     });
-    this.threadVisibleReplyCount += this.THREAD_REPLY_PAGE_SIZE;
-    this.startWorkspaceLiveQueries?.();
-    this.restoreScrollAnchor(anchor);
+    if (anchor) anchor.atBottom = false;
+    this.threadHistoryLoadAll = true;
+    this.pendingThreadScrollToLatest = false;
+    try {
+      await this.loadDeckThreadHistoryPage({ all: true });
+      if (!isCurrent()) return;
+      // Start the expanded Dexie subscription only after the last page commits,
+      // so an earlier bounded projection cannot win the final refresh race.
+      this.threadVisibleReplyCount = Number.MAX_SAFE_INTEGER;
+      this.startWorkspaceLiveQueries?.();
+      await this.refreshMessages({ isCurrent, historyComplete: true });
+      if (isCurrent()) this.restoreScrollAnchor(anchor);
+    } catch (error) {
+      if (isCurrent()) this.threadHistoryError = error?.message || 'Unable to load conversation history';
+    } finally {
+      if (isCurrent()) this.threadHistoryLoadAll = false;
+    }
   },
 
   showMoreMainFeedMessages() {
