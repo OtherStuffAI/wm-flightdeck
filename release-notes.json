@@ -1540,6 +1540,13 @@
       "label": "Drive branch runtime integration",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1943,
+      "label": "Visible scope delete confirmation",
+      "notes": [
+        "Show scope deletion confirmation inside Flight Deck instead of relying on a native browser confirm, so WM App users can archive scopes reliably."
+      ]
     }
   ]
 }

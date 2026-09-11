@@ -18983,6 +18983,58 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   position: relative;
 }
 
+.scope-delete-confirm-overlay {
+  z-index: 420;
+}
+
+.scope-delete-confirm-modal {
+  width: min(92vw, 500px);
+  padding: 1.25rem;
+}
+
+.scope-delete-confirm-modal h2 {
+  margin: 0.15rem 0 0;
+  font-size: 1.2rem;
+}
+
+.scope-delete-confirm-eyebrow {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.scope-delete-confirm-copy {
+  margin: 0.85rem 0 0;
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.scope-delete-confirm-error {
+  margin: 0.85rem 0 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius-md);
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.86rem;
+}
+
+.scope-delete-confirm-actions {
+  margin-top: 1.1rem;
+}
+
+.scope-delete-confirm-button.btn-confirm {
+  background: #b91c1c;
+}
+
+.scope-delete-confirm-button.btn-confirm:hover:not(:disabled),
+.scope-delete-confirm-button.btn-confirm:focus-visible {
+  background: #991b1b;
+}
+
 .scope-wizard-modal {
   width: min(94vw, 940px);
   max-height: calc(100vh - 2rem);

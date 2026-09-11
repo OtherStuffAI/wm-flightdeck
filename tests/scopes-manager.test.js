@@ -861,15 +861,37 @@ describe('PG scope deletion', () => {
   });
 
   it('describes the archive cascade and cancel leaves data intact', async () => {
-    const confirm = vi.fn(() => false);
-    vi.stubGlobal('confirm', confirm);
-    try {
-      const store = deletionStore();
-      await store.confirmDeleteScope('scope-1');
-      expect(confirm).toHaveBeenCalledWith(expect.stringContaining('scope and all its channels'));
-      expect(mocks.deleteTowerPgWorkspaceScope).not.toHaveBeenCalled();
-      expect(store.scopes).toHaveLength(1);
-    } finally { vi.unstubAllGlobals(); }
+    const store = deletionStore();
+    await store.confirmDeleteScope('scope-1');
+    expect(store.scopeDeleteConfirmation).toEqual(expect.objectContaining({
+      scopeId: 'scope-1',
+      title: 'Scope',
+      consequence: expect.stringContaining('scope and all its channels'),
+    }));
+    expect(mocks.deleteTowerPgWorkspaceScope).not.toHaveBeenCalled();
+    store.cancelDeleteScope();
+    expect(store.scopeDeleteConfirmation).toBeNull();
+    expect(store.scopes).toHaveLength(1);
+  });
+
+  it('confirms deletion from the in-app prompt and reports success', async () => {
+    const store = deletionStore();
+    await store.confirmDeleteScope('scope-1');
+    await store.confirmPendingScopeDelete();
+    expect(mocks.deleteTowerPgWorkspaceScope).toHaveBeenCalledWith('workspace-1', 'scope-1', expect.any(Object));
+    expect(store.scopeDeleteConfirmation).toBeNull();
+    expect(store.scopeDeleteNotice).toContain('Archived scope "Scope"');
+    expect(store.openAllScopesOverview).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the in-app prompt visible and reports Tower delete errors', async () => {
+    mocks.deleteTowerPgWorkspaceScope.mockRejectedValueOnce(new Error('Denied by Tower'));
+    const store = deletionStore();
+    await store.confirmDeleteScope('scope-1');
+    await store.confirmPendingScopeDelete();
+    expect(store.scopeDeleteConfirmation).toEqual(expect.objectContaining({ scopeId: 'scope-1' }));
+    expect(store.scopeDeleteError).toBe('Denied by Tower');
+    expect(store.scopes).toHaveLength(1);
   });
 
   it('rejects unauthorized and protected scopes', async () => {

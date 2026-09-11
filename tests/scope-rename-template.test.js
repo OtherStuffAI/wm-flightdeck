@@ -5,6 +5,15 @@ const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
 
 describe('scope rename surface', () => {
+  it('renders scope deletion through an in-app confirmation dialog', () => {
+    expect(html).toContain('class="modal-overlay scope-delete-confirm-overlay"');
+    expect(html).toContain('role="dialog" aria-modal="true" aria-labelledby="scope-delete-confirm-title"');
+    expect(html).toContain('$store.chat.confirmPendingScopeDelete()');
+    expect(html).toContain('$store.chat.scopeDeleteError');
+    expect(css).toContain('.scope-delete-confirm-overlay');
+    expect(css).toContain('.scope-delete-confirm-error');
+  });
+
   it('keeps safe scope actions reachable while gating rename independently', () => {
     expect(html).toContain('<div class="scope-card-actions">');
     expect(html).toContain('<button type="button" x-show="$store.chat.canManageScope(s1)" @click.stop="$store.chat.startEditScope(s1.record_id); actionsOpen = false">');
