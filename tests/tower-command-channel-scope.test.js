@@ -67,6 +67,31 @@ describe('channel and scope command descriptors', () => {
     expect(mocks.upsertChannel).toHaveBeenNthCalledWith(2, previous);
   });
 
+  it('writes cloneable plain rows for proxied scope delete state', async () => {
+    const previous = {
+      record_id: 'scope-1',
+      title: 'Delete me',
+      record_state: 'active',
+      group_ids: new Proxy(['group-a'], {}),
+      metadata: new Proxy({ color: 'blue' }, {}),
+    };
+    expect(() => structuredClone(previous.group_ids)).toThrow();
+    mocks.upsertScope.mockImplementation(async (row) => {
+      structuredClone(row);
+    });
+
+    const descriptor = prepareTowerWorkspaceCommand({ workspaceOwnerNpub: 'owner', scopes: [previous] }, 'scope.delete', {
+      args: ['workspace', 'scope-1', {}], entityId: 'scope-1',
+    });
+    await expect(descriptor.optimistic()).resolves.toBeUndefined();
+    await expect(descriptor.reconcile({ ok: true })).resolves.toBeUndefined();
+    await expect(descriptor.fail(new Error('denied'))).resolves.toBeUndefined();
+
+    expect(mocks.upsertScope).toHaveBeenNthCalledWith(1, expect.objectContaining({ record_state: 'deleted', sync_status: 'pending' }));
+    expect(mocks.upsertScope).toHaveBeenNthCalledWith(2, expect.objectContaining({ record_state: 'deleted', sync_status: 'synced' }));
+    expect(mocks.upsertScope).toHaveBeenNthCalledWith(3, expect.objectContaining({ record_state: 'active', group_ids: ['group-a'], metadata: { color: 'blue' } }));
+  });
+
   it('coalesces the same channel create intent and ignores its late acknowledgement after disposal', async () => {
     let resolve;
     const reconcile = vi.fn();

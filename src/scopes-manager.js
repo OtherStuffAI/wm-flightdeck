@@ -2543,7 +2543,7 @@ export const scopesManagerMixin = {
         if (!workspaceId || !baseUrl) throw new Error('Flight Deck PG workspace is not connected');
         if (scope.pg_workspace_id && scope.pg_workspace_id !== workspaceId) throw new Error('This scope belongs to a different workspace.');
         await deleteTowerPgWorkspaceScope(this, workspaceId, scopeId, { baseUrl, appNpub });
-        await upsertScope({ ...scope, record_state: 'deleted', sync_status: 'synced' });
+        await upsertScope(toRaw({ ...scope, record_state: 'deleted', sync_status: 'synced' }));
         const channelIds = new Set((this.channels || []).filter((channel) => channel.scope_id === scopeId).map((channel) => channel.record_id));
         for (const channelId of channelIds) await deleteChannelRuntimeState(channelId);
         const selectedDeleted = channelIds.has(this.selectedChannelId) || this.pgContextScopeId === scopeId || this.selectedBoardId === scopeId;

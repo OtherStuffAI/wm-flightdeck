@@ -38,6 +38,7 @@ import {
   mapPgWorkroomToLocal,
 } from './pg-read-hydrator.js';
 import { mapTowerResourceViewState } from './resource-view-state.js';
+import { toRaw } from './utils/state-helpers.js';
 
 export const TOWER_WORKSPACE_COMMAND_CONTRACT = Object.freeze({
   descriptorReconciled: Object.freeze([
@@ -82,6 +83,10 @@ export const TOWER_WORKSPACE_COMMAND_NAMES = Object.freeze([
 
 function sameRow(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function cloneableRow(row = {}, patch = {}) {
+  return toRaw({ ...row, ...patch });
 }
 
 function optimisticWriterFor(input) {
@@ -212,11 +217,11 @@ export function prepareTowerWorkspaceCommand(store, name, input = {}) {
       : null;
     const optimistic = {
       'scope.create': () => upsertScope(mapPgScopeToLocal({ id: args[1]?.client_record_id, ...args[1] }, { workspaceOwnerNpub: owner })),
-      'scope.update': () => previousScope ? upsertScope({ ...previousScope, title: args[2]?.name ?? previousScope.title, description: args[2]?.description ?? previousScope.description, sync_status: 'pending' }) : undefined,
-      'scope.delete': () => previousScope ? upsertScope({ ...previousScope, record_state: 'deleted', sync_status: 'pending' }) : undefined,
+      'scope.update': () => previousScope ? upsertScope(cloneableRow(previousScope, { title: args[2]?.name ?? previousScope.title, description: args[2]?.description ?? previousScope.description, sync_status: 'pending' })) : undefined,
+      'scope.delete': () => previousScope ? upsertScope(cloneableRow(previousScope, { record_state: 'deleted', sync_status: 'pending' })) : undefined,
       'channel.create': () => upsertChannel(mapPgChannelToLocal({ id: args[2]?.client_record_id, scope_id: args[1], ...args[2] }, { workspaceOwnerNpub: owner })),
-      'channel.update': () => previousChannel ? upsertChannel({ ...previousChannel, ...args[2], sync_status: 'pending' }) : undefined,
-      'channel.delete': () => previousChannel ? upsertChannel({ ...previousChannel, record_state: 'deleted', sync_status: 'pending' }) : undefined,
+      'channel.update': () => previousChannel ? upsertChannel(cloneableRow(previousChannel, { ...args[2], sync_status: 'pending' })) : undefined,
+      'channel.delete': () => previousChannel ? upsertChannel(cloneableRow(previousChannel, { record_state: 'deleted', sync_status: 'pending' })) : undefined,
     }[name];
     const reconcile = {
       'scope.create': async (result) => {
@@ -231,7 +236,7 @@ export function prepareTowerWorkspaceCommand(store, name, input = {}) {
         await upsertScope(mapPgScopeToLocal(result?.scope || result, { workspaceOwnerNpub: owner }));
         return result;
       },
-      'scope.delete': () => previousScope ? upsertScope({ ...previousScope, record_state: 'deleted', sync_status: 'synced' }) : undefined,
+      'scope.delete': () => previousScope ? upsertScope(cloneableRow(previousScope, { record_state: 'deleted', sync_status: 'synced' })) : undefined,
       'channel.create': async (result) => {
         const row = mapPgChannelToLocal(result?.channel || result, { workspaceOwnerNpub: owner });
         if (args[2]?.client_record_id && row.record_id !== args[2].client_record_id) {
@@ -244,15 +249,15 @@ export function prepareTowerWorkspaceCommand(store, name, input = {}) {
         await upsertChannel(mapPgChannelToLocal(result?.channel || result, { workspaceOwnerNpub: owner }));
         return result;
       },
-      'channel.delete': () => previousChannel ? upsertChannel({ ...previousChannel, record_state: 'deleted', sync_status: 'synced' }) : undefined,
+      'channel.delete': () => previousChannel ? upsertChannel(cloneableRow(previousChannel, { record_state: 'deleted', sync_status: 'synced' })) : undefined,
     }[name];
     const fail = {
       'scope.create': () => upsertScope({ ...mapPgScopeToLocal({ id: args[1]?.client_record_id, ...args[1] }, { workspaceOwnerNpub: owner }), sync_status: 'failed' }),
-      'scope.update': () => previousScope ? upsertScope(previousScope) : undefined,
-      'scope.delete': () => previousScope ? upsertScope(previousScope) : undefined,
+      'scope.update': () => previousScope ? upsertScope(toRaw(previousScope)) : undefined,
+      'scope.delete': () => previousScope ? upsertScope(toRaw(previousScope)) : undefined,
       'channel.create': () => upsertChannel({ ...mapPgChannelToLocal({ id: args[2]?.client_record_id, scope_id: args[1], ...args[2] }, { workspaceOwnerNpub: owner }), sync_status: 'failed' }),
-      'channel.update': () => previousChannel ? upsertChannel(previousChannel) : undefined,
-      'channel.delete': () => previousChannel ? upsertChannel(previousChannel) : undefined,
+      'channel.update': () => previousChannel ? upsertChannel(toRaw(previousChannel)) : undefined,
+      'channel.delete': () => previousChannel ? upsertChannel(toRaw(previousChannel)) : undefined,
     }[name];
     return {
       entityKey: `${name}:${String(input.entityId || input.clientMutationId || '')}`,

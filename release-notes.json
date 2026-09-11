@@ -1555,6 +1555,13 @@
         "Show shared desktop folders inside Files below Tower files instead of as a separate Drive navigation item.",
         "Keep existing Drive links opening Files with the intended shared folder or path selected."
       ]
+    },
+    {
+      "buildNumber": 1948,
+      "label": "Reliable scope archiving",
+      "notes": [
+        "Archive scopes from WM App without clone errors while keeping the in-app confirmation and visible failure feedback."
+      ]
     }
   ]
 }
