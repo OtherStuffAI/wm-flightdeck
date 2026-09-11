@@ -165,7 +165,7 @@ it('captures a cold reference before slow sync, finds a later file page, and fol
   const db = getWorkspaceDb();
   const state = Object.defineProperties({}, Object.getOwnPropertyDescriptors(driveManagerMixin));
   state.context = { baseUrl: 'https://tower', workspaceId: 'workspace-a', sessionNpub: 'owner' };
-  state.navSection = 'drive';
+  state.navSection = 'files';
   const oldWindow = globalThis.window,
     oldLocation = globalThis.location;
   globalThis.window = { fipsTransport: { connectDrive() {} } };

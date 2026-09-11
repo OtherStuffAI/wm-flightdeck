@@ -3045,7 +3045,7 @@ export const syncManagerMixin = {
   },
 
   async backgroundSyncTick() {
-    if(this.navSection==='drive'){try{await this.requestTowerSyncFamily('drive-shares','',{force:true});}catch(_){}}
+    if(this.navSection==='files'){try{await this.requestTowerSyncFamily('drive-shares','',{force:true});}catch(_){}}
     const cadence = this.getSyncCadenceMs();
     if (!cadence) {
       this.catchUpSyncActive = false;

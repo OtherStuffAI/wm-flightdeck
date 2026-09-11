@@ -837,20 +837,20 @@ describe('shell state boundary is documented', () => {
 });
 
 describe('Drive reference route normalization', () => {
-  it('keeps the share/path reference and targets its workspace through cold route normalization', async () => {
+  it('keeps the share/path reference while routing old Drive links into Files', async () => {
     const { parseRouteLocation } = await import('../src/route-helpers.js');
     const original = globalThis.window;
     const href = 'https://deck.example/old/flight-deck?workspacekey=old#drive?workspace=target&share=share&path=folder%2Ffile&kind=file';
     globalThis.window = { location: { href } };
     try {
       const shell = createShellState();
-      const context = { navSection: 'drive', currentWorkspaceSlug: 'target',
+      const context = { navSection: 'files', currentWorkspaceSlug: 'target',
         currentWorkspaceKey: 'new', getRoutePath: shell.getRoutePath };
-      expect(shell.getRoutePath.call(context)).toBe('/target/drive');
+      expect(shell.getRoutePath.call(context)).toBe('/target/files');
       const normalized = shell.buildRouteUrl.call(context);
-      expect(normalized).toContain('/target/drive?workspacekey=new#drive?workspace=target&share=share&path=folder%2Ffile');
+      expect(normalized).toContain('/target/files?workspacekey=new#drive?workspace=target&share=share&path=folder%2Ffile');
       const route = parseRouteLocation(href);
-      expect(route.section).toBe('drive');
+      expect(route.section).toBe('files');
       expect(route.params.workspaceid).toBe('target');
       expect(route.params.workspacekey).toBeNull();
     } finally { globalThis.window = original; }

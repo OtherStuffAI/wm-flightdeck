@@ -22580,10 +22580,117 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 .view-lock-button-locked { background: #e2e8f0; color: #334155; }
 .view-lock-button:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
 
-.drive-panel { padding: 1.25rem; overflow: auto; width: 100%; }
-.drive-panel header { display:flex; align-items:center; gap:1rem; }
-.drive-layout { display:grid; grid-template-columns:minmax(160px,240px) 1fr; gap:1.5rem; }
-.drive-layout aside button { display:block; width:100%; text-align:left; padding:.6rem; }
-.drive-layout small { display:block; opacity:.7; }
-.drive-layout li { padding:.4rem 0; overflow-wrap:anywhere; }
-@media(max-width:700px) { .drive-layout { grid-template-columns:1fr; } }
+.files-shared-section {
+  border-top: 1px solid rgba(148, 163, 184, 0.24);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.files-shared-header,
+.files-shared-pathbar,
+.files-shared-transfer {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.files-shared-header h3,
+.files-shared-pathbar h4 {
+  color: var(--text-primary);
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.files-shared-pathbar p,
+.files-shared-status,
+.files-empty-inline {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.files-shared-browser {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  margin-top: 0.8rem;
+}
+
+.files-shared-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.files-shared-source-btn {
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  border-radius: 8px;
+  color: var(--text-primary);
+  cursor: pointer;
+  display: block;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  width: 100%;
+}
+
+.files-shared-source-btn:hover,
+.files-shared-source-btn:focus-visible,
+.files-shared-source-btn.active {
+  border-color: rgba(59, 130, 246, 0.52);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  outline: none;
+}
+
+.files-shared-source-btn strong,
+.files-shared-source-btn small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-shared-source-btn small {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin-top: 0.2rem;
+}
+
+.files-shared-list {
+  min-width: 0;
+}
+
+.files-shared-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.files-shared-row .file-row-title {
+  align-items: center;
+}
+
+.files-shared-transfer {
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  margin-top: 0.75rem;
+  padding: 0.7rem 0.8rem;
+}
+
+@media (max-width: 700px) {
+  .files-shared-header,
+  .files-shared-pathbar,
+  .files-shared-transfer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .files-shared-browser {
+    grid-template-columns: 1fr;
+  }
+}

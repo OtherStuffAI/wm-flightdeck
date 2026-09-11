@@ -9,6 +9,7 @@ export const KNOWN_PAGES = new Set([
 export function pageToSection(page) {
   if (page === 'flight-deck' || page === 'notifications' || page === 'status') return 'status';
   if (page === 'workroom' || page === 'workrooms') return 'workroom';
+  if (page === 'drive') return 'files';
   if (KNOWN_PAGES.has(page)) return normalizeEnabledFlightDeckSection(page);
   return null;
 }
@@ -80,7 +81,7 @@ export function parseRouteLocation(href) {
   }
 
   const driveReference = url.hash.startsWith('#drive?') ? new URLSearchParams(url.hash.slice(7)) : null;
-  if (driveReference) { section = 'drive'; workspaceSlug = null; }
+  if (driveReference) { section = 'files'; workspaceSlug = null; }
   return {
     section,
     workspaceSlug,

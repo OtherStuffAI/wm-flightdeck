@@ -1540,6 +1540,14 @@
       "label": "Drive branch runtime integration",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1942,
+      "label": "Shared folders in Files",
+      "notes": [
+        "Show shared desktop folders inside Files below Tower files instead of as a separate Drive navigation item.",
+        "Keep existing Drive links opening Files with the intended shared folder or path selected."
+      ]
     }
   ]
 }

@@ -1312,6 +1312,19 @@ describe('backgroundSyncTick', () => {
     expect(syncTowerPgWorkspace).toHaveBeenCalled();
     expect(syncTowerPgWorkspace.mock.calls.at(-1)[0]).toBe(store);
   });
+
+  it('refreshes shared folder metadata while Files is active', async () => {
+    const requestTowerSyncFamily = vi.fn(async () => {});
+    const { fn } = bindMethod('backgroundSyncTick', {
+      navSection: 'files',
+      requestTowerSyncFamily,
+      getSyncCadenceMs: vi.fn(() => null),
+    });
+
+    await fn();
+
+    expect(requestTowerSyncFamily).toHaveBeenCalledWith('drive-shares', '', { force: true });
+  });
 });
 
 // ---------------------------------------------------------------------------

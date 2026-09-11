@@ -686,7 +686,8 @@ export function createShellState(options = {}) {
           case 'chat': return 'chat';
           case 'docs': return 'docs';
           case 'files': return 'files';
-          case 'drive': return 'drive';
+          case 'drive':
+          case 'files': return 'files';
           case 'workroom': return 'workroom';
           case 'reports': return 'reports';
           case 'opportunities': return 'opportunities';
@@ -733,14 +734,15 @@ export function createShellState(options = {}) {
         if (normalizeTaskSortMode(this.taskSortMode) !== 'manual') url.searchParams.set('sort', normalizeTaskSortMode(this.taskSortMode));
       }
 
-      return `${url.pathname}${url.search}${this.navSection === 'drive' && url.hash.startsWith('#drive?') ? url.hash : ''}`;
+      return `${url.pathname}${url.search}${this.navSection === 'files' && url.hash.startsWith('#drive?') ? url.hash : ''}`;
     },
 
     syncRoute(replace = false) {
       this.updatePageTitle();
       if (this.routeSyncPaused || typeof window === 'undefined') return;
       const nextUrl = this.buildRouteUrl();
-      const currentUrl = `${window.location.pathname}${window.location.search}`;
+      const currentHash = window.location.hash?.startsWith('#drive?') ? window.location.hash : '';
+      const currentUrl = `${window.location.pathname}${window.location.search}${currentHash}`;
       if (nextUrl === currentUrl) return;
       const state = { section: this.navSection };
       if (this.navSection === 'docs' && this.selectedDocId && this.docDetailOriginRoute) {
@@ -897,7 +899,7 @@ export function createShellState(options = {}) {
       }
       this.startWorkspaceLiveQueries();
       this.syncRoute(true);
-      if (this.navSection === 'drive') await this.startDrive?.();
+      if (this.navSection === 'files') await this.startDrive?.();
     },
 
     // ── Navigation ────────────────────────────────────────────
@@ -905,7 +907,7 @@ export function createShellState(options = {}) {
     navigateTo(section, options = {}) {
       section = normalizeEnabledFlightDeckSection(section);
       const previousSection = this.navSection;
-      if(previousSection==='drive' && section!=='drive') this.stopDrive?.();
+      if(previousSection==='files' && section!=='files') this.stopDrive?.();
       if (section === 'status' && options.preserveDeckMobileCard !== true) {
         this.resetDeckMobileEntry?.();
       }

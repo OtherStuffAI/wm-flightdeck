@@ -245,7 +245,7 @@ export const driveManagerMixin = {
     });
     // Listing TTL only refreshes the visited directory; metadata uses the sync owner's timer.
     this._driveTimer = setInterval(() => {
-      if (this.driveScope !== key || this.navSection !== 'drive') {
+      if (this.driveScope !== key || this.navSection !== 'files') {
         this.stopDrive();
         return;
       }

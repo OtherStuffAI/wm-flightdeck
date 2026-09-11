@@ -69,4 +69,28 @@ describe('files upload UI', () => {
     expect(css).toContain('.files-upload-modal-close-btn');
     expect(css).toContain('.files-upload-modal-footer');
   });
+
+  it('renders shared folders inside Files and removes standalone Drive navigation', () => {
+    const filesSectionIndex = html.indexOf('class="files-section"');
+    const towerFilesIndex = html.indexOf('class="files-list"', filesSectionIndex);
+    const sharedSectionIndex = html.indexOf('class="files-shared-section"', filesSectionIndex);
+    const editModalIndex = html.indexOf('class="doc-modal-backdrop file-edit-modal-backdrop"', filesSectionIndex);
+
+    expect(sharedSectionIndex).toBeGreaterThan(towerFilesIndex);
+    expect(sharedSectionIndex).toBeLessThan(editModalIndex);
+    expect(html).not.toContain("$store.chat.navigateTo('drive')");
+    expect(html).not.toContain("$store.chat.navSection === 'drive'");
+    expect(html).not.toContain('class="drive-panel"');
+    expect(html).toContain('$store.chat.startDrive()');
+    expect(html).toContain('@destroy="$store.chat.stopDrive()"');
+    expect(html).toContain('id="files-shared-title"');
+    expect(html).toContain('aria-label="Shared folder sources"');
+    expect(html).toContain('@click="$store.chat.refreshDrive()"');
+    expect(html).toContain('@click="$store.chat.openDriveEntry(entry, true)"');
+    expect(html).toContain('@click="$store.chat.cancelDriveTransfer()"');
+    expect(html).toContain('x-text="$store.chat.driveStatusLabel"');
+    expect(css).toContain('.files-shared-browser');
+    expect(css).toContain('grid-template-columns: minmax(180px, 260px) minmax(0, 1fr)');
+    expect(css).toContain('@media (max-width: 700px)');
+  });
 });
