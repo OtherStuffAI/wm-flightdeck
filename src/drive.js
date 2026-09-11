@@ -184,6 +184,9 @@ export const driveManagerMixin = {
         changed: 'File changed — refresh and try again',
         cancelled: 'Transfer cancelled',
         saved: 'File saved locally',
+        exported: 'File saved locally · export completed',
+        'export-dismissed': 'File saved locally · export dismissed',
+        'export-presented': 'File saved locally · export chooser opened',
       }[this.driveState] || this.driveState
     );
   },
@@ -412,7 +415,7 @@ export const driveManagerMixin = {
     this.driveProgress = 0;
     const scope = this.driveScope;
     try {
-      await this._driveClient.save(this.driveSelected, path, {
+      const result = await this._driveClient.save(this.driveSelected, path, {
         revision: entry.revision,
         name: entry.name,
         signal: controller.signal,
@@ -421,8 +424,17 @@ export const driveManagerMixin = {
         },
         open,
       });
-      if (controller.signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-      if (this.driveScope === scope) this.driveState = 'saved';
+      if (controller.signal.aborted && !result?.committed)
+        throw new DOMException('Cancelled', 'AbortError');
+      if (this.driveScope === scope)
+        this.driveState =
+          result?.exportCompleted === true
+            ? 'exported'
+            : result?.exportCompleted === false
+              ? 'export-dismissed'
+              : result?.exportPresented
+                ? 'export-presented'
+                : 'saved';
     } catch (e) {
       if (this.driveScope === scope) this.driveState = driveError(e);
     } finally {

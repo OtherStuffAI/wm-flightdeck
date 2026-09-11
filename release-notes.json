@@ -1520,6 +1520,13 @@
       "notes": [
         "Keep Drive links and folder refresh working through navigation and brief Tower outages; cancel transfers when access changes."
       ]
+    },
+    {
+      "buildNumber": 1938,
+      "label": "Accurate Drive save outcomes",
+      "notes": [
+        "Distinguish completed local saves, completed exports and dismissed export sheets, including cancellation after a save has finished."
+      ]
     }
   ]
 }

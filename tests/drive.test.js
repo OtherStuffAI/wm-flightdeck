@@ -166,15 +166,22 @@ it('captures a cold reference before slow sync, finds a later file page, and fol
   const state = Object.defineProperties({}, Object.getOwnPropertyDescriptors(driveManagerMixin));
   state.context = { baseUrl: 'https://tower', workspaceId: 'workspace-a', sessionNpub: 'owner' };
   state.navSection = 'drive';
-  const oldWindow = globalThis.window, oldLocation = globalThis.location;
+  const oldWindow = globalThis.window,
+    oldLocation = globalThis.location;
   globalThis.window = { fipsTransport: { connectDrive() {} } };
   globalThis.location = { hash: driveReference(share, 'folder/later.txt', 'file') };
   let resume;
-  const metadata = new Promise((resolve) => { resume = resolve; });
+  const metadata = new Promise((resolve) => {
+    resume = resolve;
+  });
   state.requestTowerSyncFamily = vi.fn(async () => {
     await metadata;
-    await db.drive_shares.put({ ...share, context: state.driveScope,
-      key: JSON.stringify([state.driveScope, share.id]), verified_at: Date.now() });
+    await db.drive_shares.put({
+      ...share,
+      context: state.driveScope,
+      key: JSON.stringify([state.driveScope, share.id]),
+      verified_at: Date.now(),
+    });
   });
   state.browseDrive = vi.fn(async (_share, path, _force, offset = 0) => {
     state.driveEntries = offset ? [{ name: 'later.txt' }] : [{ name: 'first.txt' }];
@@ -185,14 +192,47 @@ it('captures a cold reference before slow sync, finds a later file page, and fol
     const start = state.startDrive();
     await vi.waitFor(() => expect(state.requestTowerSyncFamily).toHaveBeenCalled());
     globalThis.location.hash = '';
-    resume(); await start;
+    resume();
+    await start;
     expect(state.browseDrive.mock.calls.map((call) => [call[1], call[3]])).toEqual([
-      ['folder', undefined], ['folder', 100],
+      ['folder', undefined],
+      ['folder', 100],
     ]);
     globalThis.location.hash = driveReference(share, 'other');
     await state.startDrive();
     expect(state.browseDrive.mock.lastCall[1]).toBe('other');
   } finally {
-    state.stopDrive(); globalThis.window = oldWindow; globalThis.location = oldLocation;
+    state.stopDrive();
+    globalThis.window = oldWindow;
+    globalThis.location = oldLocation;
+  }
+});
+
+it('shows committed save and native export outcomes after a late cancel', async () => {
+  const { driveManagerMixin } = await import('../src/drive.js');
+  for (const [outcome, expected] of [
+    [{ exportCompleted: true }, 'exported'],
+    [{ exportCompleted: false }, 'export-dismissed'],
+    [{ exportPresented: true }, 'export-presented'],
+    [{}, 'saved'],
+  ]) {
+    const state = {
+      drivePath: '',
+      driveScope: 'scope',
+      driveSelected: share,
+      cancelDriveTransfer() {},
+      _driveClient: {
+        save: async (_share, _path, { signal }) => {
+          state._driveTransfer.abort();
+          return { saved: true, committed: true, ...outcome };
+        },
+      },
+    };
+    await driveManagerMixin.openDriveEntry.call(state, {
+      name: 'file',
+      kind: 'file',
+      revision: 'revision',
+    });
+    expect(state.driveState).toBe(expected);
   }
 });
