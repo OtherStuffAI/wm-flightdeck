@@ -1506,6 +1506,20 @@
       "notes": [
         "Keep Chat, Tasks, Docs or Files open while browsing scopes, channels and workspace Home using the grey lock beside the active mobile bottom-bar view. Tap again to unlock, or select another view."
       ]
+    },
+    {
+      "buildNumber": 1936,
+      "label": "Load complete thread history",
+      "notes": [
+        "Load all messages in a thread with one click, including inherited history, while keeping your reading position. Failed history requests can be retried."
+      ]
+    },
+    {
+      "buildNumber": 1937,
+      "label": "Keep your place while loading thread history",
+      "notes": [
+        "Loading all thread messages preserves the visible reply while every page is fetched, then displays the complete transcript in one update."
+      ]
     }
   ]
 }

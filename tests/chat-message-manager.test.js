@@ -750,14 +750,70 @@ describe('thread lifecycle', () => {
     expect(store.threadSize).toBe('default');
   });
 
-  it('showMoreThreadMessages increases visible count', () => {
-    const { fn, store } = bindMethod('showMoreThreadMessages', {
-      threadVisibleReplyCount: 6,
-    });
-    fn();
-    expect(store.threadVisibleReplyCount).toBe(12);
-    fn();
-    expect(store.threadVisibleReplyCount).toBe(18);
+  it('showMoreThreadMessages reveals the complete local window and restores its anchor', async () => {
+    const anchor = { id: 'visible-reply', atBottom: true };
+    const store = createStore({ captureScrollAnchor: vi.fn(() => anchor), restoreScrollAnchor: vi.fn(), refreshMessages: vi.fn() });
+    await store.showMoreThreadMessages();
+    expect(store.threadVisibleReplyCount).toBe(Number.MAX_SAFE_INTEGER);
+    expect(store.restoreScrollAnchor).toHaveBeenCalledWith({ ...anchor, atBottom: false });
+    expect(store.threadHistoryLoadAll).toBe(false);
+  });
+
+  it('keeps intermediate detail projections from displacing the reader during load all', async () => {
+    const initial = [{ record_id: 'root', body: 'Original', channel_id: 'channel', sync_status: 'synced', version: 1 }];
+    const store = createStore({ messages: initial, activeThreadId: 'root', selectedChannelId: 'channel', threadHistoryLoadAll: true });
+    await store.applyMessages([{ ...initial[0], body: 'Intermediate' }], { threadDetail: true });
+    expect(store.messages[0].body).toBe('Original');
+    await store.applyMessages([{ ...initial[0], body: 'Complete', version: 2 }], { threadDetail: true, historyComplete: true });
+    expect(store.messages[0].body).toBe('Complete');
+  });
+
+  it('loads every page, rejects duplicate clicks and retries at the failed cursor', async () => {
+    let release;
+    const request = vi.fn().mockImplementationOnce(() => new Promise(resolve => { release = resolve; }))
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ nextCursor: 'last' }).mockResolvedValueOnce({ nextCursor: null });
+    const store = createStore({ activeThreadId: 'root', selectedChannelId: 'channel',
+      messages: [{ record_id: 'root', pg_thread_id: 'thread' }], requestTowerSyncFamily: request, refreshMessages: vi.fn() });
+    const loading = store.showMoreThreadMessages();
+    expect(store.threadHistoryLoading).toBe(true);
+    expect(store.threadVisibleReplyCount).toBe(6);
+    await store.showMoreThreadMessages();
+    expect(request).toHaveBeenCalledTimes(1);
+    release({ nextCursor: 'second' });
+    await loading;
+    expect(store.threadHistoryError).toBe('offline');
+    expect(store.threadVisibleReplyCount).toBe(Number.MAX_SAFE_INTEGER);
+    expect(store.threadHistoryCursor).toBe('second');
+    expect(store.threadHistoryLoading).toBe(false);
+    await store.showMoreThreadMessages();
+    expect(request.mock.calls.map(call => call[2].cursor)).toEqual([null, 'second', 'second', 'last']);
+    expect(store.threadHistoryCursor).toBeNull();
+    expect(store.threadHistoryError).toBe('');
+  });
+
+  it.each([null, { nextCursor: 'repeat' }])('keeps incomplete or cycling history retryable: %j', async result => {
+    const store = createStore({ activeThreadId: 'root', selectedChannelId: 'channel', threadHistoryCursor: 'repeat',
+      messages: [{ record_id: 'root', pg_thread_id: 'thread' }],
+      requestTowerSyncFamily: vi.fn().mockResolvedValue(result), refreshMessages: vi.fn() });
+    await store.showMoreThreadMessages();
+    expect(store.threadHistoryError).toBeTruthy();
+    expect(store.threadHistoryCursor).toBe('repeat');
+    expect(store.threadHistoryLoading).toBe(false);
+  });
+
+  it('ignores page completion after navigating away and back to the same thread', async () => {
+    let release;
+    const store = createStore({ activeThreadId: 'root', selectedChannelId: 'channel', threadHistoryGeneration: 1,
+      messages: [{ record_id: 'root', pg_thread_id: 'thread' }],
+      requestTowerSyncFamily: vi.fn(() => new Promise(resolve => { release = resolve; })), refreshMessages: vi.fn() });
+    const loading = store.showMoreThreadMessages();
+    store.threadHistoryGeneration = 2;
+    store.threadHistoryCursor = 'new-view';
+    release({ nextCursor: 'stale' });
+    await loading;
+    expect(store.threadHistoryCursor).toBe('new-view');
+    expect(store.refreshMessages).not.toHaveBeenCalled();
   });
 
   it('showMoreMainFeedMessages increases visible count', () => {

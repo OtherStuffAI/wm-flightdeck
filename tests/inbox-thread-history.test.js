@@ -50,9 +50,8 @@ describe('real Inbox thread history path', () => {
     expect(s.markTowerPgResourceViewed).toHaveBeenCalledWith('thread', 'thread-a', undefined);
     expect(s.fileMessages).toEqual([]);
     expect(s.messages.length).toBeLessThanOrEqual(8);
-    s.showMoreThreadMessages();
-    await vi.waitFor(() => expect(s.visibleThreadMessages).toHaveLength(12));
-    for (let i = 0; i < 39; i++) s.showMoreThreadMessages();
+    await s.showMoreThreadMessages();
+    await vi.waitFor(() => expect(s.visibleThreadMessages).toHaveLength(240));
     await vi.waitFor(() => expect(s.visibleThreadMessages.some(row => row.body === 'thread-a reply 1')).toBe(true));
     await getWorkspaceDb().chat_messages.update('thread-a-240', { body: 'edited reply', version: 2 });
     await vi.waitFor(() => expect(s.visibleThreadMessages.some(row => row.body === 'edited reply')).toBe(true));
@@ -64,6 +63,32 @@ describe('real Inbox thread history path', () => {
     expect(s.messages.every(row => row.pg_thread_id === 'thread-a')).toBe(true);
     await s.reconcileDeckThreadMessages([{ record_id: 'preview', channel_id: 'channel-a', parent_message_id: s.activeThreadId }]);
     expect(s.messages.some(row => row.record_id === 'preview')).toBe(false);
+  });
+
+  it('loads overlapping inherited pages in one click with ordered, unique persisted replies', async () => {
+    openWorkspaceDb(key);
+    await seed('branch-all', 1);
+    const s = store();
+    s.activeThreadId = 'branch-all-source';
+    s.deckThreadTowerId = 'branch-all';
+    s.deckThreadChannelId = 'channel-a';
+    s.captureScrollAnchor = vi.fn(() => ({ id: 'visible-message', offset: 40 }));
+    s.restoreScrollAnchor = vi.fn();
+    s.requestTowerSyncFamily = vi.fn(async (_family, _key, options) => {
+      const numbers = options.cursor ? [2, 3, 4] : [1, 2];
+      return hydrateTowerPgSyncBundle(s, { thread_history_page: {
+        channelId: 'channel-a', thread: rawThread('branch-all'), cursor: options.cursor,
+        nextCursor: options.cursor ? null : 'page-2',
+        messages: numbers.map(n => ({ ...rawMessage('ancestor', n), inherited: true, effective_thread_id: 'branch-all' })),
+      } });
+    });
+    await s.showMoreThreadMessages();
+    expect(s.requestTowerSyncFamily).toHaveBeenCalledTimes(2);
+    expect(s.visibleThreadMessages.map(row => row.record_id)).toEqual(['ancestor-1', 'ancestor-2', 'ancestor-3', 'ancestor-4']);
+    expect(s.visibleThreadMessages.every(row => row.pg_inherited && row.read_only)).toBe(true);
+    expect(s.threadHistoryCursor).toBeNull();
+    expect(s.threadHistoryError).toBe('');
+    expect(s.restoreScrollAnchor).toHaveBeenCalledWith({ id: 'visible-message', offset: 40, atBottom: false });
   });
 
   it('invalidates a previously read derived window after an incremental collection revision', async () => {

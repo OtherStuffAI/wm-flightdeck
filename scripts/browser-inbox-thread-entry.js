@@ -1,5 +1,6 @@
 // Production store and handlers; only startup/auth and transport are isolated.
 import Alpine from 'alpinejs';
+import { installStableHtml } from '../src/stable-html.js';
 import { initApp } from '../src/app.js';
 import { openWorkspaceDb } from '../src/db.js';
 import { TowerSyncService } from '../src/tower-sync-service.js';
@@ -26,6 +27,7 @@ window.startThreadProbe = async ({ worker, workspaceId }) => {
     }
     return arguments.length > 1 ? register(name, value) : register(name);
   };
+  installStableHtml(Alpine);
   initApp();
   Alpine.store = register;
   const store = Alpine.store('chat');
