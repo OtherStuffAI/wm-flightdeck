@@ -1542,7 +1542,14 @@
       "noUserVisibleChanges": true
     },
     {
-      "buildNumber": 1942,
+      "buildNumber": 1943,
+      "label": "Visible scope delete confirmation",
+      "notes": [
+        "Show scope deletion confirmation inside Flight Deck instead of relying on a native browser confirm, so WM App users can archive scopes reliably."
+      ]
+    },
+    {
+      "buildNumber": 1945,
       "label": "Shared folders in Files",
       "notes": [
         "Show shared desktop folders inside Files below Tower files instead of as a separate Drive navigation item.",

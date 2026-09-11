@@ -264,10 +264,27 @@ export const scopesManagerMixin = {
   async confirmDeleteScope(scopeId) {
     if (!this.canManageScope(scopeId) || this.deletingScopeId) return;
     const scope = this.scopesMap.get(scopeId);
+    if (!scope) return;
     const consequence = isTowerPgBackendMode()
       ? 'This archives the scope and all its channels, including nonempty channels. Stored content is retained in Tower. There is no restore control in Flight Deck.'
       : 'This deletes the scope. Records assigned to it are not deleted.';
-    if (!globalThis.confirm(`Delete “${scope.title}”? ${consequence}`)) return;
+    this.scopeDeleteError = '';
+    this.scopeDeleteConfirmation = {
+      scopeId,
+      title: scope.title || 'Untitled scope',
+      consequence,
+    };
+  },
+
+  cancelDeleteScope() {
+    if (this.deletingScopeId) return;
+    this.scopeDeleteConfirmation = null;
+    this.scopeDeleteError = '';
+  },
+
+  async confirmPendingScopeDelete() {
+    const scopeId = this.scopeDeleteConfirmation?.scopeId;
+    if (!scopeId || this.deletingScopeId) return;
     await this.deleteScope(scopeId);
   },
 
@@ -2511,6 +2528,7 @@ export const scopesManagerMixin = {
     if (this.deletingScopeId) return;
     if (!this.canManageScope(scopeId)) {
       this.error = 'You do not have permission to manage this scope.';
+      this.scopeDeleteError = this.error;
       return;
     }
     if (isTowerPgBackendMode()) {
@@ -2518,6 +2536,8 @@ export const scopesManagerMixin = {
       if (!scope) return;
       this.deletingScopeId = scopeId;
       this.error = '';
+      this.scopeDeleteError = '';
+      this.scopeDeleteNotice = '';
       try {
         const { workspaceId, baseUrl, appNpub } = resolveTowerPgWorkspaceContext(this);
         if (!workspaceId || !baseUrl) throw new Error('Flight Deck PG workspace is not connected');
@@ -2535,9 +2555,12 @@ export const scopesManagerMixin = {
           this.messages = [];
           this.openAllScopesOverview?.();
         }
+        this.scopeDeleteConfirmation = null;
+        this.scopeDeleteNotice = `Archived scope "${scope.title || 'Untitled scope'}" and its channels.`;
         this.syncRoute?.();
       } catch (error) {
         this.error = error?.message || 'Failed to delete scope';
+        this.scopeDeleteError = this.error;
       } finally {
         this.deletingScopeId = null;
       }
@@ -2557,6 +2580,8 @@ export const scopesManagerMixin = {
 
     await upsertScope(updated);
     this.scopes = this.scopes.filter(s => s.record_id !== scopeId);
+    this.scopeDeleteConfirmation = null;
+    this.scopeDeleteNotice = `Deleted scope "${scope.title || 'Untitled scope'}".`;
 
     const writeFields = await getRecordWriteFieldsForStore(this, updated, {
       label: 'Scope delete',

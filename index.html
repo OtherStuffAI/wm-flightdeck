@@ -113,6 +113,34 @@
   <title>Wingman: Flight Deck</title>
 </head>
 <body x-data x-init="$store.chat.init()" x-cloak>
+  <template x-if="$store.chat.scopeDeleteConfirmation">
+    <div
+      class="modal-overlay scope-delete-confirm-overlay"
+      x-cloak
+      @click.self="$store.chat.cancelDeleteScope()"
+      @keydown.escape.window="$store.chat.scopeDeleteConfirmation && $store.chat.cancelDeleteScope()"
+    >
+      <section class="modal scope-delete-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="scope-delete-confirm-title">
+        <button
+          type="button"
+          class="modal-close"
+          aria-label="Close delete scope confirmation"
+          :disabled="!!$store.chat.deletingScopeId"
+          @click="$store.chat.cancelDeleteScope()"
+        >&times;</button>
+        <p class="scope-delete-confirm-eyebrow">Delete Scope</p>
+        <h2 id="scope-delete-confirm-title" x-text="'Delete ' + ($store.chat.scopeDeleteConfirmation?.title || 'this scope') + '?'"></h2>
+        <p class="scope-delete-confirm-copy" x-text="$store.chat.scopeDeleteConfirmation?.consequence"></p>
+        <p class="scope-delete-confirm-error" x-show="$store.chat.scopeDeleteError" x-text="$store.chat.scopeDeleteError"></p>
+        <div class="new-doc-modal-actions scope-delete-confirm-actions">
+          <button type="button" class="btn-cancel" :disabled="!!$store.chat.deletingScopeId" @click="$store.chat.cancelDeleteScope()">Cancel</button>
+          <button type="button" class="btn-confirm scope-delete-confirm-button" :disabled="!!$store.chat.deletingScopeId" @click="$store.chat.confirmPendingScopeDelete()">
+            <span x-text="$store.chat.deletingScopeId ? 'Deleting...' : 'Delete scope'"></span>
+          </button>
+        </div>
+      </section>
+    </div>
+  </template>
   <div
     class="chat-image-preview-backdrop"
     x-show="$store.chat.chatImagePreviewModal.open"
@@ -7921,6 +7949,8 @@
           </div>
           <p class="scope-edit-hint scope-section-notice" x-show="$store.chat.scopePolicyRepairBusy">Reapplying group crypto across this scope…</p>
           <p class="settings-success scope-section-notice" x-show="$store.chat.scopePolicyRepairSummary" x-text="$store.chat.scopePolicyRepairSummary"></p>
+          <p class="settings-success scope-section-notice" x-show="$store.chat.scopeDeleteNotice" x-text="$store.chat.scopeDeleteNotice"></p>
+          <p class="scope-edit-error scope-section-notice" x-show="$store.chat.scopeDeleteError && !$store.chat.scopeDeleteConfirmation" x-text="$store.chat.scopeDeleteError"></p>
 
           <!-- Scope layout: cards + tree nav -->
           <div class="scope-layout" x-show="$store.chat.scopeTree.length > 0">
