@@ -1562,6 +1562,12 @@
       "notes": [
         "Archive scopes from WM App without clone errors while keeping the in-app confirmation and visible failure feedback."
       ]
+    },
+    {
+      "buildNumber": 1949,
+      "label": "Verified shared folders in Files build",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
