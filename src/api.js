@@ -2545,3 +2545,9 @@ export async function verifyPairedTowerWorkspace(connection, workspaceId, ownerN
     throw new Error('Paired Tower does not match this workspace identity.');
   }
 }
+
+export async function fetchTowerPgDriveShares(workspaceId, {baseUrl=_baseUrl,appNpub=FLIGHT_DECK_PG_APP_NPUB}={}) {
+  const path=`/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/drive/shares`;
+  const response=await signedTowerPgFetch(path,{method:'GET',baseUrl,appNpub});
+  return json(response,{requestUrl:resolveTowerPgUrl(path,baseUrl),method:'GET',prefix:'Drive'});
+}

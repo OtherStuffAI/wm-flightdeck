@@ -22579,3 +22579,11 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 .view-lock-button:hover { background: #f1f5f9; }
 .view-lock-button-locked { background: #e2e8f0; color: #334155; }
 .view-lock-button:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
+
+.drive-panel { padding: 1.25rem; overflow: auto; width: 100%; }
+.drive-panel header { display:flex; align-items:center; gap:1rem; }
+.drive-layout { display:grid; grid-template-columns:minmax(160px,240px) 1fr; gap:1.5rem; }
+.drive-layout aside button { display:block; width:100%; text-align:left; padding:.6rem; }
+.drive-layout small { display:block; opacity:.7; }
+.drive-layout li { padding:.4rem 0; overflow-wrap:anywhere; }
+@media(max-width:700px) { .drive-layout { grid-template-columns:1fr; } }

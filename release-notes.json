@@ -1506,6 +1506,20 @@
       "notes": [
         "Keep Chat, Tasks, Docs or Files open while browsing scopes, channels and workspace Home using the grey lock beside the active mobile bottom-bar view. Tap again to unlock, or select another view."
       ]
+    },
+    {
+      "buildNumber": 1936,
+      "label": "Read-only FIPS Drive",
+      "notes": [
+        "Browse explicitly shared desktop folders by source in Drive, refresh cached listings, copy reference links, and save files through WM App with progress and cancellation. Private folders remain owner-only; workspace shares require membership."
+      ]
+    },
+    {
+      "buildNumber": 1937,
+      "label": "Drive access and lifecycle fixes",
+      "notes": [
+        "Keep Drive links and folder refresh working through navigation and brief Tower outages; cancel transfers when access changes."
+      ]
     }
   ]
 }

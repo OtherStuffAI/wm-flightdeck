@@ -1386,6 +1386,7 @@ export const workspaceManagerMixin = {
     if (previousWorkspaceKey && previousWorkspaceKey !== nextWorkspaceKey) {
       this.disposeTowerSyncService?.('workspace-switch');
     }
+    this.stopDrive?.();
     this._workspaceSelectionGeneration = (this._workspaceSelectionGeneration || 0) + 1;
     this.selectedWorkspaceKey = workspace.workspaceKey || '';
     this.workspaceSwitchPendingNpub = workspace.workspaceOwnerNpub;

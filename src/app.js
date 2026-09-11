@@ -1,3 +1,4 @@
+import { driveManagerMixin } from './drive.js';
 import { registerChatComposer, resolveChatUploadToken } from './chat-composer-draft.js';
 /**
  * Alpine.js app store — the single source of reactive UI state.
@@ -2984,6 +2985,7 @@ export function initApp() {
     },
 
     async logout() {
+      this.stopDrive();
       this.stopBackgroundSync();
       this.stopAllLiveQueries();
       this.stopExtensionSignerWatch();
@@ -9801,6 +9803,7 @@ export function initApp() {
     chatMessageManagerMixin,
     reactionsManagerMixin,
     syncManagerMixin,
+    driveManagerMixin,
     peopleProfilesManagerMixin,
     connectSettingsManagerMixin,
     workspaceSelfIndexManagerMixin,

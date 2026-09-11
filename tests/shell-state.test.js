@@ -835,3 +835,24 @@ describe('shell state boundary is documented', () => {
     expect(sortedActual).toEqual(sortedExpected);
   });
 });
+
+describe('Drive reference route normalization', () => {
+  it('keeps the share/path reference and targets its workspace through cold route normalization', async () => {
+    const { parseRouteLocation } = await import('../src/route-helpers.js');
+    const original = globalThis.window;
+    const href = 'https://deck.example/old/flight-deck?workspacekey=old#drive?workspace=target&share=share&path=folder%2Ffile&kind=file';
+    globalThis.window = { location: { href } };
+    try {
+      const shell = createShellState();
+      const context = { navSection: 'drive', currentWorkspaceSlug: 'target',
+        currentWorkspaceKey: 'new', getRoutePath: shell.getRoutePath };
+      expect(shell.getRoutePath.call(context)).toBe('/target/drive');
+      const normalized = shell.buildRouteUrl.call(context);
+      expect(normalized).toContain('/target/drive?workspacekey=new#drive?workspace=target&share=share&path=folder%2Ffile');
+      const route = parseRouteLocation(href);
+      expect(route.section).toBe('drive');
+      expect(route.params.workspaceid).toBe('target');
+      expect(route.params.workspacekey).toBeNull();
+    } finally { globalThis.window = original; }
+  });
+});

@@ -283,6 +283,7 @@ function createWorkspaceDb(workspaceDbKey) {
       await tx.table(table).toCollection().modify(row => Object.assign(row, activityIndexFields(row)));
     }
   });
+  db.version(27).stores({ ...WORKSPACE_STORES_V26, drive_shares: '&key, context, id', drive_listings: '&key, context, share_key, fetched_at' });
   const commentFields = activityIndexFields;
   db.documents.hook('creating', (_key, row) => { Object.assign(row, commentFields(row)); });
   db.documents.hook('updating', (changes, _key, row) => commentFields({ ...row, ...changes }));

@@ -1092,6 +1092,7 @@
             </span>
             <span class="sidebar-label">Tasks</span>
           </li>
+          <li :class="{ active: $store.chat.navSection === 'drive' }" @click="$store.chat.navigateTo('drive')"><span>Drive</span></li>
           <li :class="{ active: $store.chat.navSection === 'docs' }" @click="$store.chat.navigateTo('docs')">
             <span class="sidebar-icon" aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -1633,7 +1634,7 @@
                 <button type="button" class="mobile-section-switcher-btn"
                   :class="{ 'mobile-section-switcher-btn-active': $store.chat.navSection === 'files' }"
                   :aria-current="$store.chat.navSection === 'files' ? 'page' : null"
-                  @click="$store.chat.navigateTo('files')">Files</button>
+                  @click="$store.chat.navigateTo('files')">Files</button><button type="button" class="mobile-section-switcher-btn" @click="$store.chat.navigateTo('drive')">Drive</button>
                 <button type="button" class="view-lock-button mobile-view-lock-button"
                   x-cloak x-show="$store.chat.canLockCurrentView && $store.chat.navSection === 'files'"
                   :class="{ 'view-lock-button-locked': $store.chat.isCurrentViewLocked }"
@@ -6088,6 +6089,21 @@
           </section>
         </template>
 
+        <template x-if="$store.chat.navSection === 'drive'">
+          <section class="drive-panel" x-data="{ scope: '' }" x-init="$store.chat.startDrive()" x-effect="if(scope !== $store.chat.driveScope) { scope=$store.chat.driveScope; $store.chat.startDrive(); }" @destroy="$store.chat.stopDrive()">
+            <header><h2>Drive</h2><button type="button" aria-label="Refresh Drive" @click="$store.chat.refreshDrive()">↻</button></header>
+            <p>Read-only folders shared from your machines and workspace.</p>
+            <p role="status" x-text="$store.chat.driveStatusLabel"></p>
+            <p x-show="$store.chat.driveState === 'missing-transport'">Open Flight Deck inside a supported WM App to connect to these folders.</p>
+            <div class="drive-layout"><aside aria-label="Shared sources"><template x-for="share in $store.chat.driveSources" :key="share.key"><button type="button" @click="$store.chat.browseDrive(share)"><strong x-text="share.name"></strong><small x-text="share.host_name + ' · ' + (share.audience === 'private' ? 'Only you' : 'Workspace')"></small></button></template><p x-show="!$store.chat.driveSources.length">No permitted shared folders.</p></aside>
+            <div><template x-if="$store.chat.driveSelected"><div><h3 x-text="$store.chat.driveSelected.name + ' · ' + $store.chat.driveSelected.host_name"></h3><p x-text="$store.chat.drivePath || '/'"></p><button type="button" :disabled="!$store.chat.drivePath" @click="$store.chat.driveParent()">Parent folder</button> <button type="button" @click="$store.chat.copyDriveLink()">Copy link</button><p x-show="$store.chat.driveFetchedAt" x-text="'Last refreshed: ' + new Date($store.chat.driveFetchedAt).toLocaleString()"></p>
+              <p x-show="$store.chat.driveState === 'offline'">Source offline. Previously fetched entries may be stale.</p>
+              <p x-show="$store.chat.driveState === 'online' && !$store.chat.driveVisibleEntries.length">Empty folder.</p>
+              <ul><template x-for="entry in $store.chat.driveVisibleEntries" :key="entry.name"><li><button type="button" @click="$store.chat.openDriveEntry(entry)"><span x-text="entry.kind === 'directory' ? '📁 ' : '↓ '"></span><span x-text="entry.name"></span></button> <span x-show="entry.kind === 'file'" x-text="entry.size + ' bytes'"></span> <button type="button" x-show="entry.kind === 'file'" @click="$store.chat.openDriveEntry(entry, true)">Save and open</button> <button type="button" @click="$store.chat.copyDriveLink(entry)">Copy link</button></li></template></ul>
+              <button type="button" x-show="$store.chat.driveNextOffset !== null" @click="$store.chat.browseDrive($store.chat.driveSelected,$store.chat.drivePath,true,$store.chat.driveNextOffset)">Next page</button>
+            </div></template><div x-show="$store.chat.driveTransferring" role="status"><span x-text="$store.chat.driveProgress + ' bytes saved'"></span> <button type="button" @click="$store.chat.cancelDriveTransfer()">Cancel</button></div></div></div>
+          </section>
+        </template>
         <template x-if="$store.chat.navSection === 'files'">
           <section class="files-section" x-init="$store.chat.scheduleStorageImageHydration()" x-effect="$store.chat.filteredFileBrowserRows.length; $nextTick(() => $store.chat.scheduleStorageImageHydration())">
             <div class="pg-work-context-bar files-work-context-bar" x-show="false" x-cloak>

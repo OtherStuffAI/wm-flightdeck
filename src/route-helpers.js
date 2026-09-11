@@ -2,7 +2,7 @@ import { normalizeEnabledFlightDeckSection } from './disabled-surfaces.js';
 
 export const KNOWN_PAGES = new Set([
   'flight-deck', 'notifications', 'status', 'tasks',
-  'chat', 'docs', 'files', 'reports', 'opportunities', 'people', 'settings',
+  'chat', 'docs', 'files', 'drive', 'reports', 'opportunities', 'people', 'settings',
   'workroom', 'workrooms',
 ]);
 
@@ -79,6 +79,8 @@ export function parseRouteLocation(href) {
     }
   }
 
+  const driveReference = url.hash.startsWith('#drive?') ? new URLSearchParams(url.hash.slice(7)) : null;
+  if (driveReference) { section = 'drive'; workspaceSlug = null; }
   return {
     section,
     workspaceSlug,
@@ -98,8 +100,8 @@ export function parseRouteLocation(href) {
       workroomid: pathWorkroomId || url.searchParams.get('workroomid') || null,
       view: url.searchParams.get('view') || null,
       sort: url.searchParams.get('sort') || null,
-      workspacekey: url.searchParams.get('workspacekey') || null,
-      workspaceid: url.searchParams.get('workspaceid') || url.searchParams.get('workspace_id') || null,
+      workspacekey: driveReference ? null : url.searchParams.get('workspacekey') || null,
+      workspaceid: driveReference?.get('workspace') || url.searchParams.get('workspaceid') || url.searchParams.get('workspace_id') || null,
       token: url.searchParams.get('token') || null,
     },
   };

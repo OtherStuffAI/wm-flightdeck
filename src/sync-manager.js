@@ -1,3 +1,4 @@
+import { hydrateDriveShares } from './drive.js';
 import { resolveTowerSigningUrl } from './tower-transport.js';
 /**
  * Sync lifecycle, repair, and quarantine methods extracted from app.js.
@@ -186,6 +187,7 @@ export const syncManagerMixin = {
     this._towerSyncService = replaceTowerSyncService(this._towerSyncService, {
       workspaceKey,
       families: {
+        'drive-shares': { freshMs: 30000, load: () => hydrateDriveShares(this), materialize: result => result },
         'workspace-bootstrap': {
           load: (_id, options) => this.runTowerPgWorkspaceSync(options),
           materialize: (result) => result,
@@ -441,6 +443,7 @@ export const syncManagerMixin = {
       case 'wapp-activity': return hydrateTowerPgWappActivity(this, options);
       case 'wapp-mutes': return hydrateTowerPgWappActivity(this, options).then((result) => result.mutes || []);
       case 'wapp-publishing-grants': return hydrateTowerPgWappPublishingGrants(this, options);
+      case 'drive-shares': return hydrateDriveShares(this);
       case 'personal-wapps': return hydrateTowerPgPersonalWapps(this, options);
       default: throw new Error(`TowerSyncService loader is not registered for ${family}`);
     }
@@ -3042,6 +3045,7 @@ export const syncManagerMixin = {
   },
 
   async backgroundSyncTick() {
+    if(this.navSection==='drive'){try{await this.requestTowerSyncFamily('drive-shares','',{force:true});}catch(_){}}
     const cadence = this.getSyncCadenceMs();
     if (!cadence) {
       this.catchUpSyncActive = false;

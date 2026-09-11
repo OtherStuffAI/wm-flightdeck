@@ -663,6 +663,7 @@ export function createShellState(options = {}) {
         this.applyRouteFromLocation();
       };
       window.addEventListener('popstate', this.popstateHandler);
+      window.addEventListener('hashchange', this.popstateHandler);
     },
 
     updatePageTitle() {
@@ -685,6 +686,7 @@ export function createShellState(options = {}) {
           case 'chat': return 'chat';
           case 'docs': return 'docs';
           case 'files': return 'files';
+          case 'drive': return 'drive';
           case 'workroom': return 'workroom';
           case 'reports': return 'reports';
           case 'opportunities': return 'opportunities';
@@ -731,7 +733,7 @@ export function createShellState(options = {}) {
         if (normalizeTaskSortMode(this.taskSortMode) !== 'manual') url.searchParams.set('sort', normalizeTaskSortMode(this.taskSortMode));
       }
 
-      return `${url.pathname}${url.search}`;
+      return `${url.pathname}${url.search}${this.navSection === 'drive' && url.hash.startsWith('#drive?') ? url.hash : ''}`;
     },
 
     syncRoute(replace = false) {
@@ -895,6 +897,7 @@ export function createShellState(options = {}) {
       }
       this.startWorkspaceLiveQueries();
       this.syncRoute(true);
+      if (this.navSection === 'drive') await this.startDrive?.();
     },
 
     // ── Navigation ────────────────────────────────────────────
@@ -902,6 +905,7 @@ export function createShellState(options = {}) {
     navigateTo(section, options = {}) {
       section = normalizeEnabledFlightDeckSection(section);
       const previousSection = this.navSection;
+      if(previousSection==='drive' && section!=='drive') this.stopDrive?.();
       if (section === 'status' && options.preserveDeckMobileCard !== true) {
         this.resetDeckMobileEntry?.();
       }
