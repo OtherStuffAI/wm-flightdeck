@@ -1568,6 +1568,14 @@
       "label": "Verified shared folders in Files build",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1951,
+      "label": "Scope channel permission defaults",
+      "notes": [
+        "New channels now start with the people, groups, and access levels configured on their scope.",
+        "Channel settings show scope default access alongside channel-specific overrides."
+      ]
     }
   ]
 }

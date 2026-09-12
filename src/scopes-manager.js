@@ -1564,10 +1564,21 @@ export const scopesManagerMixin = {
           description: scopeDescription,
           kind: 'project',
           owner_group_id: groupIds[0] || null,
+          metadata: {
+            default_channel_access_rows: cloneScopeWizardAccessRows(this.newScopeDefaultAccessRows)
+              .map(({ id, ...row }) => row),
+          },
         }, { baseUrl, appNpub });
         const scopeId = String(scopeResult?.scope?.id || scopeResult?.scope?.record_id || '').trim();
         if (scopeResult?.scope) {
-          await upsertScope(mapPgScopeToLocal(scopeResult.scope, {
+          await upsertScope(mapPgScopeToLocal({
+            ...scopeResult.scope,
+            metadata: {
+              ...(scopeResult.scope.metadata || {}),
+              default_channel_access_rows: cloneScopeWizardAccessRows(this.newScopeDefaultAccessRows)
+                .map(({ id, ...row }) => row),
+            },
+          }, {
             workspaceOwnerNpub: resolveTowerPgWorkspaceContext(this).workspaceOwnerNpub,
           }));
         }

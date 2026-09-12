@@ -12847,6 +12847,11 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   background: var(--surface);
 }
 
+.channel-grant-row-inherited {
+  background: #f8fafc;
+  border-style: dashed;
+}
+
 .channel-grant-principal {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

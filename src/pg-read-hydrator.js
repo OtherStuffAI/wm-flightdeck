@@ -497,6 +497,24 @@ export function mapPgScopeToLocal(scope, { workspaceOwnerNpub } = {}) {
     owner_npub: ownerNpub,
     title: trimText(scope?.name || scope?.title) || 'Untitled scope',
     description: trimText(scope?.description),
+    metadata: scope?.metadata && typeof scope.metadata === 'object' && !Array.isArray(scope.metadata)
+      ? scope.metadata
+      : {},
+    default_channel_access_rows: Array.isArray(scope?.default_channel_access_rows)
+      ? scope.default_channel_access_rows
+      : (Array.isArray(scope?.defaultAccessRows) ? scope.defaultAccessRows : []),
+    scope_channel_access_rows: Array.isArray(scope?.scope_channel_access_rows)
+      ? scope.scope_channel_access_rows
+      : (Array.isArray(scope?.scopeAccessRows) ? scope.scopeAccessRows : []),
+    channel_access_rows: Array.isArray(scope?.channel_access_rows)
+      ? scope.channel_access_rows
+      : (Array.isArray(scope?.channelAccessRows) ? scope.channelAccessRows : []),
+    default_channel_grants: Array.isArray(scope?.default_channel_grants)
+      ? scope.default_channel_grants
+      : (Array.isArray(scope?.defaultChannelGrants) ? scope.defaultChannelGrants : []),
+    scope_channel_grants: Array.isArray(scope?.scope_channel_grants)
+      ? scope.scope_channel_grants
+      : (Array.isArray(scope?.scopeChannelGrants) ? scope.scopeChannelGrants : []),
     level: 'l1',
     parent_id: null,
     l1_id: null,

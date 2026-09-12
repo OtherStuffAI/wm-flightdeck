@@ -427,6 +427,14 @@ export function permissionsForPgChannelCapacity(capacity) {
   return [...permissions];
 }
 
+function normalizePgChannelCapacity(capacity) {
+  const value = String(capacity || '').trim();
+  if (value === 'view') return 'viewer';
+  if (value === 'contribute') return 'contributor';
+  if (value === 'manage') return 'manager';
+  return ['viewer', 'contributor', 'manager', 'agent'].includes(value) ? value : 'viewer';
+}
+
 function accessLevelForPgChannelCapacity(capacity) {
   const key = String(capacity || '').trim();
   if (key === 'viewer') return 'view';
@@ -617,12 +625,12 @@ export function aggregatePgChannelGrants(grants = []) {
       created_at: grant?.created_at || null,
       updated_at: grant?.updated_at || grant?.created_at || null,
       principal_npub: String(grant?.principal_npub || grant?.actor_npub || grant?.npub || '').trim(),
+      inherited_from_scope_id: String(grant?.inherited_from_scope_id || '').trim() || undefined,
+      source: grant?.source || (grant?.inherited_from_scope_id ? 'scope' : 'channel'),
     };
     const grantPrincipalNpub = String(grant?.principal_npub || grant?.actor_npub || grant?.npub || grant?.principal?.npub || '').trim();
     if (grantPrincipalNpub) existing.principal_npub = grantPrincipalNpub;
-    const grantPermissions = Array.isArray(grant?.permissions)
-      ? grant.permissions
-      : [grant?.permission];
+    const grantPermissions = pgChannelGrantPermissionNames(grant);
     existing.permissions = [
       ...new Set([
         ...existing.permissions,
@@ -639,6 +647,120 @@ export function aggregatePgChannelGrants(grants = []) {
   }));
 }
 
+function normalizePgChannelGrantLikeAccessRow(row = {}, { inheritedScopeId = '' } = {}) {
+  const normalized = normalizeNewChannelAccessRow(row);
+  if (!normalized) return null;
+  return {
+    principal_type: normalized.principal_type,
+    principal_id: normalized.principal_id,
+    access_level: accessLevelForPgChannelCapacity(normalized.capacity) || normalized.capacity,
+    permissions: permissionsForPgChannelCapacity(normalized.capacity),
+    inherited_from_scope_id: inheritedScopeId || undefined,
+    source: inheritedScopeId ? 'scope' : 'channel',
+  };
+}
+
+function normalizePgChannelGrantLikeRow(row = {}, { inheritedScopeId = '' } = {}) {
+  const rawPrincipalType = String(row?.principal_type || row?.stored_principal_type || '').trim();
+  const principalType = rawPrincipalType === 'person' ? 'actor' : rawPrincipalType;
+  const principalId = String(
+    row?.principal_id
+    || row?.principal?.actor_id
+    || row?.principal?.group_id
+    || row?.principal?.group_npub
+    || row?.principal?.id
+    || ''
+  ).trim();
+  if (!['actor', 'group'].includes(principalType) || !principalId) return null;
+  return {
+    ...row,
+    principal_type: principalType,
+    principal_id: principalId,
+    permissions: pgChannelGrantPermissionNames(row),
+    inherited_from_scope_id: inheritedScopeId || row?.inherited_from_scope_id || undefined,
+    source: inheritedScopeId || row?.inherited_from_scope_id ? 'scope' : (row?.source || 'channel'),
+  };
+}
+
+function scopeChannelAccessSourceArrays(scope = {}) {
+  const metadata = scope?.metadata && typeof scope.metadata === 'object' && !Array.isArray(scope.metadata)
+    ? scope.metadata
+    : {};
+  return [
+    scope?.default_channel_access_rows,
+    scope?.scope_channel_access_rows,
+    scope?.channel_access_rows,
+    scope?.default_access_rows,
+    scope?.access_rows,
+    metadata?.default_channel_access_rows,
+    metadata?.scope_channel_access_rows,
+    metadata?.channel_access_rows,
+    metadata?.default_access_rows,
+    scope?.default_channel_grants,
+    scope?.scope_channel_grants,
+    scope?.channel_grants,
+    scope?.grants,
+    metadata?.default_channel_grants,
+    metadata?.scope_channel_grants,
+    metadata?.channel_grants,
+  ].filter(Array.isArray);
+}
+
+export function scopeChannelAccessRows(scope = {}) {
+  const scopeId = String(scope?.record_id || scope?.id || '').trim();
+  const byPrincipal = new Map();
+  for (const rows of scopeChannelAccessSourceArrays(scope)) {
+    for (const row of rows) {
+      const hasPermissionShape = Array.isArray(row?.permissions) || Boolean(row?.permission);
+      const normalized = hasPermissionShape
+        ? (
+          normalizePgChannelGrantLikeRow(row, { inheritedScopeId: scopeId })
+          || normalizePgChannelGrantLikeAccessRow(row, { inheritedScopeId: scopeId })
+        )
+        : (
+          normalizePgChannelGrantLikeAccessRow(row, { inheritedScopeId: scopeId })
+          || normalizePgChannelGrantLikeRow(row, { inheritedScopeId: scopeId })
+        );
+      if (!normalized) continue;
+      byPrincipal.set(`${normalized.principal_type}:${normalized.principal_id}`, normalized);
+    }
+  }
+  return [...byPrincipal.values()];
+}
+
+function cloneScopeChannelAccessRowsForDraft(scope = {}) {
+  return scopeChannelAccessRows(scope).map((row) => {
+    const detectedCapacity = capacityForPgChannelPermissions(row.permissions);
+    return {
+      id: crypto.randomUUID(),
+      principal_type: row.principal_type,
+      principal_id: row.principal_id,
+      capacity: detectedCapacity === 'custom'
+        ? normalizePgChannelCapacity(row.access_level || row.capacity)
+        : detectedCapacity,
+    };
+  });
+}
+
+function overlayInheritedScopeGrants({ directGrants = [], inheritedGrants = [] } = {}) {
+  const directRows = aggregatePgChannelGrants(directGrants).map((row) => ({
+    ...row,
+    inherited: false,
+    source: 'channel',
+  }));
+  const rowsByKey = new Map(directRows.map((row) => [row.key, row]));
+  for (const row of aggregatePgChannelGrants(inheritedGrants)) {
+    if (rowsByKey.has(row.key)) continue;
+    rowsByKey.set(row.key, {
+      ...row,
+      key: `scope:${row.inherited_from_scope_id || 'scope'}:${row.key}`,
+      inherited: true,
+      source: 'scope',
+    });
+  }
+  return [...rowsByKey.values()];
+}
+
 function embeddedChannelGrants(channel = {}) {
   return [
     ...(Array.isArray(channel?.channel_grants) ? channel.channel_grants : []),
@@ -651,7 +773,10 @@ function pgChannelGrantPermissionNames(grant) {
   const permissions = Array.isArray(grant?.permissions)
     ? grant.permissions
     : [grant?.permission];
-  return permissions.map((permission) => String(permission || '').trim()).filter(Boolean);
+  const normalizedPermissions = permissions.map((permission) => String(permission || '').trim()).filter(Boolean);
+  if (normalizedPermissions.length > 0) return normalizedPermissions;
+  const accessLevel = String(grant?.access_level || grant?.accessLevel || grant?.capacity || '').trim();
+  return accessLevel ? permissionsForPgChannelCapacity(normalizePgChannelCapacity(accessLevel)) : [];
 }
 
 function groupHasEffectiveMember(group, viewerNpub) {
@@ -770,11 +895,10 @@ function normalizeNewChannelAccessRow(row = {}) {
   const principalId = String(row.principal_id || row.principalId || '').trim();
   const capacity = String(row.capacity || row.access_level || row.accessLevel || '').trim();
   if (!['actor', 'group'].includes(principalType) || !principalId) return null;
-  const normalizedCapacity = ['viewer', 'contributor', 'manager', 'agent'].includes(capacity) ? capacity : 'viewer';
   return {
     principal_type: principalType,
     principal_id: principalId,
-    capacity: normalizedCapacity,
+    capacity: normalizePgChannelCapacity(capacity),
   };
 }
 
@@ -1147,6 +1271,19 @@ export const channelsManagerMixin = {
     const selectedChannel = (this.channels || []).find((channel) => channel?.record_id === selectedId) || null;
     const loadedChannelId = String(this.channelGrantsChannelId || '').trim();
     const hasLoadedRowsForChannel = selectedId && (!loadedChannelId || loadedChannelId === selectedId);
+    const directGrants = hasLoadedRowsForChannel
+      ? (this.channelGrants || [])
+      : embeddedChannelGrants(selectedChannel);
+    const scope = this.getScopeForChannelAccessDefaults?.(selectedChannel?.scope_id || selectedChannel?.scope_l1_id || '') || null;
+    const inheritedGrants = scope ? scopeChannelAccessRows(scope) : [];
+    return overlayInheritedScopeGrants({ directGrants, inheritedGrants });
+  },
+
+  getSelectedDirectChannelGrantRows(channelId = this.selectedChannelId) {
+    const selectedId = String(channelId || '').trim();
+    const selectedChannel = (this.channels || []).find((channel) => channel?.record_id === selectedId) || null;
+    const loadedChannelId = String(this.channelGrantsChannelId || '').trim();
+    const hasLoadedRowsForChannel = selectedId && (!loadedChannelId || loadedChannelId === selectedId);
     const source = hasLoadedRowsForChannel
       ? (this.channelGrants || [])
       : embeddedChannelGrants(selectedChannel);
@@ -1320,6 +1457,12 @@ export const channelsManagerMixin = {
       this.newChannelAccessRows = [];
       return;
     }
+    const scopeRows = cloneScopeChannelAccessRowsForDraft(this.getNewChannelScopeAccessDefaultsScope?.() || {});
+    if (scopeRows.length > 0) {
+      this.newChannelAccessPrincipalDraft = '';
+      this.newChannelAccessRows = scopeRows;
+      return;
+    }
     const rows = [];
     const workspaceGroup = this.pgChannelGrantGroupOptions.find((group) =>
       String(group.label || '').trim().toLowerCase() === 'workspace'
@@ -1358,6 +1501,22 @@ export const channelsManagerMixin = {
         : this.groups,
       canAdminWorkspace: Boolean(this.canAdminWorkspace),
     });
+  },
+
+  getScopeForChannelAccessDefaults(scopeId = '') {
+    const cleanScopeId = String(scopeId || '').trim();
+    if (!cleanScopeId) return null;
+    return this.scopesMap?.get?.(cleanScopeId)
+      || (this.scopes || []).find((scope) => scope?.record_id === cleanScopeId)
+      || null;
+  },
+
+  getNewChannelScopeAccessDefaultsScope() {
+    const scopeId = String(this.newChannelScopeId || '').trim()
+      || this.currentConcretePgScopeId
+      || String(this.selectedBoardScope?.record_id || '').trim()
+      || String(this.selectedChannel?.scope_id || '').trim();
+    return this.getScopeForChannelAccessDefaults(scopeId);
   },
 
   get selectedChannelScopeOrderedChannels() {
@@ -1779,7 +1938,7 @@ export const channelsManagerMixin = {
   get selectedChannelGrantAlreadyExists() {
     const key = this.selectedChannelGrantPrincipalKey;
     if (!key) return false;
-    return (this.channelGrantRows || []).some((grant) => grant?.key === key);
+    return (this.getSelectedDirectChannelGrantRows?.() || []).some((grant) => grant?.key === key);
   },
 
   get canCreateSelectedChannelGrant() {
@@ -1793,6 +1952,12 @@ export const channelsManagerMixin = {
   get selectedChannelGrantDraftMessage() {
     if (!this.selectedChannelGrantPrincipalKey) return 'Select a user or group to grant access.';
     if (this.selectedChannelGrantAlreadyExists) return 'This user or group already has access. Change the permission in the list below.';
+    if ((this.channelGrantRows || []).some((grant) => !grant?.inherited && grant?.key === this.selectedChannelGrantPrincipalKey)) {
+      return 'This user or group already has access. Change the permission in the list below.';
+    }
+    if ((this.channelGrantRows || []).some((grant) => grant?.inherited && grant?.key.endsWith(`:${this.selectedChannelGrantPrincipalKey}`))) {
+      return 'This will add a channel-specific permission over the scope default.';
+    }
     return this.getPgChannelGrantCapacityDescription(this.channelGrantCapacity);
   },
 
@@ -1840,7 +2005,7 @@ export const channelsManagerMixin = {
   },
 
   canEditPgChannelGrantRow(grant) {
-    return Boolean(this.canManageSelectedPgChannelGrants && grant?.capacity !== 'custom');
+    return Boolean(this.canManageSelectedPgChannelGrants && !grant?.inherited && grant?.capacity !== 'custom');
   },
 
   async refreshPgChannelAccessMaterialization() {
