@@ -1592,7 +1592,28 @@
       ]
     },
     {
-      "buildNumber": 1958,
+      "buildNumber": 1959,
+      "label": "Quieter avatar sync clashes",
+      "notes": [
+        "Move local file sync clash status into the avatar sync menu and use Tower as the default version when resolving older local file metadata."
+      ]
+    },
+    {
+      "buildNumber": 1961,
+      "label": "Removed review banner",
+      "notes": [
+        "Remove the main workspace review banner for local record conflicts while keeping avatar file clashes in the sync menu."
+      ]
+    },
+    {
+      "buildNumber": 1962,
+      "label": "Mobile FIPS files access",
+      "notes": [
+        "Add a mobile Files switcher so iPhone-sized WM App views can reach Tower files and FIPS Drive shared folders without digging through the desktop layout."
+      ]
+    },
+    {
+      "buildNumber": 1963,
       "label": "FipsDrive navigation and media previews",
       "notes": [
         "Navigate shared folders with clickable breadcrumbs, including nested folders. The collapsed panel is now labelled FipsDrive.",

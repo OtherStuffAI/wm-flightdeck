@@ -700,7 +700,11 @@ export const driveManagerMixin = {
     const limit = type.startsWith('image/') ? DRIVE_PREVIEW_IMAGE_LIMIT : DRIVE_PREVIEW_VIDEO_LIMIT;
     const preview = { name: entry.name, type, url: '', state: 'loading', message: 'Loading preview…' };
     this.drivePreview = preview;
-    globalThis.requestAnimationFrame?.(() => { const list = document.querySelector('#files-shared-panel .files-shared-list'); if (list) list.scrollTop = 0; });
+    globalThis.requestAnimationFrame?.(() => {
+      const list = document.querySelector('#files-shared-panel .files-shared-list');
+      if (list) list.scrollTop = 0;
+      document.querySelector('#files-shared-panel .files-drive-preview')?.scrollIntoView({ block: 'nearest' });
+    });
     if (!Number.isFinite(entry.size) || entry.size < 0 || entry.size > limit) {
       this.drivePreview = { ...preview, state: 'limited', message: `Preview limited to ${limit / 1024 / 1024} MB. Use Download to view this file.` };
       return;

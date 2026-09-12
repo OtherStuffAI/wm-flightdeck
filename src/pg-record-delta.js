@@ -23,9 +23,13 @@ const FAMILY = {
   resource_view_state: ['resource_view_states', (row) => ({ ...row, record_id: `${row.resource_type}:${row.resource_id}`, sync_status: 'synced' })],
 };
 export const PG_RECORD_DELTA_FAMILIES = [...Object.keys(FAMILY), 'task_assignment'];
+const TOWER_WINS_LOCAL_ASSET_CONFLICT_FAMILIES = new Set(['file', 'file_folder']);
 export function recordDeltaCursorKey(store) { return `${towerPgSyncCursorKey(store)}:record-delta-v1`; }
 const pending = (row) => ['pending', 'failed'].includes(row?.sync_status) || row?.pg_reconciliation_pending === true;
 const rawKey = (family, id) => `${family}:${id}`;
+export function isTowerWinsLocalAssetConflict(conflict = {}) {
+  return TOWER_WINS_LOCAL_ASSET_CONFLICT_FAMILIES.has(String(conflict.family || ''));
+}
 function validatePage(page, workspaceId) {
   if (page?.protocol_version !== 1 || !['snapshot', 'delta'].includes(page.mode)
     || !Array.isArray(page.families) || !PG_RECORD_DELTA_FAMILIES.every(f => page.families.includes(f))
@@ -113,9 +117,18 @@ export async function getPgAttentionProjection(store) {
     ...(store.messages || []).map(r => `thread:${r.pg_thread_id || r.record_id}`),
     ...(store.documents || []).map(r => `document:${r.record_id}`),
   ])];
-  const [counts, visible, conflictCount, conflicts] = await Promise.all([db.pg_attention_counts.toArray(), db.pg_resource_attention.bulkGet(ids), db.pg_record_conflicts.count(), db.pg_record_conflicts.limit(20).toArray()]);
+  const [counts, visible, conflicts] = await Promise.all([db.pg_attention_counts.toArray(), db.pg_resource_attention.bulkGet(ids), db.pg_record_conflicts.toArray()]);
+  const assetConflicts = conflicts.filter(isTowerWinsLocalAssetConflict);
+  const recordConflicts = conflicts.filter(conflict => !isTowerWinsLocalAssetConflict(conflict));
   const values = Object.fromEntries(counts.map(r => [r.key, r.count]));
-  return { values, visible: visible.filter(Boolean), conflictCount, conflicts };
+  return {
+    values,
+    visible: visible.filter(Boolean),
+    conflictCount: recordConflicts.length,
+    conflicts: recordConflicts.slice(0, 20),
+    avatarSyncConflictCount: assetConflicts.length,
+    avatarSyncConflicts: assetConflicts.slice(0, 20),
+  };
 }
 
 export async function applyPgRecordChanges(store, page, options = {}) {
@@ -404,7 +417,7 @@ async function reconcileConflictBatch(store, { acceptRemoteKey = null, after = n
       }
       const local = await table.get(conflict.record_id) || await table.get(raw.id);
       const commands = await db.pending_writes.where('record_id').equals(conflict.record_id).toArray();
-      if (acceptRemoteKey) {
+      if (acceptRemoteKey || isTowerWinsLocalAssetConflict(conflict)) {
         await db.pg_command_recovery.put({ key: conflict.key, record_id: conflict.record_id, local: local || conflict.local, commands, resolved_at: new Date().toISOString() });
         if (commands.length) await db.pending_writes.bulkDelete(commands.map(c=>c.row_id));
         if (local) await table.delete(local.record_id);

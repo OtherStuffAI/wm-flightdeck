@@ -405,6 +405,16 @@
             <template x-if="$store.chat.syncSession.error">
               <span class="sync-error-text" x-text="$store.chat.syncSession.error"></span>
             </template>
+            <div class="avatar-sync-conflict" x-show="$store.chat.avatarSyncConflictCount > 0" x-cloak>
+              <details :open="!$store.chat.avatarSyncConflictDismissed">
+                <summary x-text="$store.chat.avatarSyncConflictDismissed ? 'Local file clash (dismissed)' : `${$store.chat.avatarSyncConflictCount} local file ${$store.chat.avatarSyncConflictCount === 1 ? 'clash' : 'clashes'}`"></summary>
+                <p>Tower will overwrite the older local file metadata. A local recovery copy is kept when Flight Deck refreshes from Tower.</p>
+                <div class="avatar-sync-conflict-actions">
+                  <button type="button" @click="$store.chat.dismissAvatarSyncConflicts()">Dismiss</button>
+                  <button type="button" @click="$store.chat.useTowerForAvatarSyncConflicts()">Use Tower version</button>
+                </div>
+              </details>
+            </div>
           </div>
           <section class="avatar-menu-section legacy-recovery-menu" x-show="$store.chat.legacyWorkspaceRecoveryNotice" x-cloak>
             <details :open="!$store.chat.legacyWorkspaceRecoveryDismissed">
@@ -1353,19 +1363,6 @@
       </nav>
 
       <div class="main-content">
-        <details class="error-banner" x-show="$store.chat.recordSyncConflictCount > 0" x-cloak>
-          <summary x-text="`${$store.chat.recordSyncConflictCount} local changes need review`"></summary>
-          <p>Your saved edits have been kept alongside the latest shared versions.</p>
-          <template x-for="conflict in $store.chat.recordSyncConflicts" :key="conflict.key">
-            <div>
-              <strong x-text="conflict.local?.title || conflict.remote?.row?.title || conflict.record_id"></strong>
-              <p>Your edit: <span x-text="conflict.local?.body || conflict.local?.description || conflict.local?.title || '(saved locally)'"></span></p>
-              <button type="button" class="btn btn-secondary" x-show="conflict.remote"
-                @click="$store.chat.acceptRecordSyncRemoteConflict(conflict.key)">Use shared version (keep a recovery copy)</button>
-              <p>Shared version: <span x-text="conflict.remote?.operation === 'delete' ? 'Deleted' : (conflict.remote?.row?.body || conflict.remote?.row?.description || conflict.remote?.row?.title || 'No text preview available')"></span></p>
-            </div>
-          </template>
-        </details>
           <div
             class="global-pg-channel-bar"
             :class="{ 'global-pg-channel-bar-sidebar-expanded': !$store.chat.navCollapsed || $store.chat.mobileNavOpen }"
@@ -6113,7 +6110,7 @@
         </template>
 
         <template x-if="$store.chat.navSection === 'files'">
-          <section class="files-section" x-data="{ driveScope: '' }" x-init="$store.chat.scheduleStorageImageHydration(); $store.chat.startDrive(); driveScope = $store.chat.driveScope" x-effect="$store.chat.filteredFileBrowserRows.length; if (driveScope !== $store.chat.driveScope) { driveScope = $store.chat.driveScope; $store.chat.startDrive(); } $nextTick(() => $store.chat.scheduleStorageImageHydration())" @destroy="$store.chat.stopDrive()">
+          <section class="files-section" x-data="{ driveScope: '', filesMobilePane: 'tower' }" x-init="$store.chat.scheduleStorageImageHydration(); $store.chat.startDrive(); driveScope = $store.chat.driveScope" x-effect="$store.chat.filteredFileBrowserRows.length; if (driveScope !== $store.chat.driveScope) { driveScope = $store.chat.driveScope; $store.chat.startDrive(); } $nextTick(() => $store.chat.scheduleStorageImageHydration())" @destroy="$store.chat.stopDrive()">
             <div class="pg-work-context-bar files-work-context-bar" x-show="false" x-cloak>
               <div class="chat-channel-header">
                 <div class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels">
@@ -6199,6 +6196,32 @@
               </div>
             </div>
 
+            <div class="files-mobile-switcher" role="tablist" aria-label="Files source">
+              <button
+                type="button"
+                role="tab"
+                class="files-mobile-switcher-btn"
+                :class="{ active: filesMobilePane === 'tower' }"
+                :aria-selected="(filesMobilePane === 'tower').toString()"
+                aria-controls="files-main-pane"
+                @click="filesMobilePane = 'tower'"
+              >
+                <span>Tower files</span>
+                <small x-text="`${$store.chat.currentFileChildFolders.length + $store.chat.filteredFileBrowserRows.length}`"></small>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class="files-mobile-switcher-btn"
+                :class="{ active: filesMobilePane === 'shared' }"
+                :aria-selected="(filesMobilePane === 'shared').toString()"
+                aria-controls="files-shared-panel"
+                @click="filesMobilePane = 'shared'; $store.chat.filesSharedPanelCollapsed = false"
+              >
+                <span>FIPS Drive</span>
+                <small x-text="$store.chat.driveSources.length ? `${$store.chat.driveSources.length}` : '0'"></small>
+              </button>
+            </div>
 
 
             <div class="files-toolbar">
@@ -6396,8 +6419,8 @@
               </section>
             </div>
 
-            <div class="files-workspace" :class="{ 'files-workspace-shared-collapsed': $store.chat.filesSharedPanelCollapsed }">
-              <section class="files-main-pane" aria-labelledby="files-main-title">
+            <div class="files-workspace" :class="{ 'files-workspace-shared-collapsed': $store.chat.filesSharedPanelCollapsed, 'files-mobile-shared-active': filesMobilePane === 'shared' }">
+              <section id="files-main-pane" class="files-main-pane" role="tabpanel" aria-labelledby="files-main-title">
                 <div class="files-pane-heading">
                   <div>
                     <h3 id="files-main-title" x-text="$store.chat.currentFileFolderId === '__archived__' ? 'Archived Tower files' : 'Tower files'"></h3>
@@ -6516,7 +6539,7 @@
                 </button>
               </aside>
 
-              <section id="files-shared-panel" class="files-shared-section" x-show="!$store.chat.filesSharedPanelCollapsed" aria-labelledby="files-shared-title">
+              <section id="files-shared-panel" class="files-shared-section" role="tabpanel" x-show="!$store.chat.filesSharedPanelCollapsed" aria-labelledby="files-shared-title">
                 <div class="files-shared-header">
                   <div>
                     <h3 id="files-shared-title">Shared folders</h3>

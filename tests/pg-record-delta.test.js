@@ -140,6 +140,28 @@ it('resolves an explicit remote choice while saving the local command for recove
   expect((await db.pg_command_recovery.get(`message:${c.id}`)).commands[0].envelope.body).toBe('draft');
 });
 
+it('keeps file clashes out of the main review count and resolves them with Tower winning',async()=>{
+  const file=fixture.canonical_upserts.changes.find(c=>c.family==='file');
+  const message=fixture.one_message_delta.changes[0];
+  await applyPgRecordChanges(store,page([file,message],'base'));
+  await db.documents.update(file.id,{title:'local file name',sync_status:'pending'});
+  await db.pending_writes.add({record_id:file.id,envelope:{display_name:'local file name'}});
+  await db.chat_messages.update(message.id,{body:'local message',sync_status:'pending'});
+  await db.pending_writes.add({record_id:message.id,envelope:{body:'local message'}});
+  await applyPgRecordChanges(store,page([{...file,version:'999',row:{...file.row,row_version:999,display_name:'Tower file name'}},{...message,version:'999',row:{...message.row,row_version:999,body:'Tower message'}}],'conflict'));
+  const {getPgAttentionProjection,reconcilePgRecordConflicts}=await import('../src/pg-record-delta.js');
+  const projection=await getPgAttentionProjection(store);
+  expect(projection.conflictCount).toBe(1);
+  expect(projection.conflicts.map(c=>c.family)).toEqual(['message']);
+  expect(projection.avatarSyncConflictCount).toBe(1);
+  expect(projection.avatarSyncConflicts.map(c=>c.family)).toEqual(['file']);
+  await reconcilePgRecordConflicts(store);
+  expect((await db.documents.get(file.id)).title).toBe('Tower file name');
+  expect((await db.chat_messages.get(message.id)).body).toBe('local message');
+  expect((await db.pg_record_conflicts.toArray()).map(c=>c.family)).toEqual(['message']);
+  expect((await db.pg_command_recovery.get(`file:${file.id}`)).commands[0].envelope.display_name).toBe('local file name');
+});
+
 it('normalizes raw PostgreSQL timestamps before local chronology indexing',async()=>{
   const c=fixture.one_message_delta.changes[0];
   await applyPgRecordChanges(store,page([c]));
