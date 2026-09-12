@@ -92,9 +92,15 @@ describe('files upload UI', () => {
     expect(html).toContain('@click="$store.chat.clearDriveDiagnostics()"');
     expect(html).toContain('Shared folder unavailable. Copy diagnostics');
     expect(html).toContain('x-text="$store.chat.driveStatusLabel"');
+    expect(html).toContain("files-workspace-shared-collapsed");
+    expect(html).toContain('aria-label="Collapse shared folders panel"');
+    expect(html).toContain('aria-label="Show shared folders panel"');
     expect(css).toContain('.files-shared-browser');
+    expect(css).toContain('.files-workspace');
+    expect(css).toContain('grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr)');
+    expect(css).toContain('.files-workspace-shared-collapsed');
+    expect(css).toContain('.files-shared-list');
     expect(css).toContain('.files-drive-diagnostics');
-    expect(css).toContain('grid-template-columns: minmax(180px, 260px) minmax(0, 1fr)');
     expect(css).toContain('@media (max-width: 700px)');
   });
 });

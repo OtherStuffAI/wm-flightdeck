@@ -335,6 +335,7 @@ export const driveManagerMixin = {
   driveRows: [],
   driveEntries: [],
   driveSelected: null,
+  filesSharedPanelCollapsed: false,
   drivePath: '',
   driveState: '',
   driveFetchedAt: 0,
@@ -384,6 +385,9 @@ export const driveManagerMixin = {
       build: globalThis.__FLIGHTDECK_BUILD_ID__ || globalThis.__FLIGHTDECK_BUILD_NUMBER__ || 'unknown',
       context: this.driveContext ? 'active' : 'none',
     });
+  },
+  toggleFilesSharedPanel() {
+    this.filesSharedPanelCollapsed = !this.filesSharedPanelCollapsed;
   },
   recordDriveDiagnostic(row, expectedContext = this.driveContext, expectedGeneration = this._driveGeneration) {
     if (

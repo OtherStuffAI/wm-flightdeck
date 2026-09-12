@@ -2695,6 +2695,53 @@ button:disabled {
   background: #ffffff;
 }
 
+.files-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+  gap: 0.9rem;
+  padding: 0.9rem 1.5rem 1.25rem;
+  overflow: hidden;
+}
+
+.files-workspace-shared-collapsed {
+  grid-template-columns: minmax(0, 1fr) 48px;
+}
+
+.files-main-pane,
+.files-shared-section {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.files-main-pane {
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.files-pane-heading {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: #ffffff;
+}
+
+.files-pane-heading h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
 .files-toolbar-menu {
   position: relative;
   align-self: stretch;
@@ -3135,10 +3182,12 @@ button:disabled {
 }
 
 .files-list {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 0.75rem 1.5rem 1.5rem;
+  padding: 0.75rem;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .file-row {
@@ -3311,6 +3360,9 @@ button:disabled {
 .file-row-actions {
   display: flex;
   gap: 0.45rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .file-action-btn {
@@ -3431,13 +3483,18 @@ button:disabled {
 }
 
 .files-empty {
-  margin: 1.5rem;
+  margin: 0.75rem;
   padding: 2rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: #ffffff;
   color: var(--muted);
   text-align: center;
+}
+
+.files-load-more {
+  flex: 0 0 auto;
+  margin: 0.75rem;
 }
 
 .files-empty h2 {
@@ -3454,16 +3511,40 @@ button:disabled {
   .files-search-input {
     grid-column: 1 / -1;
   }
+
+  .files-workspace {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .files-workspace-shared-collapsed {
+    grid-template-columns: 1fr;
+  }
+
+  .files-main-pane {
+    min-height: 420px;
+  }
+
+  .files-shared-section {
+    min-height: 380px;
+  }
+
+  .files-shared-rail {
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 640px) {
   .files-header,
   .docs-header,
   .files-folder-bar,
-  .files-toolbar,
-  .files-list {
+  .files-toolbar {
     padding-left: 1rem;
     padding-right: 1rem;
+  }
+
+  .files-workspace {
+    padding: 0.75rem 1rem 1rem;
   }
 
   .files-upload-modal-backdrop {
@@ -22637,12 +22718,6 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 .view-lock-button-locked { background: #e2e8f0; color: #334155; }
 .view-lock-button:focus-visible { outline: 2px solid #2563eb; outline-offset: -2px; }
 
-.files-shared-section {
-  border-top: 1px solid rgba(148, 163, 184, 0.24);
-  margin-top: 1rem;
-  padding-top: 1rem;
-}
-
 .files-shared-header,
 .files-shared-pathbar,
 .files-shared-transfer {
@@ -22650,6 +22725,20 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   display: flex;
   gap: 0.75rem;
   justify-content: space-between;
+}
+
+.files-shared-header {
+  flex: 0 0 auto;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: #ffffff;
+}
+
+.files-shared-header-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .files-shared-header h3,
@@ -22669,17 +22758,32 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   overflow-wrap: anywhere;
 }
 
+.files-shared-section > .files-shared-status,
+.files-shared-section > .files-upload-error {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.65rem 1rem 0;
+}
+
 .files-shared-browser {
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
-  margin-top: 0.8rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  overflow: hidden;
 }
 
 .files-shared-sources {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 0.5rem;
+  max-height: 13rem;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.15rem;
 }
 
 .files-shared-source-btn {
@@ -22717,6 +22821,16 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 }
 
 .files-shared-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.15rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.files-shared-detail {
   min-width: 0;
 }
 
@@ -22731,12 +22845,91 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   align-items: center;
 }
 
+.files-shared-row {
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 0.7rem;
+  padding: 0.65rem;
+}
+
+.files-shared-row .file-thumb {
+  width: 44px;
+  height: 40px;
+}
+
+.files-shared-row .file-row-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+}
+
+.files-shared-row .file-folder-title-btn {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 .files-shared-transfer {
   background: rgba(15, 23, 42, 0.04);
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 8px;
   margin-top: 0.75rem;
   padding: 0.7rem 0.8rem;
+}
+
+.files-shared-collapse-btn,
+.files-shared-rail-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #ffffff;
+  color: #475569;
+  cursor: pointer;
+}
+
+.files-shared-collapse-btn {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.files-shared-collapse-btn:hover,
+.files-shared-collapse-btn:focus-visible,
+.files-shared-rail-button:hover,
+.files-shared-rail-button:focus-visible {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+  outline: none;
+}
+
+.files-shared-rail {
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+.files-shared-rail-button {
+  width: 100%;
+  min-height: 0;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.65rem 0.35rem;
+}
+
+.files-shared-rail-button span {
+  font-size: 1.35rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.files-shared-rail-button strong {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 0.78rem;
+  letter-spacing: 0;
 }
 
 .files-drive-diagnostics {
@@ -22777,6 +22970,23 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   }
 
   .files-shared-browser {
-    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .files-shared-sources {
+    max-height: 10rem;
+  }
+
+  .files-shared-rail-button {
+    min-height: 44px;
+    flex-direction: row;
+  }
+
+  .files-shared-rail {
+    min-height: 44px;
+  }
+
+  .files-shared-rail-button strong {
+    writing-mode: horizontal-tb;
   }
 }

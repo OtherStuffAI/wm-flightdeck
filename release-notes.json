@@ -1583,6 +1583,13 @@
       "notes": [
         "Add copyable diagnostics for shared folder listing failures and show unavailable listings without guessing that the source host is offline."
       ]
+    },
+    {
+      "buildNumber": 1954,
+      "label": "Polished Files layout",
+      "notes": [
+        "Show Tower files and shared FIPS folders side by side with a collapsible shared-folder panel and independent scrolling for long file lists."
+      ]
     }
   ]
 }
