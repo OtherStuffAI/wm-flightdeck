@@ -1604,6 +1604,13 @@
       "notes": [
         "Remove the main workspace review banner for local record conflicts while keeping avatar file clashes in the sync menu."
       ]
+    },
+    {
+      "buildNumber": 1962,
+      "label": "Mobile FIPS files access",
+      "notes": [
+        "Add a mobile Files switcher so iPhone-sized WM App views can reach Tower files and FIPS Drive shared folders without digging through the desktop layout."
+      ]
     }
   ]
 }

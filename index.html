@@ -6110,7 +6110,7 @@
         </template>
 
         <template x-if="$store.chat.navSection === 'files'">
-          <section class="files-section" x-data="{ driveScope: '' }" x-init="$store.chat.scheduleStorageImageHydration(); $store.chat.startDrive(); driveScope = $store.chat.driveScope" x-effect="$store.chat.filteredFileBrowserRows.length; if (driveScope !== $store.chat.driveScope) { driveScope = $store.chat.driveScope; $store.chat.startDrive(); } $nextTick(() => $store.chat.scheduleStorageImageHydration())" @destroy="$store.chat.stopDrive()">
+          <section class="files-section" x-data="{ driveScope: '', filesMobilePane: 'tower' }" x-init="$store.chat.scheduleStorageImageHydration(); $store.chat.startDrive(); driveScope = $store.chat.driveScope" x-effect="$store.chat.filteredFileBrowserRows.length; if (driveScope !== $store.chat.driveScope) { driveScope = $store.chat.driveScope; $store.chat.startDrive(); } $nextTick(() => $store.chat.scheduleStorageImageHydration())" @destroy="$store.chat.stopDrive()">
             <div class="pg-work-context-bar files-work-context-bar" x-show="false" x-cloak>
               <div class="chat-channel-header">
                 <div class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels">
@@ -6194,6 +6194,33 @@
                   <span>Folder</span>
                 </button>
               </div>
+            </div>
+
+            <div class="files-mobile-switcher" role="tablist" aria-label="Files source">
+              <button
+                type="button"
+                role="tab"
+                class="files-mobile-switcher-btn"
+                :class="{ active: filesMobilePane === 'tower' }"
+                :aria-selected="(filesMobilePane === 'tower').toString()"
+                aria-controls="files-main-pane"
+                @click="filesMobilePane = 'tower'"
+              >
+                <span>Tower files</span>
+                <small x-text="`${$store.chat.currentFileChildFolders.length + $store.chat.filteredFileBrowserRows.length}`"></small>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                class="files-mobile-switcher-btn"
+                :class="{ active: filesMobilePane === 'shared' }"
+                :aria-selected="(filesMobilePane === 'shared').toString()"
+                aria-controls="files-shared-panel"
+                @click="filesMobilePane = 'shared'; $store.chat.filesSharedPanelCollapsed = false"
+              >
+                <span>FIPS Drive</span>
+                <small x-text="$store.chat.driveSources.length ? `${$store.chat.driveSources.length}` : '0'"></small>
+              </button>
             </div>
 
             <div class="files-folder-bar" x-show="$store.chat.isTowerPgMode" x-cloak>
@@ -6399,8 +6426,8 @@
               </section>
             </div>
 
-            <div class="files-workspace" :class="{ 'files-workspace-shared-collapsed': $store.chat.filesSharedPanelCollapsed }">
-              <section class="files-main-pane" aria-labelledby="files-main-title">
+            <div class="files-workspace" :class="{ 'files-workspace-shared-collapsed': $store.chat.filesSharedPanelCollapsed, 'files-mobile-shared-active': filesMobilePane === 'shared' }">
+              <section id="files-main-pane" class="files-main-pane" role="tabpanel" aria-labelledby="files-main-title">
                 <div class="files-pane-heading">
                   <div>
                     <h3 id="files-main-title" x-text="$store.chat.currentFileFolderId === '__archived__' ? 'Archived Tower files' : 'Tower files'"></h3>
@@ -6496,7 +6523,7 @@
                 <button type="button" class="inbox-load-more files-load-more" x-show="Object.values($store.chat.filesActivityPageHasMore).some(Boolean)" x-cloak @click="$store.chat.filesActivityVisibleCount += 50; $store.chat.startWorkspaceLiveQueries()">Load older files</button>
               </section>
 
-              <aside class="files-shared-rail" x-show="$store.chat.filesSharedPanelCollapsed" x-cloak>
+              <aside class="files-shared-rail" x-show="$store.chat.filesSharedPanelCollapsed && filesMobilePane !== 'shared'" x-cloak>
                 <button
                   type="button"
                   class="files-shared-rail-button"
@@ -6512,7 +6539,7 @@
                 </button>
               </aside>
 
-              <section id="files-shared-panel" class="files-shared-section" x-show="!$store.chat.filesSharedPanelCollapsed" aria-labelledby="files-shared-title">
+              <section id="files-shared-panel" class="files-shared-section" role="tabpanel" x-show="!$store.chat.filesSharedPanelCollapsed || filesMobilePane === 'shared'" aria-labelledby="files-shared-title">
                 <div class="files-shared-header">
                   <div>
                     <h3 id="files-shared-title">Shared folders</h3>
