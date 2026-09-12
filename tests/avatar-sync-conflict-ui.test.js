@@ -12,7 +12,9 @@ describe('avatar sync conflict UI', () => {
     expect(html).toContain('useTowerForAvatarSyncConflicts()');
     expect(html).toContain('dismissAvatarSyncConflicts()');
     expect(html).toContain('Tower will overwrite the older local file metadata');
-    expect(html).toContain('x-show="$store.chat.recordSyncConflictCount > 0"');
+    expect(html).not.toContain('x-show="$store.chat.recordSyncConflictCount > 0"');
+    expect(html).not.toContain('local changes need review');
+    expect(html).not.toContain('acceptRecordSyncRemoteConflict(conflict.key)');
     expect(html).not.toContain('x-show="$store.chat.avatarSyncConflictCount > 0" x-cloak>\n          <summary');
     expect(css).toContain('.avatar-sync-conflict');
     expect(app).toContain('avatarSyncConflictCount: 0');

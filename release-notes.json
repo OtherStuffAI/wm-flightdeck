@@ -1597,6 +1597,13 @@
       "notes": [
         "Move local file sync clash status into the avatar sync menu and use Tower as the default version when resolving older local file metadata."
       ]
+    },
+    {
+      "buildNumber": 1961,
+      "label": "Removed review banner",
+      "notes": [
+        "Remove the main workspace review banner for local record conflicts while keeping avatar file clashes in the sync menu."
+      ]
     }
   ]
 }

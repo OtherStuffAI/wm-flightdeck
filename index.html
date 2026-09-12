@@ -1363,19 +1363,6 @@
       </nav>
 
       <div class="main-content">
-        <details class="error-banner" x-show="$store.chat.recordSyncConflictCount > 0" x-cloak>
-          <summary x-text="`${$store.chat.recordSyncConflictCount} local changes need review`"></summary>
-          <p>Your saved edits have been kept alongside the latest shared versions.</p>
-          <template x-for="conflict in $store.chat.recordSyncConflicts" :key="conflict.key">
-            <div>
-              <strong x-text="conflict.local?.title || conflict.remote?.row?.title || conflict.record_id"></strong>
-              <p>Your edit: <span x-text="conflict.local?.body || conflict.local?.description || conflict.local?.title || '(saved locally)'"></span></p>
-              <button type="button" class="btn btn-secondary" x-show="conflict.remote"
-                @click="$store.chat.acceptRecordSyncRemoteConflict(conflict.key)">Use shared version (keep a recovery copy)</button>
-              <p>Shared version: <span x-text="conflict.remote?.operation === 'delete' ? 'Deleted' : (conflict.remote?.row?.body || conflict.remote?.row?.description || conflict.remote?.row?.title || 'No text preview available')"></span></p>
-            </div>
-          </template>
-        </details>
           <div
             class="global-pg-channel-bar"
             :class="{ 'global-pg-channel-bar-sidebar-expanded': !$store.chat.navCollapsed || $store.chat.mobileNavOpen }"
