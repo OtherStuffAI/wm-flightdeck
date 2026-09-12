@@ -85,6 +85,7 @@ import {
   describePgPermissionDenied,
   findExistingNamedChannel,
   permissionsForPgChannelCapacity,
+  scopeChannelAccessRows,
 } from '../src/channels-manager.js';
 import { DM_SCOPE_ID, buildDmChannelDescription } from '../src/dm-scope.js';
 import { buildPgChannelTaskBoardId } from '../src/pg-record-context.js';
@@ -827,6 +828,127 @@ describe('channels-manager pure utilities', () => {
         label: 'Owner',
       }),
     ]));
+  });
+
+  it('defaults a new channel from the selected scope channel access rows', async () => {
+    const scope = {
+      record_id: 'scope-a',
+      title: 'Scope A',
+      level: 'l1',
+      record_state: 'active',
+      default_channel_access_rows: [
+        { principal_type: 'actor', principal_id: 'actor-person-manager', capacity: 'manager' },
+        { principal_type: 'group', principal_id: 'group-contributors', capacity: 'contributor' },
+      ],
+    };
+    const store = applyChannelMixin({
+      channels: [],
+      selectedBoardId: 'scope-a',
+      selectedBoardScope: scope,
+      scopes: [scope],
+      scopesMap: new Map([['scope-a', scope]]),
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        appNpub: 'flightdeck-app',
+        pgMe: { actor: { actor_id: 'actor-owner', npub: 'npub1owner' } },
+      },
+      workspaceOwnerNpub: 'npub1workspace',
+      currentWorkspaceGroups: [
+        { group_id: 'group-contributors', group_npub: 'group-contributors', name: 'Contributors' },
+        { group_id: 'group-workspace', group_npub: 'group-workspace', name: 'Workspace' },
+      ],
+      pgWorkspaceMembers: [
+        { actor_id: 'actor-person-manager', npub: 'npub1personmanager', display_name: 'Person Manager' },
+        { actor_id: 'actor-owner', npub: 'npub1owner', display_name: 'Owner' },
+      ],
+      refreshGroups: vi.fn(async function refreshGroups() {
+        return this.currentWorkspaceGroups;
+      }),
+      refreshTowerPgWorkspaceMembers: vi.fn(async function refreshTowerPgWorkspaceMembers() {
+        return this.pgWorkspaceMembers;
+      }),
+    });
+
+    await store.openNewChannelModal({ scopeId: 'scope-a' });
+
+    expect(store.newChannelAccessRows).toEqual([
+      expect.objectContaining({ principal_type: 'actor', principal_id: 'actor-person-manager', capacity: 'manager' }),
+      expect.objectContaining({ principal_type: 'group', principal_id: 'group-contributors', capacity: 'contributor' }),
+    ]);
+    expect(buildChannelAccessGrantPayloads(store.newChannelAccessRows)).toEqual([
+      { principal_type: 'actor', principal_id: 'actor-person-manager', access_level: 'manage' },
+      { principal_type: 'group', principal_id: 'group-contributors', access_level: 'contribute' },
+    ]);
+  });
+
+  it('renders inherited scope access with direct channel grants overriding duplicates', () => {
+    const scope = {
+      record_id: 'scope-a',
+      default_channel_access_rows: [
+        { principal_type: 'actor', principal_id: 'actor-person-manager', capacity: 'manager' },
+        { principal_type: 'group', principal_id: 'group-contributors', capacity: 'contributor' },
+      ],
+    };
+    const store = createPgGrantStore({
+      selectedChannelId: 'channel-1',
+      channelGrantsChannelId: 'channel-1',
+      channelGrants: [
+        { principal_type: 'group', principal_id: 'group-contributors', access_level: 'view' },
+      ],
+      channels: [{ record_id: 'channel-1', scope_id: 'scope-a', channel_grants: [] }],
+      scopes: [scope],
+      scopesMap: new Map([['scope-a', scope]]),
+    });
+
+    expect(scopeChannelAccessRows(scope)).toEqual([
+      expect.objectContaining({
+        principal_type: 'actor',
+        principal_id: 'actor-person-manager',
+        permissions: expect.arrayContaining(['channel.manage', 'channel.grants.manage']),
+      }),
+      expect.objectContaining({
+        principal_type: 'group',
+        principal_id: 'group-contributors',
+        permissions: expect.arrayContaining(['channel.write', 'task.create']),
+      }),
+    ]);
+    expect(store.channelGrantRows).toEqual([
+      expect.objectContaining({
+        key: 'group:group-contributors',
+        principal_type: 'group',
+        principal_id: 'group-contributors',
+        capacity: 'viewer',
+        inherited: false,
+      }),
+      expect.objectContaining({
+        key: 'scope:scope-a:actor:actor-person-manager',
+        principal_type: 'actor',
+        principal_id: 'actor-person-manager',
+        capacity: 'manager',
+        inherited: true,
+      }),
+    ]);
+    expect(store.channelGrantRows.filter((grant) => grant.principal_id === 'group-contributors')).toHaveLength(1);
+  });
+
+  it('preserves concrete scope channel permission rows when deriving inherited access', () => {
+    const rows = scopeChannelAccessRows({
+      record_id: 'scope-a',
+      scope_channel_grants: [{
+        principal_type: 'actor',
+        principal_id: 'actor-person-manager',
+        permissions: permissionsForPgChannelCapacity('manager'),
+      }],
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        principal_type: 'actor',
+        principal_id: 'actor-person-manager',
+        permissions: expect.arrayContaining(['channel.manage', 'channel.grants.manage']),
+      }),
+    ]);
+    expect(capacityForPgChannelPermissions(rows[0].permissions)).toBe('manager');
   });
 
   it('adds a selected PG user as a setup permission row and persists it on channel create', async () => {

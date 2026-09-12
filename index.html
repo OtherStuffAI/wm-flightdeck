@@ -9644,7 +9644,7 @@
 
               <div class="channel-grants-list" x-show="$store.chat.channelGrantRows.length > 0">
                 <template x-for="grant in $store.chat.channelGrantRows" :key="grant.key">
-                  <div class="channel-grant-row">
+                  <div class="channel-grant-row" :class="{ 'channel-grant-row-inherited': grant.inherited }">
                     <div class="channel-grant-principal">
                       <template x-if="$store.chat.getPgChannelGrantPrincipalNpub(grant)">
                         <button type="button" class="identity-avatar-button" @click.stop="$store.chat.openIdentityCard($event, $store.chat.getPgChannelGrantPrincipalNpub(grant))" :title="$store.chat.getSenderName($store.chat.getPgChannelGrantPrincipalNpub(grant))">
@@ -9657,7 +9657,7 @@
                         </button>
                       </template>
                       <span x-text="$store.chat.getPgChannelGrantPrincipalLabel(grant)"></span>
-                      <small x-text="grant.principal_type === 'group' ? 'Group' : 'User'"></small>
+                      <small x-text="(grant.principal_type === 'group' ? 'Group' : 'User') + (grant.inherited ? ' · Scope default' : ' · Channel')"></small>
                     </div>
                     <div class="channel-grant-actions">
                       <select
@@ -9676,7 +9676,7 @@
                       <button
                         type="button"
                         class="channel-grant-remove"
-                        x-show="$store.chat.canManageSelectedPgChannelGrants"
+                        x-show="$store.chat.canManageSelectedPgChannelGrants && !grant.inherited"
                         @click="$store.chat.removeChannelGrant(grant)"
                         :disabled="$store.chat.channelGrantsSaving"
                       >Remove</button>
