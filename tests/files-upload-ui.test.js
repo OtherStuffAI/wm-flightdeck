@@ -88,8 +88,12 @@ describe('files upload UI', () => {
     expect(html).toContain('@click="$store.chat.refreshDrive()"');
     expect(html).toContain('@click="$store.chat.openDriveEntry(entry, true)"');
     expect(html).toContain('@click="$store.chat.cancelDriveTransfer()"');
+    expect(html).toContain('@click="$store.chat.copyDriveDiagnostics()"');
+    expect(html).toContain('@click="$store.chat.clearDriveDiagnostics()"');
+    expect(html).toContain('Shared folder unavailable. Copy diagnostics');
     expect(html).toContain('x-text="$store.chat.driveStatusLabel"');
     expect(css).toContain('.files-shared-browser');
+    expect(css).toContain('.files-drive-diagnostics');
     expect(css).toContain('grid-template-columns: minmax(180px, 260px) minmax(0, 1fr)');
     expect(css).toContain('@media (max-width: 700px)');
   });

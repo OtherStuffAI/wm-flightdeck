@@ -6525,7 +6525,16 @@
                       </div>
                       <p class="files-shared-status" x-show="$store.chat.driveFetchedAt" x-text="'Last refreshed: ' + new Date($store.chat.driveFetchedAt).toLocaleString()"></p>
                       <p class="files-upload-error" x-show="$store.chat.driveState === 'offline'">Source offline. Previously fetched entries may be stale.</p>
+                      <p class="files-upload-error" x-show="$store.chat.driveState === 'unavailable'">Shared folder unavailable. Copy diagnostics for the failed listing request.</p>
                       <p class="files-empty-inline" x-show="$store.chat.driveState === 'online' && !$store.chat.driveVisibleEntries.length">Empty folder.</p>
+                      <details class="files-drive-diagnostics" x-show="$store.chat.driveDiagnostics.length > 0">
+                        <summary>Diagnostics</summary>
+                        <pre x-text="$store.chat.driveDiagnosticsText"></pre>
+                        <div class="file-row-actions">
+                          <button type="button" class="file-action-btn" @click="$store.chat.copyDriveDiagnostics()">Copy diagnostics</button>
+                          <button type="button" class="file-action-btn" @click="$store.chat.clearDriveDiagnostics()">Clear</button>
+                        </div>
+                      </details>
                       <div class="files-shared-entries" x-show="$store.chat.driveVisibleEntries.length > 0">
                         <template x-for="entry in $store.chat.driveVisibleEntries" :key="entry.name">
                           <article class="file-row files-shared-row">

@@ -7,6 +7,7 @@ import {
   DriveClient,
   driveContextKey,
   driveError,
+  formatDriveDiagnostics,
   driveReference,
   parseDriveReference,
   listingFresh,
@@ -89,7 +90,123 @@ describe('Drive boundaries', () => {
     expect(driveError({ status: 404 })).toBe('missing');
     expect(driveError({ status: 409 })).toBe('changed');
     expect(driveError({ name: 'AbortError' })).toBe('cancelled');
-    expect(driveError(new Error('network'))).toBe('offline');
+    expect(driveError(new Error('network'))).toBe('unavailable');
+  });
+  it('records sanitized listing diagnostics without paths, ids, signatures or raw error text', async () => {
+    const diagnostics = [];
+    const transport = {
+      connectDrive: vi.fn(async () => ({})),
+      fetch: vi.fn(async () => {
+        throw new TypeError('leaked /private/root capability-secret file-name.txt');
+      }),
+    };
+    const sign = vi.fn(async () => ({ id: 'signed-secret', sig: 'signature-secret' }));
+    const client = new DriveClient({ transport, sign, diagnostics: (row) => diagnostics.push(row) });
+    await expect(
+      client.listing(
+        {
+          ...share,
+          id: 'share-secret-id',
+          endpoint: 'http://host-a.fips:7345/private/file-name.txt?token=secret',
+        },
+        'folder/file-name.txt',
+      ),
+    ).rejects.toThrow();
+    const text = formatDriveDiagnostics(diagnostics, { build: 'test-build', context: 'active' });
+    expect(text).toContain('flightdeck-drive-diagnostics-v1 build=test-build');
+    expect(text).toContain('stage="connect"');
+    expect(text).toContain('stage="sign"');
+    expect(text).toContain('stage="request"');
+    expect(text).toContain('route="/drive/v1/<share>/<operation>"');
+    expect(text).toContain('endpoint_host="host-a.fips"');
+    expect(text).toContain('endpoint_port="7345"');
+    expect(text).toContain('error="transport_error"');
+    expect(text).not.toContain('share-secret-id');
+    expect(text).not.toContain('signature-secret');
+    expect(text).not.toContain('capability-secret');
+    expect(text).not.toContain('/private/root');
+    expect(text).not.toContain('file-name.txt');
+    expect(text).not.toContain('token=secret');
+  });
+  it('records missing transport and stream failures without overriding the primary error', async () => {
+    const missingDiagnostics = [];
+    await expect(
+      new DriveClient({ transport: null, diagnostics: (row) => missingDiagnostics.push(row) }).listing(
+        share,
+        '',
+      ),
+    ).rejects.toThrow('missing-transport');
+    expect(formatDriveDiagnostics(missingDiagnostics)).toContain('error="missing_transport"');
+
+    const streamDiagnostics = [];
+    const primary = new TypeError('primary secret local-file.txt');
+    const transport = {
+      connectDrive: vi.fn(async () => ({})),
+      fetch: vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        body: {
+          getReader: () => ({
+            read: async () => {
+              throw primary;
+            },
+            cancel: async () => {
+              throw new TypeError('cancel secret local-file.txt');
+            },
+          }),
+        },
+      })),
+    };
+    const client = new DriveClient({
+      transport,
+      sign: async (e) => e,
+      diagnostics: (row) => streamDiagnostics.push(row),
+    });
+    await expect(client.listing(share, '')).rejects.toBe(primary);
+    const text = formatDriveDiagnostics(streamDiagnostics);
+    expect(text).toContain('stage="read"');
+    expect(text).toContain('error="transport_error"');
+    expect(text).not.toContain('local-file.txt');
+    expect(text).not.toContain('primary secret');
+    expect(text).not.toContain('cancel secret');
+  });
+  it('drops stale Drive client diagnostics after the workspace context changes', async () => {
+    const { driveManagerMixin } = await import('../src/drive.js');
+    await openWorkspaceDb('drive-stale-diagnostics');
+    const state = Object.defineProperties({}, Object.getOwnPropertyDescriptors(driveManagerMixin));
+    state.context = { baseUrl: 'https://tower', workspaceId: 'workspace-a', sessionNpub: 'owner' };
+    state.navSection = 'files';
+    state.requestTowerSyncFamily = vi.fn(async () => {});
+    const oldWindow = globalThis.window,
+      oldLocation = globalThis.location;
+    globalThis.window = { fipsTransport: { connectDrive() {} } };
+    globalThis.location = { hash: '' };
+    try {
+      await state.startDrive();
+      const client = state._driveClient;
+      state.context = { ...state.context, workspaceId: 'workspace-b' };
+      client.recordDiagnostic(share, { stage: 'request', operation: 'list', elapsed_ms: 1 });
+      expect(state.driveDiagnostics).toEqual([]);
+    } finally {
+      state.stopDrive();
+      globalThis.window = oldWindow;
+      globalThis.location = oldLocation;
+    }
+  });
+  it('bounds copyable listing diagnostics to newest records', () => {
+    const rows = Array.from({ length: 45 }, (_, index) => ({
+      ts: `2026-09-12T00:00:${String(index).padStart(2, '0')}Z`,
+      stage: 'request',
+      operation: 'list',
+      endpoint_protocol: 'http',
+      endpoint_host: 'host.fips',
+      endpoint_port: '7345',
+      elapsed_ms: index,
+    }));
+    const text = formatDriveDiagnostics(rows);
+    expect(text).not.toContain('00:00:04Z');
+    expect(text).toContain('00:00:05Z');
+    expect(text).toContain('00:00:44Z');
   });
   it('aborted consent never sends a signed request', async () => {
     const abort = new AbortController();

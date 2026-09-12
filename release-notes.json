@@ -1568,6 +1568,13 @@
       "label": "Verified shared folders in Files build",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1952,
+      "label": "Shared folder listing diagnostics",
+      "notes": [
+        "Add copyable diagnostics for shared folder listing failures and show unavailable listings without guessing that the source host is offline."
+      ]
     }
   ]
 }

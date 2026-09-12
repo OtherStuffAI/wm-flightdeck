@@ -6,6 +6,16 @@ import { signNostrEvent } from './auth/nostr.js';
 
 export const DRIVE_LISTING_TTL = 30 * 60 * 1000;
 export const DRIVE_POLICY_MAX_AGE = 15 * 60 * 1000;
+const DRIVE_DIAGNOSTIC_LIMIT = 40;
+const DRIVE_DIAGNOSTIC_VERSION = 'flightdeck-drive-diagnostics-v1';
+const DRIVE_ROUTE_TEMPLATE = '/drive/v1/<share>/<operation>';
+const DRIVE_SAFE_ERROR_CODES = new Map([
+  ['AbortError', 'cancelled'],
+  ['NotAllowedError', 'consent_denied'],
+  ['SecurityError', 'security_error'],
+  ['TypeError', 'transport_error'],
+  ['SyntaxError', 'parse_error'],
+]);
 export const driveContextKey = (c) => JSON.stringify([c.baseUrl, c.workspaceId, c.sessionNpub]);
 export const listingFresh = (row, now = Date.now()) =>
   row && now >= row.fetched_at && now - row.fetched_at < DRIVE_LISTING_TTL;
@@ -29,7 +39,57 @@ export function driveError(e) {
   if (e?.status === 409) return 'changed';
   if (e?.message === 'missing-transport') return 'missing-transport';
   if (/denied/i.test(e?.message || '')) return 'consent-denied';
-  return 'offline';
+  return 'unavailable';
+}
+
+function safeEndpoint(endpoint = '') {
+  try {
+    const url = new URL(endpoint);
+    return {
+      protocol: url.protocol.replace(':', ''),
+      host: url.hostname || '<unknown>',
+      port: url.port || (url.protocol === 'https:' ? '443' : url.protocol === 'http:' ? '80' : ''),
+    };
+  } catch {
+    return { protocol: '<unknown>', host: '<unknown>', port: '' };
+  }
+}
+
+function safeErrorCode(error) {
+  if (!error) return '';
+  if (error.status) return `http_${Number(error.status) || 'unknown'}`;
+  if (error.message === 'missing-transport') return 'missing_transport';
+  if (/denied/i.test(error.message || '')) return 'consent_denied';
+  if (error.message === 'Listing too large') return 'listing_too_large';
+  if (error instanceof SyntaxError) return 'parse_error';
+  return DRIVE_SAFE_ERROR_CODES.get(error.name) || 'unknown';
+}
+
+function formatDiagnosticValue(value) {
+  return `"${String(value ?? '').replace(/[\\"]/g, '\\$&').replace(/\s+/g, ' ').slice(0, 160)}"`;
+}
+
+export function formatDriveDiagnostics(rows = [], header = {}) {
+  const lines = [
+    `${DRIVE_DIAGNOSTIC_VERSION} build=${header.build || 'unknown'} context=${header.context || 'unknown'}`,
+  ];
+  for (const row of rows.slice(-DRIVE_DIAGNOSTIC_LIMIT)) {
+    const parts = [
+      `ts=${formatDiagnosticValue(row.ts)}`,
+      `stage=${formatDiagnosticValue(row.stage || 'unknown')}`,
+      `operation=${formatDiagnosticValue(row.operation || 'unknown')}`,
+      `method=${formatDiagnosticValue(row.method || 'GET')}`,
+      `route=${formatDiagnosticValue(DRIVE_ROUTE_TEMPLATE)}`,
+      `endpoint_protocol=${formatDiagnosticValue(row.endpoint_protocol || '')}`,
+      `endpoint_host=${formatDiagnosticValue(row.endpoint_host || '')}`,
+      `endpoint_port=${formatDiagnosticValue(row.endpoint_port || '')}`,
+      `elapsed_ms=${Number.isFinite(row.elapsed_ms) ? Math.max(0, Math.round(row.elapsed_ms)) : 0}`,
+    ];
+    if (row.status) parts.push(`status=${Number(row.status)}`);
+    if (row.error) parts.push(`error=${formatDiagnosticValue(row.error)}`);
+    lines.push(parts.join(' '));
+  }
+  return lines.join('\n');
 }
 
 // Called only by TowerSyncService. Atomic replacement removes inaccessible shares
@@ -78,17 +138,57 @@ export async function hydrateDriveShares(store) {
 }
 
 export class DriveClient {
-  constructor({ transport = globalThis.window?.fipsTransport, sign = signNostrEvent } = {}) {
+  constructor({
+    transport = globalThis.window?.fipsTransport,
+    sign = signNostrEvent,
+    diagnostics = null,
+  } = {}) {
     this.transport = transport;
     this.sign = sign;
     this.connecting = Promise.resolve();
+    this.diagnostics = typeof diagnostics === 'function' ? diagnostics : null;
+  }
+  recordDiagnostic(share, fields = {}) {
+    const endpoint = safeEndpoint(share?.endpoint);
+    this.diagnostics?.({
+      ts: new Date().toISOString(),
+      method: 'GET',
+      endpoint_protocol: endpoint.protocol,
+      endpoint_host: endpoint.host,
+      endpoint_port: endpoint.port,
+      ...fields,
+    });
   }
   async request(share, operation, path, options = {}) {
-    if (!this.transport?.connectDrive) throw new Error('missing-transport');
+    const started = performance.now?.() || Date.now();
+    const elapsed = () => (performance.now?.() || Date.now()) - started;
+    if (!this.transport?.connectDrive) {
+      const error = new Error('missing-transport');
+      this.recordDiagnostic(share, {
+        stage: 'connect',
+        operation,
+        elapsed_ms: elapsed(),
+        error: safeErrorCode(error),
+      });
+      throw error;
+    }
     // Serialize consent panels without sharing endpoint grants.
-    const connecting = this.connecting.then(() =>
-      this.transport.connectDrive({ endpoint: share.endpoint }),
-    );
+    const connecting = this.connecting.then(async () => {
+      this.recordDiagnostic(share, { stage: 'connect', operation, elapsed_ms: elapsed() });
+      try {
+        const result = await this.transport.connectDrive({ endpoint: share.endpoint });
+        this.recordDiagnostic(share, { stage: 'consent', operation, elapsed_ms: elapsed() });
+        return result;
+      } catch (error) {
+        this.recordDiagnostic(share, {
+          stage: /denied/i.test(error?.message || '') ? 'consent' : 'connect',
+          operation,
+          elapsed_ms: elapsed(),
+          error: safeErrorCode(error),
+        });
+        throw error;
+      }
+    });
     this.connecting = connecting.catch(() => {});
     await connecting;
     if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -99,22 +199,52 @@ export class DriveClient {
     const nonce = Array.from(crypto.getRandomValues(new Uint8Array(24)), (v) =>
       v.toString(16).padStart(2, '0'),
     ).join('');
-    const event = await this.sign({
-      kind: 27235,
-      created_at: Math.floor(Date.now() / 1000),
-      content: '',
-      tags: [
-        ['u', url.href],
-        ['method', 'GET'],
-        ['workspace', share.workspace_id],
-        ['share', share.id],
-        ['nonce', nonce],
-      ],
-    });
+    let event;
+    try {
+      this.recordDiagnostic(share, { stage: 'sign', operation, elapsed_ms: elapsed() });
+      event = await this.sign({
+        kind: 27235,
+        created_at: Math.floor(Date.now() / 1000),
+        content: '',
+        tags: [
+          ['u', url.href],
+          ['method', 'GET'],
+          ['workspace', share.workspace_id],
+          ['share', share.id],
+          ['nonce', nonce],
+        ],
+      });
+    } catch (error) {
+      this.recordDiagnostic(share, {
+        stage: 'sign',
+        operation,
+        elapsed_ms: elapsed(),
+        error: safeErrorCode(error),
+      });
+      throw error;
+    }
     if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
-    const response = await this.transport.fetch(url.href, {
-      signal: options.signal,
-      headers: { Authorization: `Nostr ${btoa(JSON.stringify(event))}` },
+    let response;
+    try {
+      this.recordDiagnostic(share, { stage: 'request', operation, elapsed_ms: elapsed() });
+      response = await this.transport.fetch(url.href, {
+        signal: options.signal,
+        headers: { Authorization: `Nostr ${btoa(JSON.stringify(event))}` },
+      });
+    } catch (error) {
+      this.recordDiagnostic(share, {
+        stage: 'request',
+        operation,
+        elapsed_ms: elapsed(),
+        error: safeErrorCode(error),
+      });
+      throw error;
+    }
+    this.recordDiagnostic(share, {
+      stage: 'status',
+      operation,
+      elapsed_ms: elapsed(),
+      status: response.status,
     });
     if (!response.ok) {
       await response.body?.cancel();
@@ -124,19 +254,51 @@ export class DriveClient {
   }
   async listing(share, path, options = {}) {
     const response = await this.request(share, 'list', path, options);
-    const reader = response.body.getReader();
+    const started = performance.now?.() || Date.now();
+    const elapsed = () => (performance.now?.() || Date.now()) - started;
+    let reader;
     let bytes = 0;
     const chunks = [];
+    let primaryError = null;
     try {
+      reader = response.body.getReader();
       while (true) {
         const next = await reader.read();
         if (next.done) break;
         bytes += next.value.length;
-        if (bytes > 1024 * 1024) throw new Error('Listing too large');
+        if (bytes > 1024 * 1024) {
+          const error = new Error('Listing too large');
+          this.recordDiagnostic(share, {
+            stage: 'parse',
+            operation: 'list',
+            elapsed_ms: elapsed(),
+            error: safeErrorCode(error),
+          });
+          throw error;
+        }
         chunks.push(next.value);
       }
+    } catch (error) {
+      primaryError = error;
+      this.recordDiagnostic(share, {
+        stage: 'read',
+        operation: 'list',
+        elapsed_ms: elapsed(),
+        error: safeErrorCode(error),
+      });
+      throw error;
     } finally {
-      await reader.cancel();
+      try {
+        await reader?.cancel();
+      } catch (error) {
+        this.recordDiagnostic(share, {
+          stage: 'read',
+          operation: 'list',
+          elapsed_ms: elapsed(),
+          error: safeErrorCode(error),
+        });
+        if (!primaryError) throw error;
+      }
     }
     const data = new Uint8Array(bytes);
     let offset = 0;
@@ -144,7 +306,19 @@ export class DriveClient {
       data.set(chunk, offset);
       offset += chunk.length;
     }
-    return JSON.parse(new TextDecoder().decode(data));
+    try {
+      const page = JSON.parse(new TextDecoder().decode(data));
+      this.recordDiagnostic(share, { stage: 'parse', operation: 'list', elapsed_ms: elapsed() });
+      return page;
+    } catch (error) {
+      this.recordDiagnostic(share, {
+        stage: 'parse',
+        operation: 'list',
+        elapsed_ms: elapsed(),
+        error: safeErrorCode(error),
+      });
+      throw error;
+    }
   }
   async save(share, path, { revision, name, signal, onProgress, open = false }) {
     if (!this.transport?.save) throw new Error('missing-transport');
@@ -169,6 +343,7 @@ export const driveManagerMixin = {
   driveProgress: 0,
   driveTransferring: false,
   driveContext: '',
+  driveDiagnostics: [],
   get driveStatusLabel() {
     return (
       {
@@ -177,6 +352,7 @@ export const driveManagerMixin = {
         online: 'Source online',
         cached: 'Source online · cached listing',
         offline: 'Source offline · cached entries may be stale',
+        unavailable: 'Shared folder unavailable · check diagnostics',
         denied: 'Access denied or authorization expired',
         'consent-denied': 'Connection permission denied',
         'missing-transport': 'Native FIPS transport unavailable',
@@ -203,6 +379,25 @@ export const driveManagerMixin = {
       ? this.driveEntries
       : [];
   },
+  get driveDiagnosticsText() {
+    return formatDriveDiagnostics(this.driveDiagnostics, {
+      build: globalThis.__FLIGHTDECK_BUILD_ID__ || globalThis.__FLIGHTDECK_BUILD_NUMBER__ || 'unknown',
+      context: this.driveContext ? 'active' : 'none',
+    });
+  },
+  recordDriveDiagnostic(row, expectedContext = this.driveContext, expectedGeneration = this._driveGeneration) {
+    if (
+      !this.driveContext ||
+      this.driveContext !== expectedContext ||
+      this.driveScope !== expectedContext ||
+      this._driveGeneration !== expectedGeneration
+    )
+      return;
+    this.driveDiagnostics = [...this.driveDiagnostics.slice(-(DRIVE_DIAGNOSTIC_LIMIT - 1)), row];
+  },
+  clearDriveDiagnostics() {
+    this.driveDiagnostics = [];
+  },
   async startDrive() {
     const reference = parseDriveReference(location.hash);
     const key = this.driveScope;
@@ -214,10 +409,13 @@ export const driveManagerMixin = {
       return;
     this.stopDrive();
     this.driveContext = key;
+    this.clearDriveDiagnostics();
     this._driveReferenceHash = location.hash;
     this._driveStartKey = key;
     const generation = this._driveGeneration;
-    this._driveClient = new DriveClient();
+    this._driveClient = new DriveClient({
+      diagnostics: (row) => this.recordDriveDiagnostic(row, key, generation),
+    });
     const db = getWorkspaceDb();
     // Account switch purges other viewers' listing caches in this workspace DB.
     await db.drive_listings.filter((r) => r.context !== key).delete();
@@ -319,6 +517,7 @@ export const driveManagerMixin = {
     this.driveEntries = [];
     this.driveSelected = null;
     this.driveContext = '';
+    this.clearDriveDiagnostics();
   },
   async browseDrive(share, path = '', force = false, offset = 0) {
     this._driveBrowseAbort?.abort();
@@ -451,5 +650,8 @@ export const driveManagerMixin = {
     await navigator.clipboard.writeText(
       `${location.origin}${location.pathname}${driveReference(this.driveSelected, path, entry?.kind || 'directory')}`,
     );
+  },
+  async copyDriveDiagnostics() {
+    await navigator.clipboard.writeText(this.driveDiagnosticsText);
   },
 };

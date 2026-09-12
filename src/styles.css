@@ -22734,6 +22734,35 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   padding: 0.7rem 0.8rem;
 }
 
+.files-drive-diagnostics {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.75rem;
+}
+
+.files-drive-diagnostics summary {
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.files-drive-diagnostics pre {
+  background: rgba(15, 23, 42, 0.04);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  margin: 0.65rem 0;
+  max-height: 9.5rem;
+  overflow: auto;
+  padding: 0.6rem;
+  user-select: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 700px) {
   .files-shared-header,
   .files-shared-pathbar,
