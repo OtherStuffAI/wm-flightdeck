@@ -22,6 +22,8 @@ export function driveBreadcrumbs(share, path = '') {
 const DRIVE_DIAGNOSTIC_LIMIT = 40;
 const DRIVE_DIAGNOSTIC_VERSION = 'flightdeck-drive-diagnostics-v1';
 const DRIVE_ROUTE_TEMPLATE = '/drive/v1/<share>/<operation>';
+const RUNNING_BUILD_ID = typeof __APP_BUILD_ID__ !== 'undefined' ? __APP_BUILD_ID__ : '';
+const RUNNING_BUILD_NUMBER = typeof __APP_BUILD_NUMBER__ !== 'undefined' ? __APP_BUILD_NUMBER__ : '';
 const DRIVE_SAFE_ERROR_CODES = new Map([
   ['AbortError', 'cancelled'],
   ['NotAllowedError', 'consent_denied'],
@@ -87,8 +89,15 @@ function formatDiagnosticValue(value) {
 }
 
 export function formatDriveDiagnostics(rows = [], header = {}) {
+  const headerParts = [
+    DRIVE_DIAGNOSTIC_VERSION,
+    `build=${header.build || 'unknown'}`,
+    `context=${header.context || 'unknown'}`,
+  ];
+  if (header.origin) headerParts.push(`origin=${formatDiagnosticValue(header.origin)}`);
+  if (header.transport) headerParts.push(`transport=${formatDiagnosticValue(header.transport)}`);
   const lines = [
-    `${DRIVE_DIAGNOSTIC_VERSION} build=${header.build || 'unknown'} context=${header.context || 'unknown'}`,
+    headerParts.join(' '),
   ];
   for (const row of rows.slice(-DRIVE_DIAGNOSTIC_LIMIT)) {
     const parts = [
@@ -155,15 +164,20 @@ export async function hydrateDriveShares(store) {
 }
 
 export class DriveClient {
-  constructor({
+  constructor(options = {}) {
+    const {
     transport = globalThis.window?.fipsTransport,
     sign = signNostrEvent,
     diagnostics = null,
-  } = {}) {
-    this.transport = transport;
+    } = options;
+    this._transport = transport;
+    this._hasExplicitTransport = Object.hasOwn(options, 'transport');
     this.sign = sign;
     this.connecting = Promise.resolve();
     this.diagnostics = typeof diagnostics === 'function' ? diagnostics : null;
+  }
+  get transport() {
+    return this._hasExplicitTransport ? this._transport : globalThis.window?.fipsTransport;
   }
   recordDiagnostic(share, fields = {}) {
     const endpoint = safeEndpoint(share?.endpoint);
@@ -439,9 +453,18 @@ export const driveManagerMixin = {
       : [];
   },
   get driveDiagnosticsText() {
+    const transport = globalThis.window?.fipsTransport;
+    const capabilities = [
+      transport?.connectDrive ? 'connectDrive' : '',
+      transport?.fetch ? 'fetch' : '',
+      transport?.save ? 'save' : '',
+      transport?.WebSocket ? 'WebSocket' : '',
+    ].filter(Boolean).join(',') || 'none';
     return formatDriveDiagnostics(this.driveDiagnostics, {
-      build: globalThis.__FLIGHTDECK_BUILD_ID__ || globalThis.__FLIGHTDECK_BUILD_NUMBER__ || 'unknown',
+      build: RUNNING_BUILD_ID || RUNNING_BUILD_NUMBER || 'unknown',
       context: this.driveContext ? 'active' : 'none',
+      origin: globalThis.location?.origin || '',
+      transport: capabilities,
     });
   },
   toggleFilesSharedPanel() {
@@ -479,6 +502,16 @@ export const driveManagerMixin = {
     this._driveClient = new DriveClient({
       diagnostics: (row) => this.recordDriveDiagnostic(row, key, generation),
     });
+    this._driveTransportReady = () => {
+      if (
+        this.driveScope === key &&
+        this._driveGeneration === generation &&
+        this.driveState === 'missing-transport' &&
+        globalThis.window?.fipsTransport?.connectDrive
+      )
+        this.driveState = 'ready';
+    };
+    globalThis.window?.addEventListener?.('fips-transport-ready', this._driveTransportReady);
     const db = getWorkspaceDb();
     // Account switch purges other viewers' listing caches in this workspace DB.
     await db.drive_listings.filter((r) => r.context !== key).delete();
@@ -578,6 +611,10 @@ export const driveManagerMixin = {
     this._driveBrowseAbort?.abort();
     this._driveSubscription?.unsubscribe();
     this._driveSubscription = null;
+    if (this._driveTransportReady) {
+      globalThis.window?.removeEventListener?.('fips-transport-ready', this._driveTransportReady);
+      this._driveTransportReady = null;
+    }
     clearInterval(this._driveTimer);
     this.driveRows = [];
     this.driveEntries = [];

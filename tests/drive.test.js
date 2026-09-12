@@ -174,6 +174,33 @@ describe('Drive boundaries', () => {
     expect(text).not.toContain('primary secret');
     expect(text).not.toContain('cancel secret');
   });
+  it('uses a native transport that appears after the Drive client is constructed', async () => {
+    const oldWindow = globalThis.window;
+    globalThis.window = {};
+    const transport = {
+      connectDrive: vi.fn(async () => ({})),
+      fetch: vi.fn(async () => new Response('[]')),
+    };
+    const client = new DriveClient({ sign: async (e) => e });
+    try {
+      globalThis.window.fipsTransport = transport;
+      await client.listing(share, '');
+      expect(transport.connectDrive).toHaveBeenCalledWith({ endpoint: share.endpoint });
+    } finally {
+      globalThis.window = oldWindow;
+    }
+  });
+  it('includes safe origin and transport capability state in diagnostics header', () => {
+    const text = formatDriveDiagnostics([], {
+      build: 'test-build',
+      context: 'active',
+      origin: 'http://127.0.0.1:47831',
+      transport: 'connectDrive,fetch',
+    });
+    expect(text).toContain('build=test-build context=active');
+    expect(text).toContain('origin="http://127.0.0.1:47831"');
+    expect(text).toContain('transport="connectDrive,fetch"');
+  });
   it('drops stale Drive client diagnostics after the workspace context changes', async () => {
     const { driveManagerMixin } = await import('../src/drive.js');
     await openWorkspaceDb('drive-stale-diagnostics');
@@ -191,6 +218,37 @@ describe('Drive boundaries', () => {
       state.context = { ...state.context, workspaceId: 'workspace-b' };
       client.recordDiagnostic(share, { stage: 'request', operation: 'list', elapsed_ms: 1 });
       expect(state.driveDiagnostics).toEqual([]);
+    } finally {
+      state.stopDrive();
+      globalThis.window = oldWindow;
+      globalThis.location = oldLocation;
+    }
+  });
+  it('recovers availability when native Drive transport arrives after start', async () => {
+    const { driveManagerMixin } = await import('../src/drive.js');
+    await openWorkspaceDb('drive-late-transport');
+    const state = Object.defineProperties({}, Object.getOwnPropertyDescriptors(driveManagerMixin));
+    state.context = { baseUrl: 'https://tower', workspaceId: 'workspace-a', sessionNpub: 'owner' };
+    state.navSection = 'files';
+    state.requestTowerSyncFamily = vi.fn(async () => {});
+    const listeners = new Map();
+    const oldWindow = globalThis.window,
+      oldLocation = globalThis.location;
+    globalThis.window = {
+      addEventListener: vi.fn((type, listener) => listeners.set(type, listener)),
+      removeEventListener: vi.fn((type, listener) => {
+        if (listeners.get(type) === listener) listeners.delete(type);
+      }),
+    };
+    globalThis.location = { hash: '', origin: 'http://127.0.0.1:47831' };
+    try {
+      await state.startDrive();
+      expect(state.driveState).toBe('missing-transport');
+      globalThis.window.fipsTransport = { connectDrive() {}, fetch() {} };
+      listeners.get('fips-transport-ready')?.();
+      expect(state.driveState).toBe('ready');
+      expect(state.driveDiagnosticsText).toContain('origin="http://127.0.0.1:47831"');
+      expect(state.driveDiagnosticsText).toContain('transport="connectDrive,fetch"');
     } finally {
       state.stopDrive();
       globalThis.window = oldWindow;
