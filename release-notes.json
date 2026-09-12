@@ -1578,7 +1578,7 @@
       ]
     },
     {
-      "buildNumber": 1952,
+      "buildNumber": 1953,
       "label": "Shared folder listing diagnostics",
       "notes": [
         "Add copyable diagnostics for shared folder listing failures and show unavailable listings without guessing that the source host is offline."
