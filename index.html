@@ -405,6 +405,16 @@
             <template x-if="$store.chat.syncSession.error">
               <span class="sync-error-text" x-text="$store.chat.syncSession.error"></span>
             </template>
+            <div class="avatar-sync-conflict" x-show="$store.chat.avatarSyncConflictCount > 0" x-cloak>
+              <details :open="!$store.chat.avatarSyncConflictDismissed">
+                <summary x-text="$store.chat.avatarSyncConflictDismissed ? 'Local file clash (dismissed)' : `${$store.chat.avatarSyncConflictCount} local file ${$store.chat.avatarSyncConflictCount === 1 ? 'clash' : 'clashes'}`"></summary>
+                <p>Tower will overwrite the older local file metadata. A local recovery copy is kept when Flight Deck refreshes from Tower.</p>
+                <div class="avatar-sync-conflict-actions">
+                  <button type="button" @click="$store.chat.dismissAvatarSyncConflicts()">Dismiss</button>
+                  <button type="button" @click="$store.chat.useTowerForAvatarSyncConflicts()">Use Tower version</button>
+                </div>
+              </details>
+            </div>
           </div>
           <section class="avatar-menu-section legacy-recovery-menu" x-show="$store.chat.legacyWorkspaceRecoveryNotice" x-cloak>
             <details :open="!$store.chat.legacyWorkspaceRecoveryDismissed">

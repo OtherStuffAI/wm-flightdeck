@@ -22577,6 +22577,14 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 }
 .legacy-recovery-menu summary { cursor: pointer; }
 .legacy-recovery-menu p { margin: 0.6rem 0; line-height: 1.4; }
+.avatar-sync-conflict {
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border-color);
+}
+.avatar-sync-conflict summary { cursor: pointer; }
+.avatar-sync-conflict p { margin: 0.6rem 0; line-height: 1.4; color: var(--text-muted); }
+.avatar-sync-conflict-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
 .agent-activity-earlier { margin: 0.35rem 0.7rem; color: var(--text-muted); font-size: 0.8rem; }
 .agent-activity-earlier summary { cursor: pointer; padding: 0.3rem 0; overflow-wrap: anywhere; }

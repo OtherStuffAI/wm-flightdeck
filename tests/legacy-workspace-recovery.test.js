@@ -28,7 +28,7 @@ describe('legacy cache upgrade recovery', () => {
     for (let startup = 0; startup < 2; startup++) {
       const result = await inspectLegacyWorkspaceRecovery(names);
       expect(result).toEqual({ status: 'required', databaseNames: [db.name] });
-      expect(legacyWorkspaceRecoveryMessage(result)).toContain('Local edit recovery required');
+      expect(legacyWorkspaceRecoveryMessage(result)).toContain('Tower is the default version');
       expect(await db.pending_writes.toArray()).toEqual([command]);
       expect(db.verno).toBe(1);
     }

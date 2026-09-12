@@ -672,11 +672,31 @@ export const unreadStoreMixin = {
     catch (error) { this.error = error.message; }
   },
 
+  dismissAvatarSyncConflicts() {
+    this.avatarSyncConflictDismissed = true;
+  },
+
+  async useTowerForAvatarSyncConflicts() {
+    const conflicts = Array.isArray(this.avatarSyncConflicts) ? [...this.avatarSyncConflicts] : [];
+    if (!conflicts.length) return;
+    try {
+      for (const conflict of conflicts) {
+        if (conflict?.key) await acceptTowerPgRemoteConflict(this, conflict.key);
+      }
+      this.avatarSyncConflictDismissed = true;
+    } catch (error) {
+      this.error = error?.message || 'Could not refresh local file sync from Tower.';
+    }
+  },
+
   applyPgAttentionProjection(projection) {
     if (!projection) { this._recordDeltaAttentionActive = false; return false; }
     this._recordDeltaAttentionActive = true;
     this.recordSyncConflictCount = projection.conflictCount || 0;
     this.recordSyncConflicts = projection.conflicts || [];
+    this.avatarSyncConflictCount = projection.avatarSyncConflictCount || 0;
+    this.avatarSyncConflicts = projection.avatarSyncConflicts || [];
+    if (!this.avatarSyncConflictCount) this.avatarSyncConflictDismissed = false;
     this._unreadChat = Boolean(projection.values['section:chat']);
     this._unreadTasks = Boolean(projection.values['section:tasks']);
     this._unreadDocs = Boolean(projection.values['section:docs']);
