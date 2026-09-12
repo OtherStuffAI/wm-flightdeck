@@ -86,7 +86,10 @@ describe('files upload UI', () => {
     expect(html).toContain('id="files-shared-title"');
     expect(html).toContain('aria-label="Shared folder sources"');
     expect(html).toContain('@click="$store.chat.refreshDrive()"');
-    expect(html).toContain('@click="$store.chat.openDriveEntry(entry, true)"');
+    expect(html).not.toContain('@click="$store.chat.openDriveEntry(entry, true)"');
+    expect(html).toContain('aria-label="FipsDrive folder breadcrumb"');
+    expect(html).toContain('<strong>FipsDrive</strong>');
+    expect(html).toContain('@click="$store.chat.activateDriveEntry(entry)"');
     expect(html).toContain('@click="$store.chat.cancelDriveTransfer()"');
     expect(html).toContain('@click="$store.chat.copyDriveDiagnostics()"');
     expect(html).toContain('@click="$store.chat.clearDriveDiagnostics()"');
@@ -94,7 +97,7 @@ describe('files upload UI', () => {
     expect(html).toContain('x-text="$store.chat.driveStatusLabel"');
     expect(html).toContain("files-workspace-shared-collapsed");
     expect(html).toContain('aria-label="Collapse shared folders panel"');
-    expect(html).toContain('aria-label="Show shared folders panel"');
+    expect(html).toContain('aria-label="Show FipsDrive panel"');
     expect(css).toContain('.files-shared-browser');
     expect(css).toContain('.files-workspace');
     expect(css).toContain('grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr)');

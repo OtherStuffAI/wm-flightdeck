@@ -6,6 +6,19 @@ import { signNostrEvent } from './auth/nostr.js';
 
 export const DRIVE_LISTING_TTL = 30 * 60 * 1000;
 export const DRIVE_POLICY_MAX_AGE = 15 * 60 * 1000;
+export const DRIVE_PREVIEW_IMAGE_LIMIT = 8 * 1024 * 1024;
+export const DRIVE_PREVIEW_VIDEO_LIMIT = 24 * 1024 * 1024;
+export function driveMediaType(entry) {
+  if (entry?.kind !== 'file') return null;
+  const ext = entry.name?.split('.').pop().toLowerCase();
+  const types = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
+  return Object.hasOwn(types, ext) ? types[ext] : null;
+}
+export function driveBreadcrumbs(share, path = '') {
+  if (!share) return [];
+  const parts = path.split('/').filter(Boolean);
+  return [{ name: share.name, path: '' }, ...parts.map((name, i) => ({ name, path: parts.slice(0, i + 1).join('/') }))];
+}
 const DRIVE_DIAGNOSTIC_LIMIT = 40;
 const DRIVE_DIAGNOSTIC_VERSION = 'flightdeck-drive-diagnostics-v1';
 const DRIVE_ROUTE_TEMPLATE = '/drive/v1/<share>/<operation>';
@@ -33,6 +46,7 @@ export function parseDriveReference(hash) {
   };
 }
 export function driveError(e) {
+  if (e?.message === 'save-cancelled') return 'cancelled';
   if (e?.name === 'AbortError') return 'cancelled';
   if (e?.status === 403 || e?.status === 401) return 'denied';
   if (e?.status === 404) return 'missing';
@@ -60,6 +74,9 @@ function safeErrorCode(error) {
   if (error.status) return `http_${Number(error.status) || 'unknown'}`;
   if (error.message === 'missing-transport') return 'missing_transport';
   if (/denied/i.test(error.message || '')) return 'consent_denied';
+  if (error.message === 'Preview too large') return 'preview_too_large';
+  if (['save-cancelled', 'save-dialog-failed', 'save-write-failed', 'save-finish-failed'].includes(error.message)) return error.message.replaceAll('-', '_');
+  if (error.message === 'save-not-confirmed') return 'save_not_confirmed';
   if (error.message === 'Listing too large') return 'listing_too_large';
   if (error instanceof SyntaxError) return 'parse_error';
   return DRIVE_SAFE_ERROR_CODES.get(error.name) || 'unknown';
@@ -174,6 +191,7 @@ export class DriveClient {
     }
     // Serialize consent panels without sharing endpoint grants.
     const connecting = this.connecting.then(async () => {
+      if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
       this.recordDiagnostic(share, { stage: 'connect', operation, elapsed_ms: elapsed() });
       try {
         const result = await this.transport.connectDrive({ endpoint: share.endpoint });
@@ -320,18 +338,58 @@ export class DriveClient {
       throw error;
     }
   }
-  async save(share, path, { revision, name, signal, onProgress, open = false }) {
-    if (!this.transport?.save) throw new Error('missing-transport');
+  async preview(share, path, { revision, signal, type, limit, size }) {
     const response = await this.request(share, 'read', path, { revision, signal });
+    const reader = response.body.getReader();
+    const chunks = [];
+    let bytes = 0;
+    const cancel = () => void reader.cancel().catch(() => {});
+    signal?.addEventListener('abort', cancel, { once: true });
     try {
-      return await this.transport.save(response, { name, signal, onProgress, open });
+      if (Number(response.headers?.get('content-length')) > limit) throw new Error('Preview too large');
+      while (true) {
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+        const next = await reader.read();
+        if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+        if (next.done) break;
+        bytes += next.value.byteLength;
+        if (bytes > limit) throw new Error('Preview too large');
+        chunks.push(next.value);
+      }
+      if (Number.isFinite(size) && bytes !== size) throw new Error('Incomplete preview');
+      return new Blob(chunks, { type });
     } finally {
-      await response.body?.cancel().catch(() => {});
+      signal?.removeEventListener('abort', cancel);
+      await reader.cancel().catch(() => {});
+    }
+  }
+  async save(share, path, { revision, name, signal, onProgress, open = false }) {
+    const started = Date.now();
+    let response;
+    let stage = 'read';
+    try {
+      if (!this.transport?.save) throw new Error('missing-transport');
+      response = await this.request(share, 'read', path, { revision, signal });
+      stage = 'save';
+      this.recordDiagnostic(share, { stage, operation: 'read', elapsed_ms: Date.now() - started });
+      const result = await this.transport.save(response, { name, signal, onProgress, open });
+      if (!result || (!result.saved && !result.committed)) throw new Error('save-not-confirmed');
+      this.recordDiagnostic(share, { stage: 'saved', operation: 'read', elapsed_ms: Date.now() - started });
+      return result;
+    } catch (error) {
+      this.recordDiagnostic(share, { stage, operation: 'read', elapsed_ms: Date.now() - started, error: safeErrorCode(error) });
+      throw error;
+    } finally {
+      await response?.body?.cancel().catch(() => {});
     }
   }
 }
 
 export const driveManagerMixin = {
+  drivePreview: null,
+  driveTransferError: '',
+  get driveBreadcrumbs() { return driveBreadcrumbs(this.driveSelected, this.drivePath); },
+  driveMediaType,
   driveRows: [],
   driveEntries: [],
   driveSelected: null,
@@ -387,6 +445,7 @@ export const driveManagerMixin = {
     });
   },
   toggleFilesSharedPanel() {
+    if (!this.filesSharedPanelCollapsed) this.closeDrivePreview();
     this.filesSharedPanelCollapsed = !this.filesSharedPanelCollapsed;
   },
   recordDriveDiagnostic(row, expectedContext = this.driveContext, expectedGeneration = this._driveGeneration) {
@@ -437,6 +496,7 @@ export const driveManagerMixin = {
             Number(s.revision) === Number(this.driveSelected.revision),
         )
       ) {
+        this.closeDrivePreview();
         this.cancelDriveTransfer();
         this.driveEntries = [];
         this.driveSelected = null;
@@ -455,6 +515,7 @@ export const driveManagerMixin = {
         (s) => Date.now() - s.verified_at < DRIVE_POLICY_MAX_AGE,
       );
       if (this.driveSelected && !this.driveRows.some((row) => row.id === this.driveSelected.id)) {
+        this.closeDrivePreview();
         this.cancelDriveTransfer();
         this._driveBrowseAbort?.abort();
         this.driveEntries = [];
@@ -510,6 +571,7 @@ export const driveManagerMixin = {
     }
   },
   stopDrive() {
+    this.closeDrivePreview();
     this._driveGeneration = (this._driveGeneration || 0) + 1;
     this._driveStartKey = null;
     this.cancelDriveTransfer();
@@ -524,6 +586,9 @@ export const driveManagerMixin = {
     this.clearDriveDiagnostics();
   },
   async browseDrive(share, path = '', force = false, offset = 0) {
+    this.closeDrivePreview();
+    this.cancelDriveTransfer();
+    this.driveTransferError = '';
     this._driveBrowseAbort?.abort();
     const controller = new AbortController();
     this._driveBrowseAbort = controller;
@@ -600,6 +665,7 @@ export const driveManagerMixin = {
         Date.now() - this.driveSelected.verified_at >= DRIVE_POLICY_MAX_AGE
       ) {
         this.driveState = driveError(e);
+        this.closeDrivePreview();
         this.cancelDriveTransfer();
         this.driveEntries = [];
         return;
@@ -607,6 +673,58 @@ export const driveManagerMixin = {
       // A Tower outage does not prevent contacting a host within the finite policy window.
     }
     if (this.driveSelected) await this.browseDrive(this.driveSelected, this.drivePath, true);
+  },
+  showDriveSources() {
+    this.closeDrivePreview();
+    this.cancelDriveTransfer();
+    this._driveBrowseAbort?.abort();
+    this.driveSelected = null;
+    this.driveEntries = [];
+    this.drivePath = '';
+    this.driveState = 'ready';
+  },
+  closeDrivePreview() {
+    this._drivePreviewAbort?.abort();
+    this._drivePreviewAbort = null;
+    if (this.drivePreview?.url) URL.revokeObjectURL(this.drivePreview.url);
+    this.drivePreview = null;
+  },
+  async activateDriveEntry(entry) {
+    if (driveMediaType(entry)) return this.previewDriveEntry(entry);
+    return this.openDriveEntry(entry);
+  },
+  async previewDriveEntry(entry) {
+    this.closeDrivePreview();
+    const type = driveMediaType(entry);
+    if (!type || !this.driveSelected) return;
+    const limit = type.startsWith('image/') ? DRIVE_PREVIEW_IMAGE_LIMIT : DRIVE_PREVIEW_VIDEO_LIMIT;
+    const preview = { name: entry.name, type, url: '', state: 'loading', message: 'Loading preview…' };
+    this.drivePreview = preview;
+    globalThis.requestAnimationFrame?.(() => { const list = document.querySelector('#files-shared-panel .files-shared-list'); if (list) list.scrollTop = 0; });
+    if (!Number.isFinite(entry.size) || entry.size < 0 || entry.size > limit) {
+      this.drivePreview = { ...preview, state: 'limited', message: `Preview limited to ${limit / 1024 / 1024} MB. Use Download to view this file.` };
+      return;
+    }
+    const scope = this.driveScope;
+    const controller = new AbortController();
+    this._drivePreviewAbort = controller;
+    const timer = setTimeout(() => controller.abort(), 30000);
+    const current = () => this._drivePreviewAbort === controller && this.driveScope === scope;
+    try {
+      const blob = await this._driveClient.preview(this.driveSelected, [this.drivePath, entry.name].filter(Boolean).join('/'), {
+        revision: entry.revision, signal: controller.signal, type, limit, size: entry.size,
+      });
+      if (!current() || controller.signal.aborted) return;
+      this.drivePreview = { ...preview, state: 'ready', url: URL.createObjectURL(blob), message: '' };
+    } catch (error) {
+      if (current() && driveError(error) === 'denied') { this.closeDrivePreview(); this.driveState = 'denied'; return; }
+      if (current()) this.drivePreview = { ...preview, state: 'error', message: error.message === 'Preview too large' ? 'File exceeds the preview limit. Use Download.' : 'Preview unavailable or timed out. Try Download.' };
+    } finally { clearTimeout(timer); }
+  },
+  failDrivePreview() {
+    if (!this.drivePreview) return;
+    if (this.drivePreview.url) URL.revokeObjectURL(this.drivePreview.url);
+    this.drivePreview = { ...this.drivePreview, url: '', state: 'error', message: 'This media format cannot be previewed here. Use Download.' };
   },
   async openDriveEntry(entry, open = false) {
     const path = [this.drivePath, entry.name].filter(Boolean).join('/');
@@ -616,6 +734,7 @@ export const driveManagerMixin = {
     this._driveTransfer = controller;
     this.driveTransferring = true;
     this.driveProgress = 0;
+    this.driveTransferError = '';
     const scope = this.driveScope;
     try {
       const result = await this._driveClient.save(this.driveSelected, path, {
@@ -623,13 +742,13 @@ export const driveManagerMixin = {
         name: entry.name,
         signal: controller.signal,
         onProgress: (n) => {
-          if (this.driveScope === scope) this.driveProgress = n;
+          if (this.driveScope === scope && this._driveTransfer === controller) this.driveProgress = n;
         },
         open,
       });
       if (controller.signal.aborted && !result?.committed)
         throw new DOMException('Cancelled', 'AbortError');
-      if (this.driveScope === scope)
+      if (this.driveScope === scope && this._driveTransfer === controller)
         this.driveState =
           result?.exportCompleted === true
             ? 'exported'
@@ -639,7 +758,11 @@ export const driveManagerMixin = {
                 ? 'export-presented'
                 : 'saved';
     } catch (e) {
-      if (this.driveScope === scope) this.driveState = driveError(e);
+      if (this.driveScope === scope && this._driveTransfer === controller) {
+        this.driveState = driveError(e);
+        if (this.driveState === 'denied') this.closeDrivePreview();
+        this.driveTransferError = ({ 'save-cancelled': 'Download cancelled.', 'save-dialog-failed': 'The save dialog could not open. Check WM App and try Download again.', 'save-write-failed': 'The file could not be written. Try another destination.', 'save-finish-failed': 'The download could not finish. Try Download again.' })[e?.message] || (e?.name === 'AbortError' ? 'Download cancelled.' : 'Download failed before a saved file was confirmed. Check Diagnostics for the failing stage.');
+      }
     } finally {
       if (this._driveTransfer === controller) this.driveTransferring = false;
     }

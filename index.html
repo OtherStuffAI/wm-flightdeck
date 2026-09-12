@@ -6199,13 +6199,7 @@
               </div>
             </div>
 
-            <div class="files-folder-bar" x-show="$store.chat.isTowerPgMode" x-cloak>
-              <button type="button" class="file-folder-crumb" :class="{ active: !$store.chat.currentFileFolderId }" @click="$store.chat.selectFileFolder('')">Root</button>
-              <button type="button" class="file-folder-crumb file-folder-archived" :class="{ active: $store.chat.currentFileFolderId === '__archived__' }" @click="$store.chat.selectFileFolder('__archived__')">Archived</button>
-              <template x-for="folder in $store.chat.currentFileFolderBreadcrumbs" :key="folder.record_id">
-                <button type="button" class="file-folder-crumb" :class="{ active: $store.chat.currentFileFolderId === folder.record_id }" @click="$store.chat.selectFileFolder(folder.record_id)" x-text="folder.title"></button>
-              </template>
-            </div>
+
 
             <div class="files-toolbar">
               <input class="files-search-input" type="text" placeholder="Search files" x-model="$store.chat.fileSearch" />
@@ -6410,6 +6404,13 @@
                     <p class="files-subtitle" x-text="`${$store.chat.currentFileChildFolders.length + $store.chat.filteredFileBrowserRows.length} visible`"></p>
                   </div>
                 </div>
+                <nav class="files-folder-bar files-breadcrumbs" aria-label="Tower folder breadcrumb" x-show="$store.chat.isTowerPgMode" x-cloak>
+                  <button type="button" class="file-folder-crumb" @click="$store.chat.selectFileFolder('')" :aria-current="!$store.chat.currentFileFolderId ? 'page' : null">Tower files</button>
+                  <template x-for="folder in $store.chat.currentFileFolderBreadcrumbs" :key="folder.record_id">
+                    <span class="files-breadcrumb-segment"><span aria-hidden="true">/</span><button type="button" class="file-folder-crumb" :aria-current="$store.chat.currentFileFolderId === folder.record_id ? 'page' : null" @click="$store.chat.selectFileFolder(folder.record_id)" x-text="folder.title"></button></span>
+                  </template>
+                  <button type="button" class="file-folder-crumb file-folder-archived" :aria-current="$store.chat.currentFileFolderId === '__archived__' ? 'page' : null" @click="$store.chat.selectFileFolder('__archived__')">Archived</button>
+                </nav>
                 <div class="files-list" x-show="$store.chat.currentFileChildFolders.length > 0 || $store.chat.filteredFileBrowserRows.length > 0">
                   <template x-for="folder in $store.chat.currentFileChildFolders" :key="folder.record_id">
                     <article
@@ -6507,11 +6508,11 @@
                   @click="$store.chat.toggleFilesSharedPanel(); $nextTick(() => requestAnimationFrame(() => document.getElementById('files-shared-collapse').focus()))"
                   aria-expanded="false"
                   aria-controls="files-shared-panel"
-                  aria-label="Show shared folders panel"
-                  title="Show shared folders"
+                  aria-label="Show FipsDrive panel"
+                  title="Show FipsDrive"
                 >
                   <span aria-hidden="true">‹</span>
-                  <strong>FIPS</strong>
+                  <strong>FipsDrive</strong>
                 </button>
               </aside>
 
@@ -6540,7 +6541,7 @@
                 <p class="files-shared-status" role="status" x-text="$store.chat.driveStatusLabel"></p>
                 <p class="files-upload-error" x-show="$store.chat.driveState === 'missing-transport'">Open Flight Deck inside a supported WM App to connect to these folders.</p>
                 <div class="files-shared-browser">
-                  <aside class="files-shared-sources" aria-label="Shared folder sources">
+                  <aside class="files-shared-sources" x-show="!$store.chat.driveSelected" aria-label="Shared folder sources">
                     <template x-for="share in $store.chat.driveSources" :key="share.key">
                       <button type="button" class="files-shared-source-btn" :class="{ active: $store.chat.driveSelected && $store.chat.driveSelected.id === share.id }" @click="$store.chat.browseDrive(share)">
                         <strong x-text="share.name"></strong>
@@ -6553,15 +6554,24 @@
                     <template x-if="$store.chat.driveSelected">
                       <div class="files-shared-detail">
                         <div class="files-shared-pathbar">
-                          <div>
-                            <h4 x-text="$store.chat.driveSelected.name + ' · ' + $store.chat.driveSelected.host_name"></h4>
-                            <p x-text="$store.chat.drivePath || '/'"></p>
-                          </div>
-                          <div class="file-row-actions">
-                            <button type="button" class="file-action-btn" :disabled="!$store.chat.drivePath" @click="$store.chat.driveParent()">Parent</button>
-                            <button type="button" class="file-action-btn" @click="$store.chat.copyDriveLink()">Copy link</button>
-                          </div>
+                          <nav class="files-breadcrumbs" aria-label="FipsDrive folder breadcrumb">
+                            <button type="button" class="file-folder-crumb" @click="$store.chat.showDriveSources()">FipsDrive</button>
+                            <template x-for="crumb in $store.chat.driveBreadcrumbs" :key="crumb.path">
+                              <span class="files-breadcrumb-segment"><span aria-hidden="true">/</span><button type="button" class="file-folder-crumb" :aria-current="$store.chat.drivePath === crumb.path ? 'page' : null" @click="$store.chat.browseDrive($store.chat.driveSelected, crumb.path)" x-text="crumb.name"></button></span>
+                            </template>
+                          </nav>
+                          <button type="button" class="file-action-btn" @click="$store.chat.copyDriveLink()">Copy link</button>
                         </div>
+                        <p class="files-shared-status" x-text="$store.chat.driveSelected.host_name + ' · ' + ($store.chat.driveSelected.audience === 'private' ? 'Only you' : 'Workspace')"></p>
+                        <p class="files-upload-error" role="alert" x-show="$store.chat.driveTransferError" x-text="$store.chat.driveTransferError"></p>
+                        <template x-if="$store.chat.drivePreview">
+                          <section class="files-drive-preview" aria-label="Selected media preview">
+                            <div class="files-drive-preview-heading"><strong x-text="$store.chat.drivePreview.name"></strong><button type="button" class="file-action-btn" @click="$store.chat.closeDrivePreview()">Close preview</button></div>
+                            <p role="status" x-show="$store.chat.drivePreview.message" x-text="$store.chat.drivePreview.message"></p>
+                            <template x-if="$store.chat.drivePreview.url && $store.chat.drivePreview.type.startsWith('image/')"><img :src="$store.chat.drivePreview.url" :alt="$store.chat.drivePreview.name" @error="$store.chat.failDrivePreview()" /></template>
+                            <template x-if="$store.chat.drivePreview.url && $store.chat.drivePreview.type.startsWith('video/')"><video :src="$store.chat.drivePreview.url" controls playsinline preload="metadata" @error="$store.chat.failDrivePreview()" :aria-label="$store.chat.drivePreview.name"></video></template>
+                          </section>
+                        </template>
                         <p class="files-shared-status" x-show="$store.chat.driveFetchedAt" x-text="'Last refreshed: ' + new Date($store.chat.driveFetchedAt).toLocaleString()"></p>
                         <p class="files-upload-error" x-show="$store.chat.driveState === 'offline'">Source offline. Previously fetched entries may be stale.</p>
                         <p class="files-upload-error" x-show="$store.chat.driveState === 'unavailable'">Shared folder unavailable. Copy diagnostics for the failed listing request.</p>
@@ -6577,12 +6587,13 @@
                         <div class="files-shared-entries" x-show="$store.chat.driveVisibleEntries.length > 0">
                           <template x-for="entry in $store.chat.driveVisibleEntries" :key="entry.name">
                             <article class="file-row files-shared-row">
-                              <button type="button" class="file-thumb file-folder-thumb" @click="$store.chat.openDriveEntry(entry)" :aria-label="entry.kind === 'directory' ? 'Open shared folder' : 'Save shared file'">
-                                <span class="file-thumb-icon" x-text="entry.kind === 'directory' ? 'F' : 'D'"></span>
+                              <button type="button" class="file-thumb file-folder-thumb" @click="$store.chat.activateDriveEntry(entry)" :aria-label="entry.kind === 'directory' ? 'Open shared folder' : $store.chat.driveMediaType(entry) ? 'Preview media' : 'Download shared file'">
+                                <template x-if="$store.chat.drivePreview?.name === entry.name && $store.chat.drivePreview?.url && $store.chat.drivePreview.type.startsWith('image/')"><img :src="$store.chat.drivePreview.url" alt="" /></template>
+                                <span class="file-thumb-icon" x-show="!($store.chat.drivePreview?.name === entry.name && $store.chat.drivePreview?.url && $store.chat.drivePreview.type.startsWith('image/'))" x-text="entry.kind === 'directory' ? 'F' : $store.chat.driveMediaType(entry)?.startsWith('video/') ? '▶' : $store.chat.driveMediaType(entry) ? '▧' : 'D'"></span>
                               </button>
                               <div class="file-row-main">
                                 <div class="file-row-title">
-                                  <button type="button" class="file-folder-title-btn" @click="$store.chat.openDriveEntry(entry)" x-text="entry.name"></button>
+                                  <button type="button" class="file-folder-title-btn" @click="$store.chat.activateDriveEntry(entry)" x-text="entry.name"></button>
                                 </div>
                                 <div class="file-row-meta">
                                   <span x-text="entry.kind === 'directory' ? 'Folder' : 'File'"></span>
@@ -6591,7 +6602,6 @@
                               </div>
                               <div class="file-row-actions">
                                 <button type="button" class="file-action-btn" @click="$store.chat.openDriveEntry(entry)" x-text="entry.kind === 'directory' ? 'Open' : 'Download'"></button>
-                                <button type="button" class="file-action-btn" x-show="entry.kind === 'file'" @click="$store.chat.openDriveEntry(entry, true)">Save and open</button>
                                 <button type="button" class="file-action-btn" @click="$store.chat.copyDriveLink(entry)">Copy link</button>
                               </div>
                             </article>

@@ -122,7 +122,19 @@ uses an OS save picker; supported phones write a unique local document and offer
 OS export/open. “Saved locally” does not claim that another app completed an
 export. The panel distinguishes iOS export completion/dismissal and Android chooser
 presentation from a completed local save.
-File contents never pass through Tower or a browser Blob download.
+Downloads never pass through Tower or use a browser Blob download. The Files
+browser uses native Download and Copy link actions. Clicking an image/video name
+or thumbnail opens an on-demand inline preview instead of an external window.
+Previews use the same authenticated revision-bound read, with an allowlist of
+raster image and video formats (no SVG/HTML), at most 8 MiB per image or 24 MiB per
+video, one active preview, and a 30-second deadline. The client checks both listed
+size and streamed bytes, cancels excess/incomplete reads, and holds only the
+selected preview in an ephemeral Blob URL. Closing, changing folder/source,
+collapsing, leaving Files or losing authorization revokes the URL and cancels
+pending work. Large/unsupported media offers Download; videos never autoplay or
+trigger background full-folder thumbnail downloads. Native codec support determines
+which videos can render. Tower and nested shared directories show clickable
+breadcrumbs in their respective browser panes.
 
 ## Policy lifetime versus listing TTL
 

@@ -1590,6 +1590,14 @@
       "notes": [
         "Show Tower files and shared FIPS folders side by side with a collapsible shared-folder panel and independent scrolling for long file lists."
       ]
+    },
+    {
+      "buildNumber": 1958,
+      "label": "FipsDrive navigation and media previews",
+      "notes": [
+        "Navigate shared folders with clickable breadcrumbs, including nested folders. The collapsed panel is now labelled FipsDrive.",
+        "Preview supported images and small videos on demand. Shared files offer Download and Copy link, with clearer download failure messages."
+      ]
     }
   ]
 }

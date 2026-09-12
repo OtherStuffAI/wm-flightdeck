@@ -5,6 +5,10 @@ vi.mock('../src/api.js', () => ({ fetchTowerPgDriveShares: vi.fn() }));
 vi.mock('../src/auth/nostr.js', () => ({ signNostrEvent: vi.fn() }));
 import {
   DriveClient,
+  driveBreadcrumbs,
+  driveMediaType,
+  driveManagerMixin,
+  DRIVE_PREVIEW_IMAGE_LIMIT,
   driveContextKey,
   driveError,
   formatDriveDiagnostics,
@@ -260,6 +264,7 @@ describe('Drive refresh outage behavior', () => {
       }),
       browseDrive: vi.fn(),
       cancelDriveTransfer: vi.fn(),
+      closeDrivePreview: vi.fn(),
       driveEntries: ['cached'],
     };
     await driveManagerMixin.refreshDrive.call(state);
@@ -352,4 +357,125 @@ it('shows committed save and native export outcomes after a late cancel', async 
     });
     expect(state.driveState).toBe(expected);
   }
+});
+
+
+describe('Drive media and navigation', () => {
+  const imageEntry = { name: 'photo.JPG', kind: 'file', size: 4, revision: 'r' };
+  const makeState = () => Object.defineProperties({}, Object.getOwnPropertyDescriptors(driveManagerMixin));
+  it('builds each ancestor without decoding or confusing repeated names', () => {
+    expect(driveBreadcrumbs({ name: 'Output' }, 'a/a/hello%20')).toEqual([
+      { name: 'Output', path: '' }, { name: 'a', path: 'a' }, { name: 'a', path: 'a/a' }, { name: 'hello%20', path: 'a/a/hello%20' },
+    ]);
+    expect(driveMediaType(imageEntry)).toBe('image/jpeg');
+    for (const name of ['a.svg', 'a.html', 'a.txt', 'a.__proto__', 'a.constructor']) expect(driveMediaType({ kind: 'file', name })).toBeNull();
+  });
+  it('reads media through signed transport with revision and a hard streaming bound', async () => {
+    const events = [];
+    const cancelled = vi.fn();
+    const transport = {
+      connectDrive: vi.fn(async () => ({})),
+      fetch: vi.fn(async () => new Response(new ReadableStream({
+        start(c) { c.enqueue(new Uint8Array(5)); }, cancel: cancelled,
+      }))),
+    };
+    const client = new DriveClient({ transport, sign: async (e) => { events.push(e); return e; } });
+    await expect(client.preview(share, 'photo.JPG', { type: 'image/jpeg', revision: 'r', limit: 4, size: 4 })).rejects.toThrow('Preview too large');
+    expect(cancelled).toHaveBeenCalled();
+    expect(events[0].tags[0][1]).toContain('revision=r');
+    transport.fetch.mockImplementation(async () => new Response('file'));
+    const blob = await client.preview(share, 'photo.JPG', { type: 'image/jpeg', limit: 4, size: 4 });
+    expect(blob.type).toBe('image/jpeg');
+    expect(blob.size).toBe(4);
+    await expect(client.preview(share, 'photo.JPG', { type: 'image/jpeg', limit: 4, size: 5 })).rejects.toThrow('Incomplete preview');
+  });
+  it('does not request large media, revokes previews, and ignores late context results', async () => {
+    const state = makeState();
+    state.context = { baseUrl: 'tower', workspaceId: 'one', sessionNpub: 'user' };
+    state.driveSelected = share;
+    state._driveClient = { preview: vi.fn() };
+    await state.previewDriveEntry({ ...imageEntry, size: DRIVE_PREVIEW_IMAGE_LIMIT + 1 });
+    expect(state._driveClient.preview).not.toHaveBeenCalled();
+    expect(state.drivePreview.state).toBe('limited');
+    const create = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview');
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    state._driveClient.preview.mockResolvedValue(new Blob(['file']));
+    await state.previewDriveEntry(imageEntry);
+    expect(state.drivePreview.url).toBe('blob:preview');
+    state.showDriveSources();
+    expect(revoke).toHaveBeenCalledWith('blob:preview');
+    expect(state.drivePreview).toBeNull();
+    state.driveSelected = share;
+    let resolve;
+    state._driveClient.preview.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    const pending = state.previewDriveEntry(imageEntry);
+    state.context = { ...state.context, workspaceId: 'other' };
+    resolve(new Blob(['file']));
+    await pending;
+    expect(create).toHaveBeenCalledTimes(1);
+    state.closeDrivePreview();
+    create.mockRestore(); revoke.mockRestore();
+  });
+  it('cancels the prior preview when another file is selected', async () => {
+    const state = makeState();
+    state.context = { baseUrl: 'tower', workspaceId: 'one', sessionNpub: 'user' };
+    state.driveSelected = share;
+    const calls = [];
+    state._driveClient = { preview: vi.fn((s, p, o) => new Promise((resolve) => calls.push({ resolve, signal: o.signal }))) };
+    const first = state.previewDriveEntry(imageEntry);
+    const second = state.previewDriveEntry({ ...imageEntry, name: 'two.jpg' });
+    expect(calls[0].signal.aborted).toBe(true);
+    state.closeDrivePreview();
+    calls.forEach(c => c.resolve(new Blob(['file'])));
+    await Promise.all([first, second]);
+    expect(state.drivePreview).toBeNull();
+  });
+  it('logs native save failures and rejects an unconfirmed save', async () => {
+    const rows = [];
+    const transport = { connectDrive: vi.fn(async () => ({})), fetch: vi.fn(async () => new Response('file')), save: vi.fn(async () => undefined) };
+    const client = new DriveClient({ transport, sign: async e => e, diagnostics: row => rows.push(row) });
+    await expect(client.save(share, 'private.jpg', { name: 'private.jpg' })).rejects.toThrow('save-not-confirmed');
+    expect(rows.at(-1)).toMatchObject({ stage: 'save', error: 'save_not_confirmed' });
+    transport.save.mockRejectedValue(new Error('save-dialog-failed'));
+    await expect(client.save(share, 'private.jpg', { name: 'private.jpg' })).rejects.toThrow('save-dialog-failed');
+    expect(rows.at(-1)).toMatchObject({ stage: 'save', error: 'save_dialog_failed' });
+    expect(formatDriveDiagnostics(rows)).not.toContain('private.jpg');
+  });
+});
+
+
+it('closes decoded media when policy denies a download, and exposes the native error', async () => {
+  const state = Object.defineProperties({}, Object.getOwnPropertyDescriptors(driveManagerMixin));
+  state.context = { baseUrl: 'tower', workspaceId: 'one', sessionNpub: 'user' };
+  state.driveSelected = share;
+  state.drivePreview = { url: 'blob:private' };
+  state._driveClient = { save: vi.fn(async () => { throw { status: 403 }; }) };
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  await state.openDriveEntry({ kind: 'file', name: 'a.jpg', revision: 'r' });
+  expect(state.drivePreview).toBeNull();
+  expect(revoke).toHaveBeenCalledWith('blob:private');
+  expect(state.driveState).toBe('denied');
+  state._driveClient.save.mockRejectedValue(new Error('save-dialog-failed'));
+  await state.openDriveEntry({ kind: 'file', name: 'a.jpg', revision: 'r' });
+  expect(state.driveTransferError).toContain('save dialog could not open');
+  revoke.mockRestore();
+});
+
+it('cancels and revokes media on stop, collapse, and folder navigation', async () => {
+  await openWorkspaceDb('drive-preview-navigation-test');
+  const state = Object.defineProperties({}, Object.getOwnPropertyDescriptors(driveManagerMixin));
+  state.context = { baseUrl: 'tower', workspaceId: 'one', sessionNpub: 'user' };
+  state.driveSelected = share;
+  const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  state.drivePreview = { url: 'blob:collapse' };
+  state.toggleFilesSharedPanel();
+  expect(revoke).toHaveBeenCalledWith('blob:collapse');
+  state.drivePreview = { url: 'blob:folder' };
+  state._driveClient = { listing: vi.fn(async () => { throw new Error('offline'); }) };
+  await state.browseDrive(share, 'next');
+  expect(revoke).toHaveBeenCalledWith('blob:folder');
+  state.drivePreview = { url: 'blob:stop' };
+  state.stopDrive();
+  expect(revoke).toHaveBeenCalledWith('blob:stop');
+  revoke.mockRestore();
 });
