@@ -55,13 +55,18 @@ describe('Drive boundaries', () => {
   });
   it('signs exact endpoint/workspace/share/query with unique nonce for each host; transfer save remains native', async () => {
     const events = [];
+    const grantFetch = vi.fn(async () => new Response('file'));
+    const rootFetch = vi.fn(async () => {
+      throw new Error('root fetch must not be used');
+    });
+    const save = vi.fn(async (r, o) => {
+      o.onProgress?.(4);
+      return { saved: true };
+    });
     const transport = {
-      connectDrive: vi.fn(async (o) => o),
-      fetch: vi.fn(async () => new Response('file')),
-      save: vi.fn(async (r, o) => {
-        o.onProgress?.(4);
-        return { saved: true };
-      }),
+      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      fetch: rootFetch,
+      save,
     };
     const client = new DriveClient({
       transport,
@@ -98,10 +103,13 @@ describe('Drive boundaries', () => {
   });
   it('records sanitized listing diagnostics without paths, ids, signatures or raw error text', async () => {
     const diagnostics = [];
+    const grantFetch = vi.fn(async () => {
+      throw new TypeError('leaked /private/root capability-secret file-name.txt');
+    });
     const transport = {
-      connectDrive: vi.fn(async () => ({})),
+      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
       fetch: vi.fn(async () => {
-        throw new TypeError('leaked /private/root capability-secret file-name.txt');
+        throw new Error('root fetch must not be used');
       }),
     };
     const sign = vi.fn(async () => ({ id: 'signed-secret', sig: 'signature-secret' }));
@@ -144,22 +152,25 @@ describe('Drive boundaries', () => {
 
     const streamDiagnostics = [];
     const primary = new TypeError('primary secret local-file.txt');
+    const grantFetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      body: {
+        getReader: () => ({
+          read: async () => {
+            throw primary;
+          },
+          cancel: async () => {
+            throw new TypeError('cancel secret local-file.txt');
+          },
+        }),
+      },
+    }));
     const transport = {
-      connectDrive: vi.fn(async () => ({})),
-      fetch: vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        body: {
-          getReader: () => ({
-            read: async () => {
-              throw primary;
-            },
-            cancel: async () => {
-              throw new TypeError('cancel secret local-file.txt');
-            },
-          }),
-        },
-      })),
+      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      fetch: vi.fn(async () => {
+        throw new Error('root fetch must not be used');
+      }),
     };
     const client = new DriveClient({
       transport,
@@ -177,9 +188,12 @@ describe('Drive boundaries', () => {
   it('uses a native transport that appears after the Drive client is constructed', async () => {
     const oldWindow = globalThis.window;
     globalThis.window = {};
+    const grantFetch = vi.fn(async () => new Response('[]'));
     const transport = {
-      connectDrive: vi.fn(async () => ({})),
-      fetch: vi.fn(async () => new Response('[]')),
+      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      fetch: vi.fn(async () => {
+        throw new Error('root fetch must not be used');
+      }),
     };
     const client = new DriveClient({ sign: async (e) => e });
     try {
@@ -242,6 +256,28 @@ describe('Drive boundaries', () => {
     } finally {
       globalThis.fetch = oldFetch;
     }
+  });
+  it('rejects ambient bridge fetches that are not endpoint-specific Drive grants', async () => {
+    const diagnostics = [];
+    const sign = vi.fn(async (event) => event);
+    const ambientBridgeFetch = vi.fn(async () => new Response('raw bridge request failed later'));
+    const transport = {
+      connectDrive: vi.fn(async () => ({})),
+      fetch: ambientBridgeFetch,
+      save: vi.fn(),
+    };
+    const client = new DriveClient({
+      transport,
+      sign,
+      diagnostics: (row) => diagnostics.push(row),
+    });
+    await expect(client.listing(share, '')).rejects.toThrow('missing-drive-grant-request');
+    expect(sign).not.toHaveBeenCalled();
+    expect(ambientBridgeFetch).not.toHaveBeenCalled();
+    const text = formatDriveDiagnostics(diagnostics);
+    expect(text).toContain('stage="request"');
+    expect(text).toContain('error="missing_drive_grant_request"');
+    expect(text).not.toContain('/drive/v1/share-a/list');
   });
   it('keeps NIP-98 bound to the FIPS endpoint when a Drive grant supplies a local proxy', async () => {
     const oldFetch = globalThis.fetch;
@@ -514,16 +550,19 @@ describe('Drive media and navigation', () => {
     const events = [];
     const cancelled = vi.fn();
     const transport = {
-      connectDrive: vi.fn(async () => ({})),
-      fetch: vi.fn(async () => new Response(new ReadableStream({
-        start(c) { c.enqueue(new Uint8Array(5)); }, cancel: cancelled,
-      }))),
+      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      fetch: vi.fn(async () => {
+        throw new Error('root fetch must not be used');
+      }),
     };
+    const grantFetch = vi.fn(async () => new Response(new ReadableStream({
+        start(c) { c.enqueue(new Uint8Array(5)); }, cancel: cancelled,
+      })));
     const client = new DriveClient({ transport, sign: async (e) => { events.push(e); return e; } });
     await expect(client.preview(share, 'photo.JPG', { type: 'image/jpeg', revision: 'r', limit: 4, size: 4 })).rejects.toThrow('Preview too large');
     expect(cancelled).toHaveBeenCalled();
     expect(events[0].tags[0][1]).toContain('revision=r');
-    transport.fetch.mockImplementation(async () => new Response('file'));
+    grantFetch.mockImplementation(async () => new Response('file'));
     const blob = await client.preview(share, 'photo.JPG', { type: 'image/jpeg', limit: 4, size: 4 });
     expect(blob.type).toBe('image/jpeg');
     expect(blob.size).toBe(4);
@@ -572,7 +611,14 @@ describe('Drive media and navigation', () => {
   });
   it('logs native save failures and rejects an unconfirmed save', async () => {
     const rows = [];
-    const transport = { connectDrive: vi.fn(async () => ({})), fetch: vi.fn(async () => new Response('file')), save: vi.fn(async () => undefined) };
+    const grantFetch = vi.fn(async () => new Response('file'));
+    const transport = {
+      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      fetch: vi.fn(async () => {
+        throw new Error('root fetch must not be used');
+      }),
+      save: vi.fn(async () => undefined),
+    };
     const client = new DriveClient({ transport, sign: async e => e, diagnostics: row => rows.push(row) });
     await expect(client.save(share, 'private.jpg', { name: 'private.jpg' })).rejects.toThrow('save-not-confirmed');
     expect(rows.at(-1)).toMatchObject({ stage: 'save', error: 'save_not_confirmed' });

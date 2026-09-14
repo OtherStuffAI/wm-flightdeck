@@ -1692,6 +1692,13 @@
       "notes": [
         "Move the Manage scopes action to the bottom of the left sidebar with a separator above it."
       ]
+    },
+    {
+      "buildNumber": 1991,
+      "label": "Safer mobile FipsDrive requests",
+      "notes": [
+        "Reject unsupported mobile FipsDrive request bridges before raw FIPS requests and show clearer diagnostics when the native Drive grant is missing."
+      ]
     }
   ]
 }

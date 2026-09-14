@@ -55,6 +55,14 @@ export function driveError(e) {
   if (e?.status === 404) return 'missing';
   if (e?.status === 409) return 'changed';
   if (e?.message === 'missing-transport') return 'missing-transport';
+  if ([
+    'missing-native-fetch',
+    'missing-drive-grant',
+    'missing-drive-grant-request',
+    'unsafe-browser-fetch',
+    'unsafe-drive-grant-fetch',
+    'unsafe-drive-proxy',
+  ].includes(e?.message)) return 'missing-transport';
   if (/denied/i.test(e?.message || '')) return 'consent-denied';
   return 'unavailable';
 }
@@ -77,7 +85,10 @@ function safeErrorCode(error) {
   if (error.status) return `http_${Number(error.status) || 'unknown'}`;
   if (error.message === 'missing-transport') return 'missing_transport';
   if (error.message === 'missing-native-fetch') return 'missing_native_fetch';
+  if (error.message === 'missing-drive-grant') return 'missing_drive_grant';
+  if (error.message === 'missing-drive-grant-request') return 'missing_drive_grant_request';
   if (error.message === 'unsafe-browser-fetch') return 'unsafe_browser_fetch';
+  if (error.message === 'unsafe-drive-grant-fetch') return 'unsafe_drive_grant_fetch';
   if (error.message === 'unsafe-drive-proxy') return 'unsafe_drive_proxy';
   if (/denied/i.test(error.message || '')) return 'consent_denied';
   if (error.message === 'Preview too large') return 'preview_too_large';
@@ -112,14 +123,17 @@ function driveProxyUrl(actualUrl, proxyBaseUrl) {
 }
 
 function resolveDriveTransport(rootTransport, grant, actualUrl) {
-  const candidates = [grant, rootTransport].filter(Boolean);
-  for (const candidate of candidates) {
-    if (typeof candidate.fetch === 'function' && !isOrdinaryBrowserFetch(candidate.fetch))
-      return {
-        fetch: candidate.fetch.bind(candidate),
-        save: typeof candidate.save === 'function' ? candidate.save.bind(candidate) : null,
-        requestUrl: actualUrl,
-      };
+  if (!grant || typeof grant !== 'object') throw new Error('missing-drive-grant');
+  if (typeof grant.fetch === 'function') {
+    if (isOrdinaryBrowserFetch(grant.fetch) || grant.fetch === rootTransport?.fetch)
+      throw new Error('unsafe-drive-grant-fetch');
+    return {
+      fetch: grant.fetch.bind(grant),
+      save: typeof (grant.save || rootTransport?.save) === 'function'
+        ? (grant.save || rootTransport.save).bind(grant.save ? grant : rootTransport)
+        : null,
+      requestUrl: actualUrl,
+    };
   }
   if (grant?.proxyBaseUrl) {
     return {
@@ -130,9 +144,9 @@ function resolveDriveTransport(rootTransport, grant, actualUrl) {
       requestUrl: driveProxyUrl(actualUrl, grant.proxyBaseUrl),
     };
   }
-  if (candidates.some((candidate) => isOrdinaryBrowserFetch(candidate.fetch)))
-    throw new Error('unsafe-browser-fetch');
-  throw new Error('missing-native-fetch');
+  if (isOrdinaryBrowserFetch(rootTransport?.fetch)) throw new Error('unsafe-browser-fetch');
+  if (typeof rootTransport?.fetch === 'function') throw new Error('missing-drive-grant-request');
+  throw new Error('missing-drive-grant-request');
 }
 
 function formatDiagnosticValue(value) {
@@ -244,7 +258,8 @@ export class DriveClient {
   async request(share, operation, path, options = {}) {
     const started = performance.now?.() || Date.now();
     const elapsed = () => (performance.now?.() || Date.now()) - started;
-    if (!this.transport?.connectDrive) {
+    const transport = this.transport;
+    if (!transport?.connectDrive) {
       const error = new Error('missing-transport');
       this.recordDiagnostic(share, {
         stage: 'connect',
@@ -260,7 +275,7 @@ export class DriveClient {
       if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
       this.recordDiagnostic(share, { stage: 'connect', operation, elapsed_ms: elapsed() });
       try {
-        const result = await this.transport.connectDrive({ endpoint: share.endpoint });
+        const result = await transport.connectDrive({ endpoint: share.endpoint });
         this.recordDiagnostic(share, { stage: 'consent', operation, elapsed_ms: elapsed() });
         return result;
       } catch (error) {
@@ -284,6 +299,18 @@ export class DriveClient {
       v.toString(16).padStart(2, '0'),
     ).join('');
     let event;
+    let driveTransport;
+    try {
+      driveTransport = resolveDriveTransport(transport, grant, url.href);
+    } catch (error) {
+      this.recordDiagnostic(share, {
+        stage: 'request',
+        operation,
+        elapsed_ms: elapsed(),
+        error: safeErrorCode(error),
+      });
+      throw error;
+    }
     try {
       this.recordDiagnostic(share, { stage: 'sign', operation, elapsed_ms: elapsed() });
       event = await this.sign({
@@ -308,18 +335,6 @@ export class DriveClient {
       throw error;
     }
     if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
-    let driveTransport;
-    try {
-      driveTransport = resolveDriveTransport(this.transport, grant, url.href);
-    } catch (error) {
-      this.recordDiagnostic(share, {
-        stage: 'request',
-        operation,
-        elapsed_ms: elapsed(),
-        error: safeErrorCode(error),
-      });
-      throw error;
-    }
     let response;
     try {
       this.recordDiagnostic(share, { stage: 'request', operation, elapsed_ms: elapsed() });
