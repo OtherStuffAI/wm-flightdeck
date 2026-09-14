@@ -1685,6 +1685,13 @@
       "notes": [
         "Move mobile task search, filters, tags, sort, and related controls behind a compact ellipsis menu so the task list appears sooner."
       ]
+    },
+    {
+      "buildNumber": 1989,
+      "label": "Manage scopes footer link",
+      "notes": [
+        "Move the Manage scopes action to the bottom of the left sidebar with a separator above it."
+      ]
     }
   ]
 }
