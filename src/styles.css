@@ -2751,6 +2751,10 @@ button:disabled {
   background: #ffffff;
 }
 
+.files-filter-grid {
+  display: contents;
+}
+
 .files-workspace {
   flex: 1 1 auto;
   min-height: 0;
@@ -3671,7 +3675,44 @@ button:disabled {
   }
 
   .files-toolbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) 44px;
+    align-items: stretch;
+    gap: 0.5rem;
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+
+  .files-search-input {
+    grid-column: 1;
+  }
+
+  .files-search-input,
+  .files-filter-select,
+  .files-toolbar-menu-button {
+    min-height: 40px;
+  }
+
+  .files-filter-grid {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .files-upload-status-btn {
+    grid-column: 1 / -1;
+    min-height: 40px;
+  }
+
+  .files-toolbar-menu {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: stretch;
+  }
+
+  .files-toolbar-menu-button {
+    width: 100%;
   }
 
   .file-row {
@@ -11020,17 +11061,39 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     align-items: flex-start;
   }
 
+  .docs-section:has(.docs-editor-v3) .docs-view,
+  .docs-section:has(.docs-editor-v3) .docs-editor-v3 {
+    min-height: 0;
+  }
+
   .doc-editor-header {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 0.45rem;
-    padding-right: 0;
+    gap: 0.25rem 0.35rem;
+    margin-bottom: 0.25rem;
+    padding: 0.2rem 0 0.3rem;
   }
 
   .doc-editor-primary {
     min-width: 0;
     overflow: hidden;
+    gap: 0.25rem;
+  }
+
+  .doc-back-btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    justify-content: center;
+    overflow: hidden;
+    color: var(--text);
+    font-size: 0;
+  }
+
+  .doc-back-btn svg {
+    width: 18px;
+    height: 18px;
   }
 
   .doc-editor-breadcrumbs {
@@ -11039,6 +11102,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     overflow-x: auto;
     white-space: nowrap;
     scrollbar-width: none;
+    font-size: 0.76rem;
   }
 
   .doc-editor-breadcrumbs::-webkit-scrollbar,
@@ -11048,7 +11112,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
   .doc-editor-actions {
     width: auto;
-    max-width: 62vw;
+    max-width: 54vw;
     margin-left: auto;
     overflow-x: auto;
     flex-wrap: nowrap;
@@ -11066,12 +11130,63 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     padding-inline: 0.7rem;
   }
 
+  .doc-edit-status {
+    display: none;
+  }
+
+  .doc-checkout-pill {
+    width: 20px;
+    padding: 0;
+  }
+
+  .doc-checkout-pill span {
+    display: none;
+  }
+
   .doc-invocation-btn {
     flex: 0 0 auto;
   }
 
+  .doc-invocation-btn {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .doc-invocation-btn > span:last-child {
+    display: none;
+  }
+
+  .doc-title-block {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .doc-title-display {
+    max-height: 2.5em;
+    padding: 0;
+    font-size: 1.05rem;
+    line-height: 1.22;
+    overflow: hidden;
+  }
+
+  .doc-title-input {
+    padding: 0;
+    font-size: 1.05rem;
+    line-height: 1.22;
+  }
+
+  .doc-scope-pill-title {
+    max-width: 7.75rem;
+    margin-top: 0;
+    padding: 0.18rem 0.48rem;
+    font-size: 0.68rem;
+  }
+
   .folder-breadcrumb-scope,
-  .doc-scope-pill-title,
   .doc-scope-pill-compact {
     max-width: 100%;
   }
@@ -18456,6 +18571,21 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
 /* Responsive task board */
 @media (max-width: 768px) {
+  .doc-back-btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    justify-content: center;
+    overflow: hidden;
+    color: var(--text);
+    font-size: 0;
+  }
+
+  .doc-back-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
   .mobile-detail-switcher {
     --mobile-detail-switcher-height: 42px;
     position: fixed;

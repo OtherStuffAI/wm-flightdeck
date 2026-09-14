@@ -1621,10 +1621,24 @@
       ]
     },
     {
+      "buildNumber": 1968,
+      "label": "Compact mobile Files toolbar",
+      "notes": [
+        "Compact the mobile Files toolbar so search, filters, source switching, and options stay reachable without pushing the file list far down the screen."
+      ]
+    },
+    {
       "buildNumber": 1974,
       "label": "Mobile task list default",
       "notes": [
         "Open Tasks in list view by default on narrow mobile screens while keeping board view available and preserving explicit view links."
+      ]
+    },
+    {
+      "buildNumber": 1977,
+      "label": "Compact mobile Docs header",
+      "notes": [
+        "Reduce wasted space above mobile document content while keeping document actions, breadcrumbs, scope, and comments switching available."
       ]
     }
   ]

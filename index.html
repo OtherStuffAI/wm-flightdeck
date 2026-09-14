@@ -6226,30 +6226,32 @@
 
             <div class="files-toolbar">
               <input class="files-search-input" type="text" placeholder="Search files" x-model="$store.chat.fileSearch" />
-              <select class="files-filter-select" x-model="$store.chat.fileTypeFilter">
-                <option value="all">All types</option>
-                <option value="image">Images</option>
-                <option value="audio">Audio</option>
-                <option value="document">Documents</option>
-              </select>
-              <select class="files-filter-select" x-model="$store.chat.fileSourceFilter">
-                <option value="all">All sources</option>
-                <option value="chat">Chat</option>
-                <option value="document">Docs</option>
-                <option value="task">Tasks</option>
-                <option value="comment">Comments</option>
-                <option value="audio">Audio notes</option>
-              </select>
-              <select class="files-filter-select" x-show="!$store.chat.isTowerPgMode" x-model="$store.chat.fileScopeFilter">
-                <template x-for="option in $store.chat.fileScopeOptions" :key="option.id">
-                  <option :value="option.id" x-text="option.label"></option>
-                </template>
-              </select>
-              <select class="files-filter-select" x-show="!$store.chat.isTowerPgMode" x-model="$store.chat.fileChannelFilter">
-                <template x-for="option in $store.chat.fileChannelOptions" :key="option.id">
-                  <option :value="option.id" x-text="option.label"></option>
-                </template>
-              </select>
+              <div class="files-filter-grid">
+                <select class="files-filter-select" x-model="$store.chat.fileTypeFilter">
+                  <option value="all">All types</option>
+                  <option value="image">Images</option>
+                  <option value="audio">Audio</option>
+                  <option value="document">Documents</option>
+                </select>
+                <select class="files-filter-select" x-model="$store.chat.fileSourceFilter">
+                  <option value="all">All sources</option>
+                  <option value="chat">Chat</option>
+                  <option value="document">Docs</option>
+                  <option value="task">Tasks</option>
+                  <option value="comment">Comments</option>
+                  <option value="audio">Audio notes</option>
+                </select>
+                <select class="files-filter-select" x-show="!$store.chat.isTowerPgMode" x-model="$store.chat.fileScopeFilter">
+                  <template x-for="option in $store.chat.fileScopeOptions" :key="option.id">
+                    <option :value="option.id" x-text="option.label"></option>
+                  </template>
+                </select>
+                <select class="files-filter-select" x-show="!$store.chat.isTowerPgMode" x-model="$store.chat.fileChannelFilter">
+                  <template x-for="option in $store.chat.fileChannelOptions" :key="option.id">
+                    <option :value="option.id" x-text="option.label"></option>
+                  </template>
+                </select>
+              </div>
               <button
                 type="button"
                 class="files-upload-status-btn"

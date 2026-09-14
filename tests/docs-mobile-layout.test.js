@@ -56,7 +56,9 @@ describe('docs mobile layout', () => {
     const mobileCss = css.slice(mobileStart, css.indexOf('.doc-content-block', mobileStart));
 
     expect(mobileCss).toMatch(/\.doc-editor-header\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto;/);
-    expect(mobileCss).toMatch(/\.doc-editor-actions\s*\{[\s\S]*max-width:\s*62vw;[\s\S]*margin-left:\s*auto;[\s\S]*overflow-x:\s*auto;[\s\S]*flex-wrap:\s*nowrap;[\s\S]*justify-content:\s*flex-end;/);
+    expect(mobileCss).toMatch(/\.doc-editor-actions\s*\{[\s\S]*max-width:\s*54vw;[\s\S]*margin-left:\s*auto;[\s\S]*overflow-x:\s*auto;[\s\S]*flex-wrap:\s*nowrap;[\s\S]*justify-content:\s*flex-end;/);
+    expect(mobileCss).toMatch(/\.doc-title-block\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto;[\s\S]*margin-bottom:\s*0\.25rem;/);
+    expect(mobileCss).toMatch(/\.doc-title-display\s*\{[\s\S]*max-height:\s*2\.5em;[\s\S]*font-size:\s*1\.05rem;/);
     expect(mobileCss).toMatch(/\.doc-editor-breadcrumbs\s*\{[\s\S]*flex-wrap:\s*nowrap;[\s\S]*overflow-x:\s*auto;/);
     expect(mobileCss).not.toMatch(/\.doc-editor-actions\s*\{[\s\S]*width:\s*100%;[\s\S]*justify-content:\s*flex-start;/);
   });
