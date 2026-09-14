@@ -996,7 +996,7 @@ export function initApp() {
     showBoardPicker: false,
     boardPickerQuery: '',
     showBoardDescendantTasks: false,
-    taskViewMode: 'kanban',
+    taskViewMode: typeof window !== 'undefined' && window.innerWidth <= 768 ? 'list' : 'kanban',
     taskSortMode: 'manual',
     taskBoardSortPreferences: {},
     collapsedSections: {},
@@ -2832,7 +2832,8 @@ export function initApp() {
           }
           this.showBoardDescendantTasks = route.params.descendants === '1';
           if (route.params.view === 'list') this.taskViewMode = 'list';
-          else this.taskViewMode = 'kanban';
+          else if (route.params.view === 'kanban') this.taskViewMode = 'kanban';
+          else this.taskViewMode = typeof window !== 'undefined' && window.innerWidth <= 768 ? 'list' : 'kanban';
           if (route.params.sort) {
             this.taskSortMode = normalizeTaskSortMode(route.params.sort);
             this.persistTaskSortMode(this.taskSortMode);

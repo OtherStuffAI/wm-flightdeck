@@ -406,6 +406,59 @@ describe('notification route restoration', () => {
   });
 });
 
+describe('task view route defaults', () => {
+  async function applyTaskRoute(href, { mobileViewport = false, taskViewMode = 'kanban' } = {}) {
+    const originalWindow = globalThis.window;
+    globalThis.window = {
+      location: { href },
+      history: { state: null },
+    };
+    try {
+      const shell = createShellState({ initialSection: 'status' });
+      Object.assign(shell, {
+        mobileViewport,
+        taskViewMode,
+        selectedBoardId: null,
+        knownWorkspaces: [],
+        readStoredTaskBoardId: vi.fn(() => 'scope-a'),
+        preferredTaskBoardId: 'scope-a',
+        validateSelectedBoardId: vi.fn(),
+        persistSelectedBoardId: vi.fn(),
+        normalizeTaskFilterTags: vi.fn(),
+        closeTaskDetail: vi.fn(),
+        startWorkspaceLiveQueries: vi.fn(),
+        syncRoute: vi.fn(),
+      });
+
+      await shell.applyRouteFromLocation();
+      return shell;
+    } finally {
+      globalThis.window = originalWindow;
+    }
+  }
+
+  it('defaults task routes without a view override to list on mobile viewports', async () => {
+    const shell = await applyTaskRoute('https://flightdeck.example/be-free/tasks');
+
+    expect(shell.taskViewMode).toBe('kanban');
+
+    const mobileShell = await applyTaskRoute('https://flightdeck.example/be-free/tasks', {
+      mobileViewport: true,
+    });
+
+    expect(mobileShell.taskViewMode).toBe('list');
+  });
+
+  it('preserves an explicit kanban task route on mobile viewports', async () => {
+    const shell = await applyTaskRoute('https://flightdeck.example/be-free/tasks?view=kanban', {
+      mobileViewport: true,
+      taskViewMode: 'list',
+    });
+
+    expect(shell.taskViewMode).toBe('kanban');
+  });
+});
+
 describe('shell state key inventory', () => {
   // App/session state
   it('includes identity and session keys', () => {

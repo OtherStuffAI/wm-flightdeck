@@ -881,7 +881,8 @@ export function createShellState(options = {}) {
           }
           this.showBoardDescendantTasks = route.params.descendants === '1';
           if (route.params.view === 'list') this.taskViewMode = 'list';
-          else this.taskViewMode = 'kanban';
+          else if (route.params.view === 'kanban') this.taskViewMode = 'kanban';
+          else this.taskViewMode = this.mobileViewport ? 'list' : 'kanban';
           this.taskSortMode = normalizeTaskSortMode(route.params.sort);
           this.normalizeTaskFilterTags();
           if (route.params.taskid) {

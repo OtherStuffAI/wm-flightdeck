@@ -1619,6 +1619,13 @@
         "Navigate shared folders with clickable breadcrumbs, including nested folders. The collapsed panel is now labelled FipsDrive.",
         "Preview supported images and small videos on demand. Shared files offer Download and Copy link, with clearer download failure messages."
       ]
+    },
+    {
+      "buildNumber": 1974,
+      "label": "Mobile task list default",
+      "notes": [
+        "Open Tasks in list view by default on narrow mobile screens while keeping board view available and preserving explicit view links."
+      ]
     }
   ]
 }
