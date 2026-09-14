@@ -190,6 +190,88 @@ describe('Drive boundaries', () => {
       globalThis.window = oldWindow;
     }
   });
+  it('uses endpoint-specific Drive grants for mobile list requests', async () => {
+    const grantFetch = vi.fn(async () => new Response(JSON.stringify({ entries: [], revision: 'r' })));
+    const browserFetch = vi.fn(async () => {
+      throw new Error('ordinary browser fetch must not be used');
+    });
+    const transport = {
+      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      fetch: browserFetch,
+    };
+    const events = [];
+    const client = new DriveClient({
+      transport,
+      sign: async (event) => {
+        events.push(event);
+        return event;
+      },
+    });
+    await client.listing(share, 'mobile-folder');
+    expect(grantFetch).toHaveBeenCalledTimes(1);
+    expect(browserFetch).not.toHaveBeenCalled();
+    expect(grantFetch.mock.calls[0][0]).toBe(
+      'http://host-a.fips:7345/drive/v1/share-a/list?path=mobile-folder',
+    );
+    expect(events[0].tags[0]).toEqual([
+      'u',
+      'http://host-a.fips:7345/drive/v1/share-a/list?path=mobile-folder',
+    ]);
+  });
+  it('does not direct browser fetch to raw mobile FIPS Drive endpoints', async () => {
+    const oldFetch = globalThis.fetch;
+    const diagnostics = [];
+    const browserFetch = vi.fn(async () => new Response('unreachable'));
+    globalThis.fetch = browserFetch;
+    const transport = {
+      connectDrive: vi.fn(async () => ({})),
+      fetch: browserFetch,
+    };
+    const client = new DriveClient({
+      transport,
+      sign: async (event) => event,
+      diagnostics: (row) => diagnostics.push(row),
+    });
+    try {
+      await expect(client.listing(share, '')).rejects.toThrow('unsafe-browser-fetch');
+      expect(browserFetch).not.toHaveBeenCalled();
+      const text = formatDriveDiagnostics(diagnostics);
+      expect(text).toContain('stage="request"');
+      expect(text).toContain('error="unsafe_browser_fetch"');
+      expect(text).not.toContain('/drive/v1/share-a/list');
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
+  });
+  it('keeps NIP-98 bound to the FIPS endpoint when a Drive grant supplies a local proxy', async () => {
+    const oldFetch = globalThis.fetch;
+    const proxyFetch = vi.fn(async () => new Response(JSON.stringify({ entries: [], revision: 'r' })));
+    globalThis.fetch = proxyFetch;
+    const events = [];
+    const transport = {
+      connectDrive: vi.fn(async () => ({ proxyBaseUrl: 'http://127.0.0.1:49152/grant' })),
+      fetch: globalThis.fetch,
+    };
+    const client = new DriveClient({
+      transport,
+      sign: async (event) => {
+        events.push(event);
+        return event;
+      },
+    });
+    try {
+      await client.listing(share, 'proxied');
+      expect(proxyFetch.mock.calls[0][0]).toBe(
+        'http://127.0.0.1:49152/grant/drive/v1/share-a/list?path=proxied',
+      );
+      expect(events[0].tags[0]).toEqual([
+        'u',
+        'http://host-a.fips:7345/drive/v1/share-a/list?path=proxied',
+      ]);
+    } finally {
+      globalThis.fetch = oldFetch;
+    }
+  });
   it('includes safe origin and transport capability state in diagnostics header', () => {
     const text = formatDriveDiagnostics([], {
       build: 'test-build',

@@ -1640,6 +1640,51 @@
       "notes": [
         "Reduce wasted space above mobile document content while keeping document actions, breadcrumbs, scope, and comments switching available."
       ]
+    },
+    {
+      "buildNumber": 1978,
+      "label": "Validated mobile content layout checkpoint",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1980,
+      "label": "Validated mobile content layout checkpoint",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1981,
+      "label": "Validated mobile content layout checkpoint",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1982,
+      "label": "Content-first mobile Files and Docs",
+      "notes": [
+        "Redesign mobile Files and Docs controls so lists and document content appear sooner, with search, filters, source switching, and creation actions still reachable from compact controls."
+      ]
+    },
+    {
+      "buildNumber": 1983,
+      "label": "Mobile FipsDrive native requests",
+      "notes": [
+        "Route FipsDrive list and download requests through the approved native bridge on mobile instead of attempting raw browser fetches to private FIPS endpoints."
+      ]
+    },
+    {
+      "buildNumber": 1984,
+      "label": "Validated mobile FipsDrive native requests",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 1986,
+      "label": "Compact mobile task controls",
+      "notes": [
+        "Move mobile task search, filters, tags, sort, and related controls behind a compact ellipsis menu so the task list appears sooner."
+      ]
     }
   ]
 }

@@ -31,6 +31,7 @@ const DRIVE_SAFE_ERROR_CODES = new Map([
   ['TypeError', 'transport_error'],
   ['SyntaxError', 'parse_error'],
 ]);
+const DRIVE_RESPONSE_TRANSPORT = new WeakMap();
 export const driveContextKey = (c) => JSON.stringify([c.baseUrl, c.workspaceId, c.sessionNpub]);
 export const listingFresh = (row, now = Date.now()) =>
   row && now >= row.fetched_at && now - row.fetched_at < DRIVE_LISTING_TTL;
@@ -75,6 +76,9 @@ function safeErrorCode(error) {
   if (!error) return '';
   if (error.status) return `http_${Number(error.status) || 'unknown'}`;
   if (error.message === 'missing-transport') return 'missing_transport';
+  if (error.message === 'missing-native-fetch') return 'missing_native_fetch';
+  if (error.message === 'unsafe-browser-fetch') return 'unsafe_browser_fetch';
+  if (error.message === 'unsafe-drive-proxy') return 'unsafe_drive_proxy';
   if (/denied/i.test(error.message || '')) return 'consent_denied';
   if (error.message === 'Preview too large') return 'preview_too_large';
   if (['save-cancelled', 'save-dialog-failed', 'save-write-failed', 'save-finish-failed'].includes(error.message)) return error.message.replaceAll('-', '_');
@@ -82,6 +86,53 @@ function safeErrorCode(error) {
   if (error.message === 'Listing too large') return 'listing_too_large';
   if (error instanceof SyntaxError) return 'parse_error';
   return DRIVE_SAFE_ERROR_CODES.get(error.name) || 'unknown';
+}
+
+function isOrdinaryBrowserFetch(fetcher) {
+  return typeof fetcher === 'function' && typeof globalThis.fetch === 'function' && fetcher === globalThis.fetch;
+}
+
+function isLocalProxyUrl(url) {
+  return ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(url.hostname);
+}
+
+function driveProxyUrl(actualUrl, proxyBaseUrl) {
+  let proxy;
+  try {
+    const actual = new URL(actualUrl),
+      base = new URL(proxyBaseUrl);
+    if (!['http:', 'https:'].includes(base.protocol) || !isLocalProxyUrl(base))
+      throw new Error('unsafe-drive-proxy');
+    proxy = new URL(`${base.href.replace(/\/+$/, '')}${actual.pathname}${actual.search}`);
+  } catch (error) {
+    if (error?.message === 'unsafe-drive-proxy') throw error;
+    throw new Error('unsafe-drive-proxy');
+  }
+  return proxy.href;
+}
+
+function resolveDriveTransport(rootTransport, grant, actualUrl) {
+  const candidates = [grant, rootTransport].filter(Boolean);
+  for (const candidate of candidates) {
+    if (typeof candidate.fetch === 'function' && !isOrdinaryBrowserFetch(candidate.fetch))
+      return {
+        fetch: candidate.fetch.bind(candidate),
+        save: typeof candidate.save === 'function' ? candidate.save.bind(candidate) : null,
+        requestUrl: actualUrl,
+      };
+  }
+  if (grant?.proxyBaseUrl) {
+    return {
+      fetch: globalThis.fetch.bind(globalThis),
+      save: typeof (grant.save || rootTransport?.save) === 'function'
+        ? (grant.save || rootTransport.save).bind(grant.save ? grant : rootTransport)
+        : null,
+      requestUrl: driveProxyUrl(actualUrl, grant.proxyBaseUrl),
+    };
+  }
+  if (candidates.some((candidate) => isOrdinaryBrowserFetch(candidate.fetch)))
+    throw new Error('unsafe-browser-fetch');
+  throw new Error('missing-native-fetch');
 }
 
 function formatDiagnosticValue(value) {
@@ -204,6 +255,7 @@ export class DriveClient {
       throw error;
     }
     // Serialize consent panels without sharing endpoint grants.
+    let grant;
     const connecting = this.connecting.then(async () => {
       if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
       this.recordDiagnostic(share, { stage: 'connect', operation, elapsed_ms: elapsed() });
@@ -222,7 +274,7 @@ export class DriveClient {
       }
     });
     this.connecting = connecting.catch(() => {});
-    await connecting;
+    grant = await connecting;
     if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
     const url = new URL(`${share.endpoint}/drive/v1/${share.id}/${operation}`);
     url.searchParams.set('path', path);
@@ -256,10 +308,22 @@ export class DriveClient {
       throw error;
     }
     if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+    let driveTransport;
+    try {
+      driveTransport = resolveDriveTransport(this.transport, grant, url.href);
+    } catch (error) {
+      this.recordDiagnostic(share, {
+        stage: 'request',
+        operation,
+        elapsed_ms: elapsed(),
+        error: safeErrorCode(error),
+      });
+      throw error;
+    }
     let response;
     try {
       this.recordDiagnostic(share, { stage: 'request', operation, elapsed_ms: elapsed() });
-      response = await this.transport.fetch(url.href, {
+      response = await driveTransport.fetch(driveTransport.requestUrl, {
         signal: options.signal,
         headers: { Authorization: `Nostr ${btoa(JSON.stringify(event))}` },
       });
@@ -282,6 +346,7 @@ export class DriveClient {
       await response.body?.cancel();
       throw Object.assign(new Error('Drive request failed'), { status: response.status });
     }
+    DRIVE_RESPONSE_TRANSPORT.set(response, driveTransport);
     return response;
   }
   async listing(share, path, options = {}) {
@@ -382,11 +447,12 @@ export class DriveClient {
     let response;
     let stage = 'read';
     try {
-      if (!this.transport?.save) throw new Error('missing-transport');
       response = await this.request(share, 'read', path, { revision, signal });
       stage = 'save';
       this.recordDiagnostic(share, { stage, operation: 'read', elapsed_ms: Date.now() - started });
-      const result = await this.transport.save(response, { name, signal, onProgress, open });
+      const save = DRIVE_RESPONSE_TRANSPORT.get(response)?.save || this.transport?.save?.bind(this.transport);
+      if (!save) throw new Error('missing-transport');
+      const result = await save(response, { name, signal, onProgress, open });
       if (!result || (!result.saved && !result.committed)) throw new Error('save-not-confirmed');
       this.recordDiagnostic(share, { stage: 'saved', operation: 'read', elapsed_ms: Date.now() - started });
       return result;

@@ -101,6 +101,31 @@ describe('Chat channel rendering hooks', () => {
     expect(styles).toMatch(/\.docs-header\s*\{[\s\S]*position:\s*sticky;[\s\S]*top:\s*0;/);
   });
 
+  it('collapses secondary task controls behind a mobile ellipsis while keeping view switching visible', () => {
+    const taskSectionIndex = html.indexOf('class="tasks-section"');
+    const bulkBarIndex = html.indexOf('class="task-bulk-bar"', taskSectionIndex);
+    const taskToolbar = html.slice(taskSectionIndex, bulkBarIndex);
+    const mobileStart = styles.indexOf('@media (max-width: 640px)');
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    const mobileCss = styles.slice(mobileStart, styles.indexOf('/* Responsive task board */', mobileStart));
+
+    expect(taskToolbar).toContain('taskControlsOpen: false');
+    expect(taskToolbar).toContain('class="task-mobile-controls-row"');
+    expect(taskToolbar).toContain('class="board-descendant-toggle task-view-toggle task-mobile-view-toggle"');
+    expect(taskToolbar).toContain('class="doc-actions-toggle task-mobile-controls-trigger"');
+    expect(taskToolbar).toContain('aria-label="Task controls"');
+    expect(taskToolbar).toContain(':aria-expanded="taskControlsOpen.toString()"');
+    expect(taskToolbar).toContain("'task-filters-bar-mobile-open': taskControlsOpen");
+    expect(taskToolbar).toContain('x-ref="taskControlsFirst"');
+    expect(taskToolbar).toContain("@keydown.escape.stop.prevent=\"taskControlsOpen = false; $nextTick(() => $refs.taskControlsTrigger?.focus())\"");
+
+    expect(mobileCss).toMatch(/\.task-mobile-controls-row\s*\{[\s\S]*display:\s*flex;/);
+    expect(mobileCss).toMatch(/\.task-filters-bar\s*\{[\s\S]*display:\s*none;/);
+    expect(mobileCss).toMatch(/\.task-filters-bar-mobile-open\s*\{[\s\S]*display:\s*flex;/);
+    expect(mobileCss).toMatch(/\.task-filters-bar\s*>\s*\.task-view-toggle\s*\{[\s\S]*display:\s*none;/);
+    expect(mobileCss).toMatch(/\.task-tag-cloud\s*\{[\s\S]*position:\s*fixed;/);
+  });
+
   it('renders the fullscreen header toggle in the shared PG channel bar', () => {
     const globalBarIndex = html.indexOf('class="global-pg-channel-bar"');
     const globalBarEndIndex = html.indexOf('<template x-if="$store.chat.navSection === \'status\'">', globalBarIndex);

@@ -1194,7 +1194,6 @@
             </template>
             <span class="sidebar-workspace-overview-label">Home</span>
           </button>
-          <button type="button" class="sidebar-scope-heading-control" x-show="$store.chat.canAccessScopeSettings" @click="$store.chat.openScopeManagement()">Manage scopes</button>
           <p class="sidebar-scope-navigation-status" x-show="!$store.chat.scopesLoaded">Loading navigation…</p>
           <template x-for="group in $store.chat.sidebarScopeChannelGroups" :key="`sidebar-scope-${group.scope.record_id}`">
             <section class="sidebar-scope-group">
@@ -1358,6 +1357,9 @@
                 Add workspace...
               </button>
             </div>
+          </div>
+          <div class="sidebar-manage-scopes-footer" x-show="$store.chat.canAccessScopeSettings">
+            <button type="button" class="sidebar-scope-heading-control" @click="$store.chat.openScopeManagement()">Manage scopes</button>
           </div>
         </div>
       </nav>
@@ -2662,7 +2664,13 @@
             </div>
           </div>
 
-          <div class="task-top-toolbar" x-show="!$store.chat.showTaskDetail">
+          <div
+            class="task-top-toolbar"
+            x-show="!$store.chat.showTaskDetail"
+            x-data="{ taskControlsOpen: false }"
+            @click.outside="taskControlsOpen = false"
+            @keydown.escape.stop.prevent="taskControlsOpen = false; $nextTick(() => $refs.taskControlsTrigger?.focus())"
+          >
           <!-- Task create bar -->
           <form class="task-create-bar" x-show="!$store.chat.showTaskDetail" @submit.prevent="$store.chat.addTask()">
             <input
@@ -2676,11 +2684,56 @@
             <button type="submit" class="task-create-btn">Add</button>
           </form>
 
+          <div class="task-mobile-controls-row" x-show="!$store.chat.showTaskDetail">
+            <button
+              type="button"
+              class="board-descendant-toggle task-view-toggle task-mobile-view-toggle"
+              @click="$store.chat.toggleTaskViewMode()"
+              :title="$store.chat.taskViewMode === 'kanban' ? 'Switch to list view' : 'Switch to kanban view'"
+              :aria-label="$store.chat.taskViewMode === 'kanban' ? 'Switch to list view' : 'Switch to kanban view'"
+            >
+              <template x-if="$store.chat.taskViewMode === 'kanban'">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </template>
+              <template x-if="$store.chat.taskViewMode !== 'kanban'">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                </svg>
+              </template>
+            </button>
+            <button
+              type="button"
+              class="doc-actions-toggle task-mobile-controls-trigger"
+              x-ref="taskControlsTrigger"
+              @click="taskControlsOpen = !taskControlsOpen; if (taskControlsOpen) $nextTick(() => $refs.taskControlsFirst?.focus())"
+              title="Task controls"
+              aria-label="Task controls"
+              :aria-expanded="taskControlsOpen.toString()"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="12" cy="5" r="1.8"></circle>
+                <circle cx="12" cy="12" r="1.8"></circle>
+                <circle cx="12" cy="19" r="1.8"></circle>
+              </svg>
+            </button>
+          </div>
+
           <!-- Filters -->
-          <div class="task-filters-bar" x-show="!$store.chat.showTaskDetail">
+          <div class="task-filters-bar" :class="{ 'task-filters-bar-mobile-open': taskControlsOpen }" x-show="!$store.chat.showTaskDetail">
             <input
               type="text"
               class="task-search-input"
+              x-ref="taskControlsFirst"
               x-model="$store.chat.taskFilter"
               @input.debounce.200ms="$store.chat.startWorkspaceLiveQueries()"
               placeholder="Search tasks..."
@@ -4719,7 +4772,7 @@
               </div>
             </div>
 
-            <div class="docs-header" x-show="!$store.chat.docsEditorOpen">
+            <div class="docs-header" x-show="!$store.chat.docsEditorOpen" x-data="{ docsControlsOpen: false }">
               <div class="docs-title-block">
                 <h2>Docs</h2>
                 <p class="docs-subtitle" x-text="'Viewing: ' + $store.chat.selectedBoardLabel"></p>
@@ -4727,8 +4780,25 @@
                 <p class="docs-subtitle" x-text="`${$store.chat.filteredDocBrowserItems.length} of ${$store.chat.currentFolderContents.length}`"></p>
               </div>
 
-              <div class="docs-toolbar">
+              <div class="docs-mobile-header-actions">
+                <button
+                  type="button"
+                  class="doc-icon-btn docs-mobile-controls-btn"
+                  :class="{ active: docsControlsOpen }"
+                  @click="docsControlsOpen = !docsControlsOpen"
+                  aria-label="Search and document options"
+                  :aria-expanded="docsControlsOpen.toString()"
+                >
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+                </button>
+                <button type="button" class="docs-mobile-add-btn" @click="$store.chat.openNewDocModal('doc')" title="New document" aria-label="New document">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                </button>
+              </div>
+
+              <div class="docs-toolbar" :class="{ 'docs-toolbar-mobile-open': docsControlsOpen }">
                 <input class="docs-search-input" type="text" :placeholder="$store.chat.isTowerPgMode ? 'Search docs' : 'Search docs and folders'" x-model="$store.chat.docFilter" />
+                <button type="button" class="btn-secondary docs-mobile-toolbar-only" @click="$store.chat.openAllDocuments()">All documents</button>
                 <button
                   type="button"
                   class="btn-add-folder"
@@ -6110,7 +6180,7 @@
         </template>
 
         <template x-if="$store.chat.navSection === 'files'">
-          <section class="files-section" x-data="{ driveScope: '', filesMobilePane: 'tower' }" x-init="$store.chat.scheduleStorageImageHydration(); $store.chat.startDrive(); driveScope = $store.chat.driveScope" x-effect="$store.chat.filteredFileBrowserRows.length; if (driveScope !== $store.chat.driveScope) { driveScope = $store.chat.driveScope; $store.chat.startDrive(); } $nextTick(() => $store.chat.scheduleStorageImageHydration())" @destroy="$store.chat.stopDrive()">
+          <section class="files-section" x-data="{ driveScope: '', filesMobilePane: 'tower', filesControlsOpen: false, filesActionsOpen: false }" x-init="$store.chat.scheduleStorageImageHydration(); $store.chat.startDrive(); driveScope = $store.chat.driveScope" x-effect="$store.chat.filteredFileBrowserRows.length; if (driveScope !== $store.chat.driveScope) { driveScope = $store.chat.driveScope; $store.chat.startDrive(); } $nextTick(() => $store.chat.scheduleStorageImageHydration())" @destroy="$store.chat.stopDrive()">
             <div class="pg-work-context-bar files-work-context-bar" x-show="false" x-cloak>
               <div class="chat-channel-header">
                 <div class="chat-channel-tab-scroll" role="tablist" aria-label="Workspace channels">
@@ -6221,10 +6291,35 @@
                 <span>FIPS Drive</span>
                 <small x-text="$store.chat.driveSources.length ? `${$store.chat.driveSources.length}` : '0'"></small>
               </button>
+              <button
+                type="button"
+                class="files-mobile-icon-btn"
+                :class="{ active: filesControlsOpen }"
+                @click="filesControlsOpen = !filesControlsOpen; filesActionsOpen = false"
+                aria-label="Search and filter files"
+                :aria-expanded="filesControlsOpen.toString()"
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg>
+              </button>
+              <div class="files-mobile-actions" x-show="$store.chat.isTowerPgMode" @click.outside="filesActionsOpen = false">
+                <button
+                  type="button"
+                  class="files-mobile-icon-btn files-mobile-add-btn"
+                  @click="filesActionsOpen = !filesActionsOpen; filesControlsOpen = false"
+                  aria-label="Add files or folders"
+                  :aria-expanded="filesActionsOpen.toString()"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+                </button>
+                <div class="doc-actions-popover files-mobile-action-popover" x-show="filesActionsOpen" x-cloak>
+                  <button type="button" @click="$store.chat.openFileUploadPanel(); filesActionsOpen = false">Upload file</button>
+                  <button type="button" @click="$store.chat.createFileFolderFromPrompt(); filesActionsOpen = false">New folder</button>
+                </div>
+              </div>
             </div>
 
 
-            <div class="files-toolbar">
+            <div class="files-toolbar" :class="{ 'files-toolbar-mobile-open': filesControlsOpen }">
               <input class="files-search-input" type="text" placeholder="Search files" x-model="$store.chat.fileSearch" />
               <div class="files-filter-grid">
                 <select class="files-filter-select" x-model="$store.chat.fileTypeFilter">
@@ -6281,7 +6376,13 @@
                   @click="open = !open"
                   aria-label="Files options"
                   :aria-expanded="open.toString()"
-                >...</button>
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <circle cx="12" cy="5" r="1.8"></circle>
+                    <circle cx="12" cy="12" r="1.8"></circle>
+                    <circle cx="12" cy="19" r="1.8"></circle>
+                  </svg>
+                </button>
                 <div class="doc-actions-popover files-toolbar-popover" x-show="open" x-cloak>
                   <button
                     type="button"

@@ -49,7 +49,7 @@ describe('docs mobile layout', () => {
     expect(editor).toContain('Select document text, then click + to comment on it.');
   });
 
-  it('keeps document breadcrumbs left and actions right on mobile without wrapping into a second row', () => {
+  it('keeps mobile document reader chrome compact before content', () => {
     const css = readProjectFile('src/styles.css');
     const mobileStart = css.indexOf('@media (max-width: 720px)');
     expect(mobileStart).toBeGreaterThanOrEqual(0);
@@ -57,10 +57,32 @@ describe('docs mobile layout', () => {
 
     expect(mobileCss).toMatch(/\.doc-editor-header\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto;/);
     expect(mobileCss).toMatch(/\.doc-editor-actions\s*\{[\s\S]*max-width:\s*54vw;[\s\S]*margin-left:\s*auto;[\s\S]*overflow-x:\s*auto;[\s\S]*flex-wrap:\s*nowrap;[\s\S]*justify-content:\s*flex-end;/);
-    expect(mobileCss).toMatch(/\.doc-title-block\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto;[\s\S]*margin-bottom:\s*0\.25rem;/);
-    expect(mobileCss).toMatch(/\.doc-title-display\s*\{[\s\S]*max-height:\s*2\.5em;[\s\S]*font-size:\s*1\.05rem;/);
-    expect(mobileCss).toMatch(/\.doc-editor-breadcrumbs\s*\{[\s\S]*flex-wrap:\s*nowrap;[\s\S]*overflow-x:\s*auto;/);
+    expect(mobileCss).toMatch(/\.doc-title-block\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto;[\s\S]*margin-bottom:\s*0\.15rem;/);
+    expect(mobileCss).toMatch(/\.doc-title-display\s*\{[\s\S]*max-height:\s*1\.3em;[\s\S]*font-size:\s*1rem;[\s\S]*white-space:\s*nowrap;/);
+    expect(mobileCss).toMatch(/\.doc-editor-breadcrumbs\s*\{[\s\S]*display:\s*none;/);
+    expect(mobileCss).toMatch(/\.doc-title-block\s*>\s*\.doc-scope-pill-btn\s*\{[\s\S]*display:\s*none;/);
     expect(mobileCss).not.toMatch(/\.doc-editor-actions\s*\{[\s\S]*width:\s*100%;[\s\S]*justify-content:\s*flex-start;/);
+  });
+
+  it('collapses mobile Docs browser controls and renders documents as a phone-width list', () => {
+    const html = readProjectFile('index.html');
+    const css = readProjectFile('src/styles.css');
+    const headerStart = html.indexOf('class="docs-header"');
+    const header = html.slice(headerStart, html.indexOf('class="task-bulk-bar doc-bulk-bar"', headerStart));
+    const mobileStart = css.indexOf('@media (max-width: 640px)');
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    const mobileCss = css.slice(mobileStart, css.indexOf('.sidebar-channels', mobileStart));
+
+    expect(header).toContain('docsControlsOpen');
+    expect(header).toContain('class="docs-mobile-header-actions"');
+    expect(header).toContain("'docs-toolbar-mobile-open': docsControlsOpen");
+    expect(header).toContain('class="btn-secondary docs-mobile-toolbar-only"');
+    expect(mobileCss).toMatch(/\.docs-toolbar\s*\{[\s\S]*display:\s*none;/);
+    expect(mobileCss).toMatch(/\.docs-toolbar-mobile-open\s*\{[\s\S]*display:\s*flex;/);
+    expect(mobileCss).toMatch(/\.docs-browser-shell\s*>\s*\.folder-breadcrumb-row\s*\{[\s\S]*display:\s*none;/);
+    expect(mobileCss).toMatch(/\.doc-table-scroll\s*\{[\s\S]*overflow-x:\s*hidden;/);
+    expect(mobileCss).toMatch(/\.doc-table\s*\{[\s\S]*min-width:\s*0;/);
+    expect(mobileCss).toMatch(/\.doc-item\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\);/);
   });
 
   it('keeps the document editor toolbar sticky while the document body scrolls', () => {
