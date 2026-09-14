@@ -216,8 +216,10 @@ function scheduleTowerPgWorkspaceHydration(store, state) {
       await store.loadLocalWorkspaceCoreData?.({ syncRoute: false });
       if (String(store.currentWorkspaceKey || '') !== workspaceKey) return;
       await store.refreshGroups?.({ force: true, minIntervalMs: 0 });
-      await store.refreshScopes?.();
-      await store.refreshChannels?.();
+      await (store.ensureTowerPgControlPlaneHydrated?.({ force: true, syncRoute: false }) ?? Promise.all([
+        store.refreshScopes?.(),
+        store.refreshChannels?.(),
+      ]));
       store.getTowerSyncService?.();
       state.pgHydratedWorkspaceKeys.add(workspaceKey);
       const optionalRefreshes = [

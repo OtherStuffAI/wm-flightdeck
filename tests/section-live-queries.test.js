@@ -508,6 +508,39 @@ describe('section live query plan', () => {
     expect(store.refreshAudioNotes).not.toHaveBeenCalled();
   });
 
+  it('uses the canonical Tower PG control-plane loader on restored workspaces', async () => {
+    const store = {
+      currentWorkspace: {
+        pgBackendMode: true,
+        workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+        workspaceId: 'workspace-1',
+      },
+      currentWorkspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
+      workspaceOwnerNpub: 'npub1owner',
+      session: { npub: 'npub1user' },
+      backendUrl: 'https://tower.example',
+      navSection: 'status',
+      startSharedLiveQueries: vi.fn(),
+      createLiveSubscription: vi.fn(() => ({ unsubscribe() {} })),
+      stopLiveSubscription: vi.fn(),
+      initUnreadTracking: vi.fn(),
+      loadLocalWorkspaceCoreData: vi.fn(async () => ({ scopes: [], channels: [] })),
+      refreshGroups: vi.fn(async () => []),
+      refreshScopes: vi.fn(async () => []),
+      refreshChannels: vi.fn(async () => []),
+      requestTowerSyncFamily: vi.fn(async () => []),
+      ensureTowerPgControlPlaneHydrated: vi.fn(async () => ({ scopes: [], channels: [] })),
+    };
+
+    openWorkspaceDb(store.currentWorkspaceKey);
+    sectionLiveQueryMixin.startWorkspaceLiveQueries.call(store);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(store.ensureTowerPgControlPlaneHydrated).toHaveBeenCalledWith({ force: true, syncRoute: false });
+    expect(store.refreshScopes).not.toHaveBeenCalled();
+    expect(store.refreshChannels).not.toHaveBeenCalled();
+  });
+
   it('keeps Tower PG task board activation local-first after workspace hydration', async () => {
     const store = {
       currentWorkspace: {

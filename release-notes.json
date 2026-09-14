@@ -1713,6 +1713,13 @@
       "notes": [
         "Use WM App's paired native GRASP Drive bridge after consent so mobile FipsDrive list and download requests proceed to the exact signed FIPS URL."
       ]
+    },
+    {
+      "buildNumber": 1996,
+      "label": "Reliable scope and channel sync",
+      "notes": [
+        "Refresh scopes and channels as required control-plane data during Tower PG startup and full sync so navigation appears without visiting Setup first."
+      ]
     }
   ]
 }

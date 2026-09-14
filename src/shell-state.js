@@ -631,6 +631,7 @@ export function createShellState(options = {}) {
           this.localWorkspaceCoreLoadedForKey = workspaceKey;
         }
         this.startWorkspaceLiveQueries?.();
+        await this.ensureTowerPgControlPlaneHydrated?.({ force: true, syncRoute: false });
       } else {
         await this.ensureWorkspaceSessionKey();
         await this.refreshGroups({ maxAgeMs: this.GROUP_KEY_REFRESH_MAX_AGE_MS });

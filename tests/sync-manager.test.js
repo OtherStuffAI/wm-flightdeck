@@ -2144,6 +2144,53 @@ describe('performSync', () => {
 });
 
 describe('performTowerPgFullSync', () => {
+  it('forces scopes and channels through the control-plane loader', async () => {
+    const requestTowerSyncFamily = vi.fn(async (family) => ({ family }));
+    const loadLocalWorkspaceCoreData = vi.fn(async () => ({ scopes: [], channels: [] }));
+    const validateSelectedBoardId = vi.fn();
+    const ensureSelectedChatChannelInScope = vi.fn();
+    const { fn } = bindMethod('ensureTowerPgControlPlaneHydrated', {
+      isTowerPgMode: true,
+      currentWorkspace: { pgBackendMode: true, workspaceId: 'workspace-1' },
+      navSection: 'chat',
+      requestTowerSyncFamily,
+      loadLocalWorkspaceCoreData,
+      validateSelectedBoardId,
+      ensureSelectedChatChannelInScope,
+    });
+
+    await fn({ force: true, syncRoute: false });
+
+    expect(requestTowerSyncFamily).toHaveBeenNthCalledWith(1, 'scopes', '', { force: true });
+    expect(requestTowerSyncFamily).toHaveBeenNthCalledWith(2, 'channels', '', { force: true });
+    expect(loadLocalWorkspaceCoreData).toHaveBeenCalledWith({ syncRoute: false });
+    expect(validateSelectedBoardId).toHaveBeenCalled();
+    expect(ensureSelectedChatChannelInScope).toHaveBeenCalledWith({ syncRoute: false });
+  });
+
+  it('forces scope and channel hydration after PG workspace full sync', async () => {
+    const requestTowerSyncFamily = vi.fn(async (family) => (
+      family === 'workspace-bootstrap' ? { applied: 10 } : { family }
+    ));
+    const { fn, store } = bindMethod('performTowerPgFullSync', {
+      session: { npub: 'npub1me' },
+      backendUrl: 'https://backend.example.com',
+      isTowerPgMode: true,
+      currentWorkspace: { pgBackendMode: true, workspaceId: 'workspace-1' },
+      requestTowerSyncFamily,
+      loadLocalWorkspaceCoreData: vi.fn(async () => ({ scopes: [], channels: [] })),
+      validateSelectedBoardId: vi.fn(),
+    });
+
+    const result = await fn();
+
+    expect(result).toEqual({ pushed: 0, pulled: 10, pruned: 0, pgMode: true });
+    expect(requestTowerSyncFamily).toHaveBeenCalledWith('workspace-bootstrap', '', { force: true });
+    expect(requestTowerSyncFamily).toHaveBeenCalledWith('scopes', '', { force: true });
+    expect(requestTowerSyncFamily).toHaveBeenCalledWith('channels', '', { force: true });
+    expect(store.loadLocalWorkspaceCoreData).toHaveBeenCalledWith({ syncRoute: false });
+  });
+
   it('hydrates PG workspace collections with progress state', async () => {
     syncTowerPgWorkspace.mockResolvedValueOnce({ applied: 10, pages: 1 });
     const { fn, store } = bindMethod('performTowerPgFullSync', {

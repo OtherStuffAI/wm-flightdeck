@@ -455,6 +455,24 @@ export const syncManagerMixin = {
       ?? this.loadTowerSyncTarget(family === 'workspace-bootstrap' ? 'workspace' : family, id, options);
   },
 
+  async ensureTowerPgControlPlaneHydrated(options = {}) {
+    const workspace = this.currentWorkspace || {};
+    const workspaceId = String(workspace.workspaceId || workspace.workspace_id || '').trim();
+    const pgWorkspaceActive = Boolean(this.isTowerPgMode || (isTowerPgBackendMode() && workspace.pgBackendMode));
+    if (!pgWorkspaceActive || !workspaceId) return { skipped: true };
+
+    const force = options.force === true;
+    const familyOptions = force ? { force: true } : {};
+    const scopes = await this.requestTowerSyncFamily('scopes', '', familyOptions);
+    const channels = await this.requestTowerSyncFamily('channels', '', familyOptions);
+    await this.loadLocalWorkspaceCoreData?.({ syncRoute: false });
+    this.validateSelectedBoardId?.();
+    if (this.navSection === 'chat') {
+      this.ensureSelectedChatChannelInScope?.({ syncRoute: options.syncRoute !== false });
+    }
+    return { scopes, channels };
+  },
+
   async loadTowerPgAgentActivities(channelId, options = {}) {
     const workspaceKey = this.buildSSEConnectionKey();
     const service = this._towerSyncService;
@@ -3423,6 +3441,7 @@ export const syncManagerMixin = {
       const result = await (this.requestTowerSyncFamily?.('workspace-bootstrap', '', { force: manual })
         ?? this.runTowerPgWorkspaceSync());
       pulled = Number(result?.applied || 0);
+      await this.ensureTowerPgControlPlaneHydrated?.({ force: true, syncRoute: false });
       const workspaceKey = String(this.currentWorkspaceKey || '').trim();
       const needsWappBootstrap = this.wappActivityReconciledWorkspaceKey !== workspaceKey;
       if ((manual || !this.isSSEConnected || needsWappBootstrap) && typeof this.reconcileWappActivity === 'function') {
