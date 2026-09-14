@@ -140,8 +140,10 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(styles).toMatch(/\.sidebar-workspace-overview:active\s*\{[^}]*background:\s*#dbeafe;/s);
     expect(styles).toMatch(/\.sidebar-workspace-footer\s*\{[^}]*flex:\s*0 0 auto;/s);
     expect(styles).toMatch(/\.sidebar-collapsed \.sidebar-scope-navigation[\s\S]*display:\s*none;/);
+    expect(styles).toMatch(/\.sidebar-collapsed \.sidebar-manage-scopes-footer\s*\{[^}]*display:\s*none;/s);
     const mobile = styles.slice(styles.indexOf('@media (max-width: 768px)'));
     expect(mobile).toMatch(/\.sidebar\.sidebar-mobile-open \.sidebar-scope-navigation\s*\{[^}]*display:\s*block;/s);
+    expect(mobile).toMatch(/\.sidebar\.sidebar-mobile-open \.sidebar-manage-scopes-footer\s*\{[^}]*display:\s*block;/s);
   });
 
   it('keeps the shared top bar available for the expanded-column section picker', () => {
@@ -155,5 +157,16 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(html).toMatch(/<span class="sidebar-label">Setup<\/span>[\s\S]*<\/ul>\s*<section\s+class="sidebar-scope-navigation"/s);
     expect(html).not.toContain('sidebar-workspace-navigation-divider');
     expect(styles).not.toContain('sidebar-workspace-navigation-divider');
+  });
+
+  it('places Manage scopes in the bottom sidebar footer with a separator', () => {
+    const navigationStart = html.indexOf('class="sidebar-scope-navigation"');
+    const footerStart = html.indexOf('class="sidebar-workspace-footer"', navigationStart);
+    const navigation = html.slice(navigationStart, footerStart);
+    const footer = html.slice(footerStart, html.indexOf('</nav>', footerStart));
+
+    expect(navigation).not.toContain('$store.chat.openScopeManagement()');
+    expect(footer).toMatch(/class="sidebar-workspace-shell"[\s\S]*class="sidebar-manage-scopes-footer"[\s\S]*x-show="\$store\.chat\.canAccessScopeSettings"[\s\S]*class="sidebar-scope-heading-control"[\s\S]*@click="\$store\.chat\.openScopeManagement\(\)"[\s\S]*>Manage scopes<\/button>/s);
+    expect(styles).toMatch(/\.sidebar-manage-scopes-footer\s*\{[^}]*border-top:\s*1px solid var\(--border\);/s);
   });
 });
