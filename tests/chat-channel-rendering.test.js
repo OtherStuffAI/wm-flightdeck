@@ -126,6 +126,19 @@ describe('Chat channel rendering hooks', () => {
     expect(mobileCss).toMatch(/\.task-tag-cloud\s*\{[\s\S]*position:\s*fixed;/);
   });
 
+  it('keeps the mobile task add form narrow enough for the compact controls', () => {
+    const mobileStart = styles.indexOf('@media (max-width: 640px)');
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    const mobileCss = styles.slice(mobileStart, styles.indexOf('/* Responsive task board */', mobileStart));
+
+    expect(mobileCss).toMatch(/\.task-top-toolbar\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto;/);
+    expect(mobileCss).toMatch(/\.task-create-bar\s*\{[\s\S]*min-width:\s*0;[\s\S]*margin-bottom:\s*0;/);
+    expect(mobileCss).toMatch(/\.task-create-input\s*\{[\s\S]*flex:\s*1\s*1\s*0;[\s\S]*min-width:\s*0;/);
+    expect(mobileCss).toMatch(/\.task-create-btn\s*\{[\s\S]*flex:\s*0\s*0\s*auto;[\s\S]*min-width:\s*2\.75rem;/);
+    expect(mobileCss).toMatch(/\.task-mobile-controls-row\s*\{[\s\S]*min-width:\s*max-content;/);
+    expect(mobileCss).toMatch(/\.task-filters-bar\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1;/);
+  });
+
   it('renders the fullscreen header toggle in the shared PG channel bar', () => {
     const globalBarIndex = html.indexOf('class="global-pg-channel-bar"');
     const globalBarEndIndex = html.indexOf('<template x-if="$store.chat.navSection === \'status\'">', globalBarIndex);
