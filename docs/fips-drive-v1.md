@@ -103,13 +103,19 @@ a bounded serialized persisted replay journal surviving restart. Unauthorized
 identities do not reserve replay entries.
 Transport grants do not authorize signatures or file access.
 
-`window.fipsTransport.connectDrive({endpoint})` creates up to eight independently
-consented Drive endpoint grants per top-level document. Existing `connect`, Git
-fetch and WebSocket behavior remain. Drive grants accept only read-only Drive
-URLs. `disconnect()` revokes all document transports. Navigation, identity change,
-lock, tab close and browser-data clearing revoke transports and pending work.
-Native channel metadata enforces top-frame/exact origin, including the app-owned
-bundled origin `http://127.0.0.1:47831`; other plaintext page origins are excluded.
+`window.fipsTransport.connectDrive({endpoint})` consents the top-level document to
+one exact Drive endpoint. Current WM App GRASP transport v1 returns the same pair
+shape as `connect()`, `{version:1, endpoint}`, and exposes the safe pinned request
+primitive as top-level `fipsTransport.fetch()` after pairing. Flight Deck may use
+that top-level fetch only after `connectDrive({endpoint})` succeeds, only when the
+transport advertises the explicit native GRASP v1 capability shape, and only for
+the paired endpoint's read-only Drive URLs. A future bridge may instead return an
+endpoint grant with `{fetch}` or a safe local `{proxyBaseUrl}`. Existing `connect`,
+Git fetch and WebSocket behavior remain. `disconnect()` revokes all document
+transports. Navigation, identity change, lock, tab close and browser-data clearing
+revoke transports and pending work. Native channel metadata enforces
+top-frame/exact origin, including the app-owned bundled origin
+`http://127.0.0.1:47831`; other plaintext page origins are excluded.
 
 `fipsTransport.save(response,{name,signal,onProgress,open})` writes pull-driven
 64 KiB chunks to a native partial file, reports byte progress, checks the advertised

@@ -6665,7 +6665,7 @@
                   </div>
                 </div>
                 <p class="files-shared-status" role="status" x-text="$store.chat.driveStatusLabel"></p>
-                <p class="files-upload-error" x-show="$store.chat.driveState === 'missing-transport'">Open Flight Deck inside a supported WM App to connect to these folders.</p>
+                <p class="files-upload-error" x-show="$store.chat.driveState === 'missing-transport'">WM App Drive bridge unavailable or incompatible. Update WM App, reopen Flight Deck there, or copy Diagnostics.</p>
                 <div class="files-shared-browser">
                   <aside class="files-shared-sources" x-show="!$store.chat.driveSelected" aria-label="Shared folder sources">
                     <template x-for="share in $store.chat.driveSources" :key="share.key">

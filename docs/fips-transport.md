@@ -133,6 +133,15 @@ transport. This setting does not make the entire application an offline or
 mesh-only browser. Tower links outside the paired endpoint are rejected in FIPS
 PG requests rather than accepted as a public transport fallback.
 
+Flight Deck Drive uses the WM App GRASP v1 bridge shape on mobile: `connectDrive()`
+pairs the document to the exact `http://<node>.fips:<port>` endpoint and returns
+the pair object, while top-level `fipsTransport.fetch()` is the safe pinned request
+primitive after that pairing. Consumers must not treat an arbitrary root fetch as
+safe; Flight Deck accepts this path only with the explicit native GRASP v1
+capabilities and a pair endpoint matching the Drive URL. NIP-98 signs the actual
+`/drive/v1/...` FIPS URL even if a future bridge supplies a local proxy request
+URL.
+
 ## Validation
 
 Run the focused transport/API/worker tests, then the repository's complete test,

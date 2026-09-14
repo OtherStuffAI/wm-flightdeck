@@ -232,13 +232,55 @@ describe('Drive boundaries', () => {
       'http://host-a.fips:7345/drive/v1/share-a/list?path=mobile-folder',
     ]);
   });
+  it('uses the paired WMapp GRASP fetch when connectDrive returns only a pair', async () => {
+    const nativeFetch = vi.fn(async () => new Response(JSON.stringify({ entries: [], revision: 'r' })));
+    const save = vi.fn();
+    const transport = {
+      version: 1,
+      available: true,
+      capabilities: Object.freeze({
+        connect: true,
+        connectDrive: true,
+        fetch: true,
+        save: false,
+        WebSocket: true,
+      }),
+      connect: vi.fn(),
+      connectDrive: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
+      fetch: nativeFetch,
+      save,
+      WebSocket: vi.fn(),
+    };
+    const events = [];
+    const client = new DriveClient({
+      transport,
+      sign: async (event) => {
+        events.push(event);
+        return event;
+      },
+    });
+    await client.listing(share, 'mobile-folder');
+    expect(transport.connectDrive).toHaveBeenCalledWith({ endpoint: share.endpoint });
+    expect(nativeFetch).toHaveBeenCalledTimes(1);
+    expect(nativeFetch.mock.calls[0][0]).toBe(
+      'http://host-a.fips:7345/drive/v1/share-a/list?path=mobile-folder',
+    );
+    expect(events[0].tags[0]).toEqual([
+      'u',
+      'http://host-a.fips:7345/drive/v1/share-a/list?path=mobile-folder',
+    ]);
+  });
   it('does not direct browser fetch to raw mobile FIPS Drive endpoints', async () => {
     const oldFetch = globalThis.fetch;
     const diagnostics = [];
     const browserFetch = vi.fn(async () => new Response('unreachable'));
     globalThis.fetch = browserFetch;
     const transport = {
-      connectDrive: vi.fn(async () => ({})),
+      version: 1,
+      available: true,
+      capabilities: { connect: true, connectDrive: true, fetch: true },
+      connect: vi.fn(),
+      connectDrive: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
       fetch: browserFetch,
     };
     const client = new DriveClient({
@@ -256,6 +298,28 @@ describe('Drive boundaries', () => {
     } finally {
       globalThis.fetch = oldFetch;
     }
+  });
+  it('does not treat a pair object alone as a safe native Drive bridge', async () => {
+    const diagnostics = [];
+    const sign = vi.fn(async (event) => event);
+    const ambientFetch = vi.fn(async () => new Response('raw bridge request failed later'));
+    const transport = {
+      connectDrive: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
+      fetch: ambientFetch,
+      save: vi.fn(),
+    };
+    const client = new DriveClient({
+      transport,
+      sign,
+      diagnostics: (row) => diagnostics.push(row),
+    });
+    await expect(client.listing(share, '')).rejects.toThrow('missing-drive-grant-request');
+    expect(sign).not.toHaveBeenCalled();
+    expect(ambientFetch).not.toHaveBeenCalled();
+    const text = formatDriveDiagnostics(diagnostics);
+    expect(text).toContain('stage="request"');
+    expect(text).toContain('error="missing_drive_grant_request"');
+    expect(text).not.toContain('/drive/v1/share-a/list');
   });
   it('rejects ambient bridge fetches that are not endpoint-specific Drive grants', async () => {
     const diagnostics = [];

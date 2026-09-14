@@ -122,6 +122,41 @@ function driveProxyUrl(actualUrl, proxyBaseUrl) {
   return proxy.href;
 }
 
+function isPairedNativeGraspDriveTransport(rootTransport, grant, actualUrl) {
+  if (!rootTransport || !grant || typeof grant !== 'object') return false;
+  const version = Number(rootTransport.version);
+  if (version !== 1 || Number(grant.version) !== version) return false;
+  if (rootTransport.available !== true) return false;
+  if (typeof rootTransport.connect !== 'function' || typeof rootTransport.connectDrive !== 'function')
+    return false;
+  if (typeof rootTransport.fetch !== 'function' || isOrdinaryBrowserFetch(rootTransport.fetch))
+    return false;
+  const capabilities = rootTransport.capabilities;
+  if (
+    capabilities?.connect !== true ||
+    capabilities?.connectDrive !== true ||
+    capabilities?.fetch !== true
+  )
+    return false;
+  try {
+    const paired = new URL(grant.endpoint);
+    const actual = new URL(actualUrl);
+    return (
+      paired.protocol === 'http:' &&
+      paired.hostname.endsWith('.fips') &&
+      paired.pathname === '/' &&
+      !paired.search &&
+      !paired.hash &&
+      !paired.username &&
+      !paired.password &&
+      actual.origin === paired.origin &&
+      actual.pathname.startsWith('/drive/v1/')
+    );
+  } catch {
+    return false;
+  }
+}
+
 function resolveDriveTransport(rootTransport, grant, actualUrl) {
   if (!grant || typeof grant !== 'object') throw new Error('missing-drive-grant');
   if (typeof grant.fetch === 'function') {
@@ -142,6 +177,13 @@ function resolveDriveTransport(rootTransport, grant, actualUrl) {
         ? (grant.save || rootTransport.save).bind(grant.save ? grant : rootTransport)
         : null,
       requestUrl: driveProxyUrl(actualUrl, grant.proxyBaseUrl),
+    };
+  }
+  if (isPairedNativeGraspDriveTransport(rootTransport, grant, actualUrl)) {
+    return {
+      fetch: rootTransport.fetch.bind(rootTransport),
+      save: typeof rootTransport.save === 'function' ? rootTransport.save.bind(rootTransport) : null,
+      requestUrl: actualUrl,
     };
   }
   if (isOrdinaryBrowserFetch(rootTransport?.fetch)) throw new Error('unsafe-browser-fetch');
@@ -509,7 +551,7 @@ export const driveManagerMixin = {
         unavailable: 'Shared folder unavailable · check diagnostics',
         denied: 'Access denied or authorization expired',
         'consent-denied': 'Connection permission denied',
-        'missing-transport': 'Native FIPS transport unavailable',
+        'missing-transport': 'Native FIPS Drive bridge unavailable or incompatible',
         missing: 'File or folder no longer available',
         changed: 'File changed — refresh and try again',
         cancelled: 'Transfer cancelled',

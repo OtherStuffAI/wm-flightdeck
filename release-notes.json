@@ -1706,6 +1706,13 @@
       "notes": [
         "Tighten the mobile task add row so the Add Task input, Add button, and compact controls fit cleanly on narrow screens."
       ]
+    },
+    {
+      "buildNumber": 1995,
+      "label": "WM App FipsDrive bridge compatibility",
+      "notes": [
+        "Use WM App's paired native GRASP Drive bridge after consent so mobile FipsDrive list and download requests proceed to the exact signed FIPS URL."
+      ]
     }
   ]
 }
