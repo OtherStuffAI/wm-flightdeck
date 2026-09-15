@@ -362,7 +362,8 @@ export function filterWorkspacesForSession(workspaces = [], sessionNpub = '') {
     .filter((entry) => !pgOnly || entry.pgBackendMode)
     .filter((entry) => {
       if (!entry.pgBackendMode) return true;
-      return Boolean(activeSession && entry.pgSessionNpub === activeSession);
+      if (!activeSession) return false;
+      return !entry.pgSessionNpub || entry.pgSessionNpub === activeSession;
     });
 }
 

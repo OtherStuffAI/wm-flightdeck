@@ -1748,6 +1748,13 @@
       "notes": [
         "Show a blue-to-white working pulse on Inbox cards using cached Autopilot activity state so card rendering stays responsive."
       ]
+    },
+    {
+      "buildNumber": 2004,
+      "label": "Reliable refresh workspace restore",
+      "notes": [
+        "Restore Tower PG workspaces only after the signer session is ready so refreshes do not open a selected Tower with an empty workspace shell."
+      ]
     }
   ]
 }

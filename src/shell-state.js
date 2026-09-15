@@ -515,24 +515,43 @@ export function createShellState(options = {}) {
       if (typeof this.refreshKnownHostsMetadata === 'function') {
         this.refreshKnownHostsMetadata().catch(() => {});
       }
-      if (!this.selectedWorkspaceKey && this.currentWorkspaceOwnerNpub) {
-        const legacyMatch = this.knownWorkspaces.find((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub) || null;
-        if (legacyMatch) this.selectedWorkspaceKey = legacyMatch.workspaceKey || '';
-      }
-      if (!this.selectedWorkspaceKey && this.knownWorkspaces.length > 0) {
-        this.selectedWorkspaceKey = this.knownWorkspaces[0].workspaceKey || '';
-        this.currentWorkspaceOwnerNpub = this.knownWorkspaces[0].workspaceOwnerNpub;
-      }
-      if (this.selectedWorkspaceKey || this.currentWorkspaceOwnerNpub) {
-        await this.selectWorkspace(this.selectedWorkspaceKey || this.currentWorkspaceOwnerNpub, {
-          refresh: false,
-          skipPgVerification: isTowerPgBackendMode(),
-        });
-      }
-      if (this.selectedWorkspaceKey) {
-        await this.bootstrapSelectedWorkspace({ runAccessPrune: false });
+      const towerPgMode = isTowerPgBackendMode();
+      if (!towerPgMode) {
+        if (!this.selectedWorkspaceKey && this.currentWorkspaceOwnerNpub) {
+          const legacyMatch = this.knownWorkspaces.find((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub) || null;
+          if (legacyMatch) this.selectedWorkspaceKey = legacyMatch.workspaceKey || '';
+        }
+        if (!this.selectedWorkspaceKey && this.knownWorkspaces.length > 0) {
+          this.selectedWorkspaceKey = this.knownWorkspaces[0].workspaceKey || '';
+          this.currentWorkspaceOwnerNpub = this.knownWorkspaces[0].workspaceOwnerNpub;
+        }
+        if (this.selectedWorkspaceKey || this.currentWorkspaceOwnerNpub) {
+          await this.selectWorkspace(this.selectedWorkspaceKey || this.currentWorkspaceOwnerNpub, {
+            refresh: false,
+            skipPgVerification: false,
+          });
+        }
+        if (this.selectedWorkspaceKey) {
+          await this.bootstrapSelectedWorkspace({ runAccessPrune: false });
+        }
       }
       await this.maybeAutoLogin();
+      if (towerPgMode && this.session?.npub) {
+        if (!this.selectedWorkspaceKey && this.currentWorkspaceOwnerNpub) {
+          const legacyMatch = this.knownWorkspaces.find((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub) || null;
+          if (legacyMatch) this.selectedWorkspaceKey = legacyMatch.workspaceKey || '';
+        }
+        if (!this.selectedWorkspaceKey && this.knownWorkspaces.length > 0) {
+          this.selectedWorkspaceKey = this.knownWorkspaces[0].workspaceKey || '';
+          this.currentWorkspaceOwnerNpub = this.knownWorkspaces[0].workspaceOwnerNpub;
+        }
+        if (this.selectedWorkspaceKey || this.currentWorkspaceOwnerNpub) {
+          await this.selectWorkspace(this.selectedWorkspaceKey || this.currentWorkspaceOwnerNpub, { refresh: false });
+        }
+        if (this.selectedWorkspaceKey) {
+          await this.bootstrapSelectedWorkspace({ runAccessPrune: false });
+        }
+      }
       this.updateWorkspaceBootstrapPrompt();
       if (this.session?.npub && (!this.backendUrl || (!this.selectedWorkspaceKey && !this.showWorkspaceBootstrapModal))) {
         this.openConnectModal();

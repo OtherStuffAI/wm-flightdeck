@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildWorkspaceKey,
   findWorkspaceByKey,
+  filterWorkspacesForSession,
   mergeWorkspaceEntries,
   normalizeWorkspaceEntry,
   workspaceFromToken,
@@ -22,6 +23,48 @@ describe('workspace identity keys', () => {
       workspaceOwnerNpub: 'npub1workspace',
       directHttpsUrl: 'https://sb.example/',
     })).toBe('url:https://sb.example::workspace:npub1workspace');
+  });
+});
+
+describe('workspace session filtering', () => {
+  it('keeps older PG workspace locators without a cached session until selection can verify them', () => {
+    const unscoped = normalizeWorkspaceEntry({
+      workspace_owner_npub: 'npub1owner',
+      workspace_id: 'workspace-1',
+      tower_service_npub: 'npub1tower',
+      workspace_service_npub: 'npub1workspace',
+      app_npub: 'flightdeck_pg',
+      pg_backend_mode: true,
+    });
+    const current = normalizeWorkspaceEntry({
+      ...unscoped,
+      pgSessionNpub: 'npub1user',
+    });
+    const otherSigner = normalizeWorkspaceEntry({
+      ...unscoped,
+      workspaceId: 'workspace-2',
+      workspaceOwnerNpub: 'npub1otherowner',
+      workspaceServiceNpub: 'npub1otherworkspace',
+      pgSessionNpub: 'npub1other',
+    });
+
+    const scoped = filterWorkspacesForSession([unscoped, current, otherSigner], 'npub1user');
+
+    expect(scoped.map((workspace) => workspace.workspaceId)).toEqual(['workspace-1', 'workspace-1']);
+    expect(scoped).not.toContainEqual(expect.objectContaining({ pgSessionNpub: 'npub1other' }));
+  });
+
+  it('does not expose PG workspaces before a signer session exists', () => {
+    const workspace = normalizeWorkspaceEntry({
+      workspace_owner_npub: 'npub1owner',
+      workspace_id: 'workspace-1',
+      tower_service_npub: 'npub1tower',
+      workspace_service_npub: 'npub1workspace',
+      app_npub: 'flightdeck_pg',
+      pg_backend_mode: true,
+    });
+
+    expect(filterWorkspacesForSession([workspace], '')).toEqual([]);
   });
 });
 
