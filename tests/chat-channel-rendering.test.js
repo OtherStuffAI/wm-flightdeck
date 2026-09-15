@@ -73,9 +73,10 @@ describe('Chat channel rendering hooks', () => {
 
   it('renders task board sort controls with created, modified, and A-Z direction options', () => {
     const taskSectionIndex = html.indexOf('class="tasks-section"');
-    const bulkBarIndex = html.indexOf('class="task-bulk-bar"', taskSectionIndex);
-    const taskToolbar = html.slice(taskSectionIndex, bulkBarIndex);
+    const taskBoardIndex = html.indexOf('class="kanban-board"', taskSectionIndex);
+    const taskToolbar = html.slice(taskSectionIndex, taskBoardIndex);
 
+    expect(taskToolbar).toContain('class="doc-actions-popover task-control-actions-popover"');
     expect(taskToolbar).toContain('class="task-sort-control"');
     expect(taskToolbar).toContain('@change="$store.chat.setTaskSortMode($event.target.value)"');
     expect(taskToolbar).toContain('<option value="created_asc">Created: oldest first</option>');
@@ -86,25 +87,45 @@ describe('Chat channel rendering hooks', () => {
     expect(taskToolbar).toContain('<option value="alpha_desc">Z-A</option>');
   });
 
+  it('keeps desktop task controls in one row with secondary actions in the menu', () => {
+    const taskSectionIndex = html.indexOf('class="tasks-section"');
+    const taskBoardIndex = html.indexOf('class="kanban-board"', taskSectionIndex);
+    const taskToolbar = html.slice(taskSectionIndex, taskBoardIndex);
+
+    expect(taskToolbar).toContain('class="filter-to-me-btn"');
+    expect(taskToolbar).toContain('class="doc-actions-popover task-control-actions-popover"');
+    expect(taskToolbar).toContain("$store.chat.showBoardDescendantTasks ? 'Hide child-scope tasks' : 'Show child-scope tasks'");
+    expect(taskToolbar).toContain('@click="$store.chat.markAllTasksRead(); open = false"');
+    expect(taskToolbar).toContain('class="task-selected-count-pill"');
+    expect(taskToolbar).toContain('class="task-control-bulk-actions"');
+    expect(taskToolbar).not.toContain('class="task-bulk-bar"');
+    expect(styles).toMatch(/\.task-top-toolbar\s*\{[\s\S]*display:\s*flex;[\s\S]*align-items:\s*center;/);
+    expect(styles).toMatch(/\.task-create-bar\s*\{[\s\S]*flex:\s*0\s+0\s+clamp\(14\.5rem,\s*24vw,\s*20rem\);[\s\S]*margin-bottom:\s*0;/);
+    expect(styles).toMatch(/\.task-filters-bar\s*\{[\s\S]*flex:\s*1\s+1\s+auto;[\s\S]*flex-wrap:\s*nowrap;/);
+    expect(styles).toMatch(/\.filter-to-me-btn\s*\{[\s\S]*order:\s*3;/);
+    expect(styles).toMatch(/\.task-selected-count-pill\s*\{[\s\S]*order:\s*6;/);
+    expect(styles).toMatch(/\.task-section-actions-menu\s*\{[\s\S]*order:\s*7;/);
+  });
+
   it('keeps task and docs top toolbars sticky inside the content scroller', () => {
     const taskSectionIndex = html.indexOf('class="tasks-section"');
     const taskToolbarIndex = html.indexOf('class="task-top-toolbar"', taskSectionIndex);
     const taskCreateIndex = html.indexOf('class="task-create-bar"', taskToolbarIndex);
     const taskFiltersIndex = html.indexOf('class="task-filters-bar"', taskToolbarIndex);
-    const taskBulkIndex = html.indexOf('class="task-bulk-bar"', taskSectionIndex);
+    const taskBoardIndex = html.indexOf('class="kanban-board"', taskSectionIndex);
 
     expect(taskToolbarIndex).toBeGreaterThan(taskSectionIndex);
     expect(taskCreateIndex).toBeGreaterThan(taskToolbarIndex);
     expect(taskFiltersIndex).toBeGreaterThan(taskCreateIndex);
-    expect(taskFiltersIndex).toBeLessThan(taskBulkIndex);
+    expect(taskFiltersIndex).toBeLessThan(taskBoardIndex);
     expect(styles).toMatch(/\.task-top-toolbar\s*\{[\s\S]*position:\s*sticky;[\s\S]*top:\s*0;/);
     expect(styles).toMatch(/\.docs-header\s*\{[\s\S]*position:\s*sticky;[\s\S]*top:\s*0;/);
   });
 
   it('collapses secondary task controls behind a mobile ellipsis while keeping view switching visible', () => {
     const taskSectionIndex = html.indexOf('class="tasks-section"');
-    const bulkBarIndex = html.indexOf('class="task-bulk-bar"', taskSectionIndex);
-    const taskToolbar = html.slice(taskSectionIndex, bulkBarIndex);
+    const taskBoardIndex = html.indexOf('class="kanban-board"', taskSectionIndex);
+    const taskToolbar = html.slice(taskSectionIndex, taskBoardIndex);
     const mobileStart = styles.indexOf('@media (max-width: 640px)');
     expect(mobileStart).toBeGreaterThanOrEqual(0);
     const mobileCss = styles.slice(mobileStart, styles.indexOf('/* Responsive task board */', mobileStart));

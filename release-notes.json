@@ -1796,6 +1796,13 @@
       "notes": [
         "Let long task names wrap cleanly in task cards, lists, detail headers, and task references while slightly reducing the title size only in cramped long-title cases."
       ]
+    },
+    {
+      "buildNumber": 2017,
+      "label": "Compact kanban controls",
+      "notes": [
+        "Compress desktop task-board controls into one owner row, keeping owner and frequent filters visible while moving sort, child scopes, read, and bulk actions into the task menu."
+      ]
     }
   ]
 }

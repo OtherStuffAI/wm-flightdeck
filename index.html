@@ -2845,33 +2845,6 @@
             </template>
             <button
               type="button"
-              class="board-descendant-toggle"
-              x-show="$store.chat.canToggleBoardDescendants"
-              @click="$store.chat.toggleBoardDescendantTasks()"
-              :aria-label="$store.chat.boardDescendantToggleTitle"
-              :title="$store.chat.boardDescendantToggleTitle"
-              :aria-pressed="$store.chat.showBoardDescendantTasks"
-              :class="{ 'board-descendant-toggle-active': $store.chat.showBoardDescendantTasks }"
-            >
-              <template x-if="$store.chat.showBoardDescendantTasks">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                  <path d="M5 4.75A1.75 1.75 0 0 1 6.75 3h4.5A1.75 1.75 0 0 1 13 4.75v2.5A1.75 1.75 0 0 1 11.25 9h-1.5v2h5.5A1.75 1.75 0 0 1 17 12.75v1.5h1.25A1.75 1.75 0 0 1 20 16v3.25A1.75 1.75 0 0 1 18.25 21h-4.5A1.75 1.75 0 0 1 12 19.25V16A1.75 1.75 0 0 1 13.75 14.25H15v-1.5H9.75v1.5H11A1.75 1.75 0 0 1 12.75 16v3.25A1.75 1.75 0 0 1 11 21H6.5a1.75 1.75 0 0 1-1.75-1.75V16A1.75 1.75 0 0 1 6.5 14.25h1.5V9h-1.25A1.75 1.75 0 0 1 5 7.25z"></path>
-                </svg>
-              </template>
-              <template x-if="!$store.chat.showBoardDescendantTasks">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="5" y="3" width="8" height="6" rx="1.5"></rect>
-                  <rect x="4" y="15" width="8" height="6" rx="1.5"></rect>
-                  <rect x="12" y="15" width="8" height="6" rx="1.5"></rect>
-                  <path d="M9 9v3"></path>
-                  <path d="M8 12h8"></path>
-                  <path d="M16 12v3"></path>
-                </svg>
-              </template>
-            </button>
-
-            <button
-              type="button"
               class="board-descendant-toggle task-view-toggle"
               @click="$store.chat.toggleTaskViewMode()"
               :title="$store.chat.taskViewMode === 'kanban' ? 'Switch to list view' : 'Switch to kanban view'"
@@ -2896,23 +2869,12 @@
               </template>
             </button>
 
-            <label class="task-sort-control" title="Order tasks inside each board column">
-              <span>Sort</span>
-              <select
-                class="task-sort-select"
-                :value="$store.chat.taskSortMode"
-                @change="$store.chat.setTaskSortMode($event.target.value)"
-                aria-label="Order tasks inside each board column"
-              >
-                <option value="manual">Manual</option>
-                <option value="created_asc">Created: oldest first</option>
-                <option value="created_desc">Created: newest first</option>
-                <option value="modified_desc">Modified: newest first</option>
-                <option value="modified_asc">Modified: oldest first</option>
-                <option value="alpha_asc">A-Z</option>
-                <option value="alpha_desc">Z-A</option>
-              </select>
-            </label>
+            <span
+              class="task-selected-count-pill"
+              x-show="$store.chat.selectedTaskCount > 0"
+              x-cloak
+              x-text="$store.chat.selectedTaskCount + ' selected'"
+            ></span>
 
             <div class="doc-actions-menu task-section-actions-menu" x-data="{ open: false }" @click.outside="open = false">
               <button type="button" class="doc-actions-toggle" title="Task actions" aria-label="Task actions" @click="open = !open">
@@ -2922,28 +2884,52 @@
                   <circle cx="12" cy="19" r="1.8"></circle>
                 </svg>
               </button>
-              <div class="doc-actions-popover" x-show="open" x-cloak x-transition>
+              <div class="doc-actions-popover task-control-actions-popover" x-show="open" x-cloak x-transition>
+                <button
+                  type="button"
+                  x-show="$store.chat.canToggleBoardDescendants"
+                  @click="$store.chat.toggleBoardDescendantTasks(); open = false"
+                  :aria-pressed="$store.chat.showBoardDescendantTasks"
+                >
+                  <span x-text="$store.chat.showBoardDescendantTasks ? 'Hide child-scope tasks' : 'Show child-scope tasks'"></span>
+                </button>
+                <label class="task-sort-control" title="Order tasks inside each board column">
+                  <span>Sort</span>
+                  <select
+                    class="task-sort-select"
+                    :value="$store.chat.taskSortMode"
+                    @change="$store.chat.setTaskSortMode($event.target.value)"
+                    aria-label="Order tasks inside each board column"
+                  >
+                    <option value="manual">Manual</option>
+                    <option value="created_asc">Created: oldest first</option>
+                    <option value="created_desc">Created: newest first</option>
+                    <option value="modified_desc">Modified: newest first</option>
+                    <option value="modified_asc">Modified: oldest first</option>
+                    <option value="alpha_asc">A-Z</option>
+                    <option value="alpha_desc">Z-A</option>
+                  </select>
+                </label>
                 <button
                   type="button"
                   @click="$store.chat.markAllTasksRead(); open = false"
                   :disabled="!$store.chat.unreadTasks"
                 >Mark all as read</button>
+                <template x-if="$store.chat.selectedTaskCount > 0">
+                  <div class="task-control-bulk-actions">
+                    <span class="task-menu-selection-summary" x-text="$store.chat.selectedTaskCount + ' selected'"></span>
+                    <button type="button" @click="$store.chat.selectVisibleTasks()" :disabled="$store.chat.bulkTaskBusy">Select visible</button>
+                    <button type="button" @click="$store.chat.clearSelectedTasks()" :disabled="$store.chat.bulkTaskBusy">Clear selection</button>
+                    <button type="button" @click="$store.chat.applyBulkTaskAction('archive')" :disabled="$store.chat.bulkTaskBusy" x-text="$store.chat.bulkTaskBusy ? 'Working...' : 'Archive selected'"></button>
+                    <button type="button" @click="$store.chat.applyBulkTaskAction('done')" :disabled="$store.chat.bulkTaskBusy">Mark selected done</button>
+                    <button type="button" @click="$store.chat.applyBulkTaskAction('blocked')" :disabled="$store.chat.bulkTaskBusy">Mark selected blocked</button>
+                    <button type="button" @click="$store.chat.applyBulkTaskAction('ready')" :disabled="!$store.chat.canBulkAssignToDefaultAgent" :title="$store.chat.defaultAgentNpub ? '' : 'Set a default agent in Setup first'">Mark selected ready</button>
+                    <button type="button" @click="$store.chat.applyBulkTaskAction('today')" :disabled="$store.chat.bulkTaskBusy">Move selected to today</button>
+                  </div>
+                </template>
               </div>
             </div>
           </div>
-          </div>
-
-          <div class="task-bulk-bar" x-show="!$store.chat.showTaskDetail && $store.chat.selectedTaskCount > 0">
-            <span class="task-bulk-count" x-text="$store.chat.selectedTaskCount + ' selected'"></span>
-            <div class="task-bulk-actions">
-              <button type="button" class="task-bulk-btn" @click="$store.chat.selectVisibleTasks()" :disabled="$store.chat.bulkTaskBusy">Select visible</button>
-              <button type="button" class="task-bulk-btn" @click="$store.chat.clearSelectedTasks()" :disabled="$store.chat.bulkTaskBusy">Clear</button>
-              <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('archive')" :disabled="$store.chat.bulkTaskBusy" x-text="$store.chat.bulkTaskBusy ? 'Working...' : 'Archive'"></button>
-              <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('done')" :disabled="$store.chat.bulkTaskBusy">Done</button>
-              <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('blocked')" :disabled="$store.chat.bulkTaskBusy">Blocked</button>
-              <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('ready')" :disabled="!$store.chat.canBulkAssignToDefaultAgent" :title="$store.chat.defaultAgentNpub ? '' : 'Set a default agent in Setup first'">Ready</button>
-              <button type="button" class="task-bulk-btn" @click="$store.chat.applyBulkTaskAction('today')" :disabled="$store.chat.bulkTaskBusy">Today</button>
-            </div>
           </div>
 
           <button type="button" class="btn btn-secondary" x-show="!$store.chat.showTaskDetail && $store.chat.taskPageHasMore"
