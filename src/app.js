@@ -7004,6 +7004,16 @@ export function initApp() {
       return this.getTaskAssigneeNpubs(task)[0] || null;
     },
 
+    isLongTaskTitle(title) {
+      const normalized = String(title || '').replace(/\s+/g, ' ').trim();
+      if (!normalized) return false;
+      return normalized.length > 64 || normalized.split(' ').some((word) => word.length > 22);
+    },
+
+    getTaskTitleLengthClass(title) {
+      return { 'task-title-long': this.isLongTaskTitle(title) };
+    },
+
     withTaskAssigneeNpubs(task, npubs = []) {
       const assigned_to_npubs = normalizeTaskAssigneeNpubs(npubs);
       return {

@@ -2109,8 +2109,8 @@
                       </div>
                     </template>
                     <template x-if="item.inboxKind === 'task'">
-                      <div class="attention-card flightdeck-summary-card flightdeck-summary-card-task" :class="{ 'flightdeck-summary-card-inbox-unread': item.isUnread, 'flightdeck-summary-card-inbox-working': item.isWorking }" :style="{ '--task-status-color': $store.chat.resolveTaskBoardColumnColor(item) }" role="link" tabindex="0" @click="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(item)" @keydown.enter.prevent="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(item)" @keydown.space.prevent="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(item)" aria-label="Open selected task">
-                        <span class="attention-card-icon" aria-hidden="true" x-html="$store.chat.getAttentionIconSvg('task')"></span><span class="attention-card-content"><span class="inbox-card-heading"><span class="attention-card-kicker" :title="`Task · ${item.subtitle}`" x-text="`Task · ${item.subtitle}`"></span><span class="attention-card-time" x-text="$store.chat.formatRelativeTime(item.inboxActivityAt)"></span></span><span class="attention-card-title deck-card-inline-title" x-html="$store.chat.renderDeckCardText(item.title)"></span><span class="attention-card-subtitle" x-text="item.reason"></span></span><span class="attention-card-meta"><template x-if="item.taskState === 'review'"><button type="button" class="attention-card-mark-read" :title="item.taskState === 'review' ? 'Mark done' : 'Mark read'" :aria-label="item.taskState === 'review' ? 'Mark done' : 'Mark read'" data-deck-card-action x-show="item.isUnread" x-cloak @click.stop.prevent="$store.chat.markDeckReviewTaskDone(item.recordId)" @keydown.enter.stop @keydown.space.stop>Mark done</button></template><template x-if="item.taskState !== 'review'"><button type="button" class="attention-card-mark-read" :title="item.taskState === 'review' ? 'Mark done' : 'Mark read'" :aria-label="item.taskState === 'review' ? 'Mark done' : 'Mark read'" data-deck-card-action x-show="item.isUnread" x-cloak @click.stop.prevent="$store.chat.markDeckResourceRead('task', item.recordId)" @keydown.enter.stop @keydown.space.stop>Mark read</button></template><span class="attention-card-action">Open task</span></span>
+                      <div class="attention-card flightdeck-summary-card flightdeck-summary-card-task" :class="{ 'flightdeck-summary-card-inbox-unread': item.isUnread, 'flightdeck-summary-card-inbox-working': item.isWorking, 'task-title-long': $store.chat.isLongTaskTitle(item.title) }" :style="{ '--task-status-color': $store.chat.resolveTaskBoardColumnColor(item) }" role="link" tabindex="0" @click="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(item)" @keydown.enter.prevent="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(item)" @keydown.space.prevent="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(item)" aria-label="Open selected task">
+                        <span class="attention-card-icon" aria-hidden="true" x-html="$store.chat.getAttentionIconSvg('task')"></span><span class="attention-card-content"><span class="inbox-card-heading"><span class="attention-card-kicker" :title="`Task · ${item.subtitle}`" x-text="`Task · ${item.subtitle}`"></span><span class="attention-card-time" x-text="$store.chat.formatRelativeTime(item.inboxActivityAt)"></span></span><span class="attention-card-title deck-card-inline-title" :class="$store.chat.getTaskTitleLengthClass(item.title)" x-html="$store.chat.renderDeckCardText(item.title)"></span><span class="attention-card-subtitle" x-text="item.reason"></span></span><span class="attention-card-meta"><template x-if="item.taskState === 'review'"><button type="button" class="attention-card-mark-read" :title="item.taskState === 'review' ? 'Mark done' : 'Mark read'" :aria-label="item.taskState === 'review' ? 'Mark done' : 'Mark read'" data-deck-card-action x-show="item.isUnread" x-cloak @click.stop.prevent="$store.chat.markDeckReviewTaskDone(item.recordId)" @keydown.enter.stop @keydown.space.stop>Mark done</button></template><template x-if="item.taskState !== 'review'"><button type="button" class="attention-card-mark-read" :title="item.taskState === 'review' ? 'Mark done' : 'Mark read'" :aria-label="item.taskState === 'review' ? 'Mark done' : 'Mark read'" data-deck-card-action x-show="item.isUnread" x-cloak @click.stop.prevent="$store.chat.markDeckResourceRead('task', item.recordId)" @keydown.enter.stop @keydown.space.stop>Mark read</button></template><span class="attention-card-action">Open task</span></span>
                       </div>
                     </template>
                     <template x-if="item.inboxKind === 'document'">
@@ -2318,12 +2318,12 @@
                   <div id="flightdeck-summary-tasks-body" x-show="!$store.chat.isSummaryPanelCollapsed('tasks')" x-cloak>
                   <div class="attention-card-list flightdeck-summary-card-list" x-show="$store.chat.autopilotOverviewTasks.length > 0">
                     <template x-for="task in $store.chat.pagedAutopilotOverviewTasks" :key="task.id">
-                      <div class="attention-card flightdeck-summary-card flightdeck-summary-card-task" :class="{ 'attention-card-unread': task.isUnread }" :style="{ '--task-status-color': $store.chat.resolveTaskBoardColumnColor(task) }" role="link" tabindex="0" @click="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(task)" @keydown.enter.prevent="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(task)" @keydown.space.prevent="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(task)" aria-label="Open selected task">
+                      <div class="attention-card flightdeck-summary-card flightdeck-summary-card-task" :class="{ 'attention-card-unread': task.isUnread, 'task-title-long': $store.chat.isLongTaskTitle(task.title) }" :style="{ '--task-status-color': $store.chat.resolveTaskBoardColumnColor(task) }" role="link" tabindex="0" @click="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(task)" @keydown.enter.prevent="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(task)" @keydown.space.prevent="if ($store.chat.shouldOpenDeckCard($event)) $store.chat.openAutopilotOverviewTask(task)" aria-label="Open selected task">
                         <span class="attention-card-new-dot" x-show="task.isUnread" aria-label="New activity"></span>
                         <span class="attention-card-icon" aria-hidden="true" x-html="$store.chat.getAttentionIconSvg('task')"></span>
                         <span class="attention-card-content">
                           <span class="attention-card-kicker" x-text="task.subtitle"></span>
-                          <span class="attention-card-title deck-card-inline-title" x-html="$store.chat.renderDeckCardText(task.title)"></span>
+                          <span class="attention-card-title deck-card-inline-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-html="$store.chat.renderDeckCardText(task.title)"></span>
                           <span class="attention-card-subtitle" x-text="task.reason"></span>
                         </span>
                         <span class="attention-card-meta">
@@ -2985,7 +2985,7 @@
                               />
                             </label>
                           </template>
-                          <span class="kanban-card-title" x-text="task.title"></span>
+                          <span class="kanban-card-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-text="task.title"></span>
                           <template x-if="$store.chat.getPrimaryTaskAssigneeNpub(task)">
                             <button type="button" class="kanban-card-assignee identity-avatar-button" :title="'Assigned to ' + $store.chat.getSenderName($store.chat.getPrimaryTaskAssigneeNpub(task))" @click.stop="$store.chat.openIdentityCard($event, $store.chat.getPrimaryTaskAssigneeNpub(task))">
                               <template x-if="$store.chat.getSenderAvatar($store.chat.getPrimaryTaskAssigneeNpub(task))">
@@ -3068,7 +3068,7 @@
                               <input type="checkbox" :checked="$store.chat.isTaskSelected(task.record_id)" @change="$store.chat.toggleTaskSelection(task.record_id)" />
                             </label>
                           </template>
-                          <span class="task-list-title" x-text="task.title"></span>
+                          <span class="task-list-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-text="task.title"></span>
                           <template x-if="$store.chat.getPrimaryTaskAssigneeNpub(task)">
                             <button type="button" class="kanban-card-assignee identity-avatar-button" :title="'Assigned to ' + $store.chat.getSenderName($store.chat.getPrimaryTaskAssigneeNpub(task))" @click.stop="$store.chat.openIdentityCard($event, $store.chat.getPrimaryTaskAssigneeNpub(task))">
                               <template x-if="$store.chat.getSenderAvatar($store.chat.getPrimaryTaskAssigneeNpub(task))">
@@ -3091,7 +3091,7 @@
                                 <input type="checkbox" :checked="$store.chat.isTaskSelected(sub.record_id)" @change="$store.chat.toggleTaskSelection(sub.record_id)" />
                               </label>
                               <span class="task-list-indent"></span>
-                              <span class="task-list-title" x-text="sub.title"></span>
+                              <span class="task-list-title" :class="$store.chat.getTaskTitleLengthClass(sub.title)" x-text="sub.title"></span>
                               <span class="badge task-status-badge" :style="{ '--task-status-color': $store.chat.stateColor(sub.state) }" x-text="$store.chat.formatState(sub.state)"></span>
                               <template x-if="$store.chat.getPrimaryTaskAssigneeNpub(sub)">
                                 <button type="button" class="kanban-card-assignee identity-avatar-button" :title="'Assigned to ' + $store.chat.getSenderName($store.chat.getPrimaryTaskAssigneeNpub(sub))" @click.stop="$store.chat.openIdentityCard($event, $store.chat.getPrimaryTaskAssigneeNpub(sub))">
@@ -3246,6 +3246,7 @@
                     <div class="task-detail-title-row" x-show="!$store.chat.isTaskDetailEditing()">
                       <h1
                         class="task-detail-title-display"
+                        :class="$store.chat.getTaskTitleLengthClass($store.chat.editingTask.title)"
                         x-text="$store.chat.editingTask.title || 'Untitled task'"
                       ></h1>
                       <template x-if="$store.chat.getPrimaryTaskAssigneeNpub($store.chat.editingTask)">
@@ -3466,7 +3467,7 @@
                             :disabled="pred.missing_predecessor"
                           >
                             <span class="task-predecessor-heading">
-                              <span class="task-predecessor-title" x-text="pred.title || pred.record_id"></span>
+                              <span class="task-predecessor-title" :class="$store.chat.getTaskTitleLengthClass(pred.title)" x-text="pred.title || pred.record_id"></span>
                               <span
                                 class="badge task-predecessor-state task-status-badge"
                                 x-show="pred.state"
@@ -3644,7 +3645,7 @@
                       <template x-for="st in ($store.chat.editingTask?.record_id ? $store.chat.getSubtasks($store.chat.editingTask.record_id) : [])" :key="st.record_id">
                         <div class="subtask-row" @click="$store.chat.openTaskDetail(st.record_id)">
                           <span class="progress-dot" :style="`background: ${$store.chat.stateColor(st.state)}`"></span>
-                          <span class="subtask-title" x-text="st.title"></span>
+                          <span class="subtask-title" :class="$store.chat.getTaskTitleLengthClass(st.title)" x-text="st.title"></span>
                           <span class="badge task-status-badge" :style="{ '--task-status-color': $store.chat.stateColor(st.state) }" x-text="$store.chat.formatState(st.state)"></span>
                         </div>
                       </template>
@@ -3668,6 +3669,7 @@
                       <span class="task-field-label">Parent:</span>
                       <button type="button" class="task-parent-btn"
                         @click="$store.chat.openTaskDetail($store.chat.editingTask.parent_task_id)"
+                        :class="$store.chat.getTaskTitleLengthClass(($store.chat.tasks.find(t => t.record_id === $store.chat.editingTask.parent_task_id) || {}).title)"
                         x-text="($store.chat.tasks.find(t => t.record_id === $store.chat.editingTask.parent_task_id) || {}).title || 'Unknown'">
                       </button>
                     </div>

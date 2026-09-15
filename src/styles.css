@@ -6957,6 +6957,32 @@ button:disabled {
   text-overflow: ellipsis;
 }
 
+.flightdeck-summary-card-task {
+  align-items: start;
+}
+
+.flightdeck-summary-card-task .attention-card-title {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.flightdeck-summary-card-task .attention-card-title.task-title-long {
+  font-size: 0.86rem;
+}
+
+.flightdeck-summary-card-task.task-title-long {
+  grid-template-columns: 2.35rem minmax(0, 1fr);
+}
+
+.flightdeck-summary-card-task.task-title-long .attention-card-meta {
+  grid-column: 2;
+  align-items: flex-start;
+  justify-content: flex-start;
+  width: 100%;
+}
+
 .attention-card-subtitle {
   font-size: 0.78rem;
   line-height: 1.35;
@@ -17366,6 +17392,10 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   min-width: 0;
 }
 
+.kanban-card-title.task-title-long {
+  font-size: 0.8rem;
+}
+
 .task-card-select {
   display: inline-flex;
   align-items: center;
@@ -17613,7 +17643,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
 .task-list-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   padding: 0.45rem 0.6rem;
   cursor: pointer;
@@ -17643,9 +17673,15 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 .task-list-title {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.32;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.task-list-title.task-title-long {
+  font-size: 0.92rem;
 }
 
 /* Task view toggle */
@@ -17871,6 +17907,10 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   letter-spacing: 0;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.task-detail-title-display.task-title-long {
+  font-size: 1.9rem;
 }
 
 .task-detail-assignee-avatar {
@@ -18173,6 +18213,12 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   font-size: 0.86rem;
   font-weight: 600;
   color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.task-predecessor-title.task-title-long {
+  font-size: 0.82rem;
 }
 
 .task-predecessor-heading {
@@ -18289,9 +18335,16 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
 .subtask-title {
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  line-height: 1.32;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.subtask-title.task-title-long {
+  font-size: 0.84rem;
 }
 
 .subtask-add-inline {
@@ -18318,7 +18371,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 /* Parent link */
 .task-parent-link {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   margin-top: 0.25rem;
 }
@@ -18327,8 +18380,15 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   background: transparent;
   color: var(--accent);
   font-size: 0.85rem;
+  min-width: 0;
   padding: 0.2rem 0;
+  overflow-wrap: anywhere;
+  text-align: left;
   text-decoration: underline;
+}
+
+.task-parent-btn.task-title-long {
+  font-size: 0.81rem;
 }
 
 .task-references-section {
@@ -19222,6 +19282,10 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     overflow: auto;
     padding-inline: 0.9rem;
     padding-bottom: calc(3.25rem + var(--mobile-section-switcher-height, 68px) + env(safe-area-inset-bottom));
+  }
+
+  .task-detail-title-display.task-title-long {
+    font-size: 1.45rem;
   }
 
   .task-detail-main,
@@ -23441,6 +23505,13 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     height: 44px;
     min-height: 44px;
     padding: 0;
+  }
+  .flightdeck-summary-panel-inbox .flightdeck-summary-card-task.task-title-long {
+    grid-template-columns: 1.75rem minmax(0, 1fr);
+  }
+  .flightdeck-summary-panel-inbox .flightdeck-summary-card-task.task-title-long .attention-card-meta {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 }
 

@@ -24,4 +24,25 @@ describe('task board drag and drop', () => {
     expect(preamble).toContain('await this.applyTaskPatch(taskId, { state: targetState }');
     expect(preamble).toContain('backgroundPg: isTowerPgBackendMode()');
   });
+
+  it('wraps and modestly reduces long task titles on constrained task surfaces', () => {
+    const html = readProjectFile('index.html');
+    const styles = readProjectFile('src/styles.css');
+    const source = readProjectFile('src/app.js');
+
+    expect(source).toContain('isLongTaskTitle(title) {');
+    expect(source).toContain("return { 'task-title-long': this.isLongTaskTitle(title) };");
+    expect(html.match(/getTaskTitleLengthClass/g)).toHaveLength(9);
+    expect(html.match(/isLongTaskTitle/g)).toHaveLength(2);
+    expect(styles).toMatch(/\.flightdeck-summary-card-task \.attention-card-title\s*\{[^}]*white-space:\s*normal;[^}]*overflow:\s*visible;[^}]*overflow-wrap:\s*anywhere;/s);
+    expect(styles).toMatch(/\.flightdeck-summary-card-task \.attention-card-title\.task-title-long\s*\{[^}]*font-size:\s*0\.86rem;/s);
+    expect(styles).toMatch(/\.flightdeck-summary-card-task\.task-title-long\s*\{[^}]*grid-template-columns:\s*2\.35rem minmax\(0, 1fr\);/s);
+    expect(styles).toMatch(/\.flightdeck-summary-card-task\.task-title-long \.attention-card-meta\s*\{[^}]*grid-column:\s*2;[^}]*justify-content:\s*flex-start;/s);
+    expect(styles).toMatch(/\.kanban-card-title\.task-title-long\s*\{[^}]*font-size:\s*0\.8rem;/s);
+    expect(styles).toMatch(/\.task-list-title\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*white-space:\s*normal;/s);
+    expect(styles).toMatch(/\.task-detail-title-display\.task-title-long\s*\{[^}]*font-size:\s*1\.9rem;/s);
+    expect(styles).toMatch(/@media \(max-width: 768px\)[\s\S]*\.task-detail-title-display\.task-title-long\s*\{[^}]*font-size:\s*1\.45rem;/s);
+    expect(styles).toMatch(/\.subtask-title\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*white-space:\s*normal;/s);
+    expect(styles).toMatch(/\.task-parent-btn\s*\{[^}]*overflow-wrap:\s*anywhere;[^}]*text-align:\s*left;/s);
+  });
 });

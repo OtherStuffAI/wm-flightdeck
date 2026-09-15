@@ -1789,6 +1789,13 @@
       "notes": [
         "Use the signed browser session, not a stale workspace key, when listing Tower PG workspaces and show the exact Tower list request details in the picker."
       ]
+    },
+    {
+      "buildNumber": 2015,
+      "label": "Long task title wrapping",
+      "notes": [
+        "Let long task names wrap cleanly in task cards, lists, detail headers, and task references while slightly reducing the title size only in cramped long-title cases."
+      ]
     }
   ]
 }

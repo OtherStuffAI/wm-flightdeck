@@ -241,7 +241,7 @@ describe('flight deck summary template', () => {
 
     expect(html).toContain('class="attention-card-title deck-card-inline-title" x-html="$store.chat.renderDeckCardText(thread.title)"');
     expect(html).toContain('class="attention-card-subtitle deck-card-inline-preview" x-html="$store.chat.renderDeckCardText(thread.latestMessage)"');
-    expect(html).toContain('class="attention-card-title deck-card-inline-title" x-html="$store.chat.renderDeckCardText(task.title)"');
+    expect(html).toContain('class="attention-card-title deck-card-inline-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-html="$store.chat.renderDeckCardText(task.title)"');
     expect(html).toContain('class="attention-card-title deck-card-inline-title" x-html="$store.chat.renderDeckCardText(doc.title)"');
     expect(styles).toMatch(/\.deck-card-inline-title \.mention-pill,[\s\S]*\.deck-card-inline-preview \.mention-pill\s*\{[^}]*max-width:[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/s);
   });
