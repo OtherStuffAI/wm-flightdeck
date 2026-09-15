@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { buildSidebarScopeChannelGroups } from '../src/sidebar-navigation.js';
+import { channelsManagerMixin } from '../src/channels-manager.js';
+import { buildSidebarScopeChannelGroups, buildSidebarUnreadChannels } from '../src/sidebar-navigation.js';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
@@ -46,6 +47,45 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(groups.map(({ scope }) => scope.record_id)).toEqual(['scope-a', 'scope-b', 'scope-child']);
   });
 
+  it('derives unread copy links from the existing sidebar tree without moving canonical channels', () => {
+    const groups = buildSidebarScopeChannelGroups([
+      { record_id: 'scope-a', title: 'Alpha', level: 'l1' },
+      { record_id: 'scope-b', title: 'Beta', level: 'l1' },
+    ], [
+      { record_id: 'channel-a-1', title: 'Alpha first', scope_id: 'scope-a', position: 1 },
+      { record_id: 'channel-a-2', title: 'Alpha second', scope_id: 'scope-a', position: 2 },
+      { record_id: 'channel-b-1', title: 'Beta first', scope_id: 'scope-b', position: 1 },
+      { record_id: 'channel-deleted', title: 'Deleted', scope_id: 'scope-a', position: 3, record_state: 'deleted' },
+    ]);
+    const unreadIds = new Set(['channel-a-2', 'channel-b-1', 'channel-deleted']);
+
+    expect(buildSidebarUnreadChannels(groups, (channelId) => unreadIds.has(channelId)).map((channel) => channel.record_id)).toEqual([
+      'channel-a-2',
+      'channel-b-1',
+    ]);
+    expect(groups[0].channels.map((channel) => channel.record_id)).toEqual(['channel-a-1', 'channel-a-2']);
+    expect(groups[1].channels.map((channel) => channel.record_id)).toEqual(['channel-b-1']);
+  });
+
+  it('exposes unread copy links through the channel manager using live unread state', () => {
+    const store = Object.create(channelsManagerMixin);
+    Object.assign(store, {
+      scopes: [{ record_id: 'scope-a', title: 'Alpha', level: 'l1' }],
+      channels: [
+        { record_id: 'channel-a-1', title: 'Read', scope_id: 'scope-a', position: 1 },
+        { record_id: 'channel-a-2', title: 'Unread', scope_id: 'scope-a', position: 2 },
+      ],
+      _unreadChannels: { 'channel-a-2': true },
+      isChannelUnread(channelId) {
+        return this._unreadChannels[channelId] === true;
+      },
+    });
+
+    expect(store.sidebarUnreadChannels.map((channel) => channel.record_id)).toEqual(['channel-a-2']);
+    store._unreadChannels = {};
+    expect(store.sidebarUnreadChannels).toEqual([]);
+  });
+
   it('binds Deck selection styling and routes clicks through the shared work-context controller', () => {
     expect(html).toContain('class="sidebar-scope-navigation"');
     expect(html).toContain('active: $store.chat.pgContextSelectedChannelId === channel.record_id && !$store.chat.pgContextSelectedThreadId');
@@ -81,6 +121,31 @@ describe('expanded sidebar scope/channel navigation', () => {
 
     expect(homeIndex).toBeGreaterThan(-1);
     expect(groupsIndex).toBeGreaterThan(homeIndex);
+  });
+
+  it('renders an Unread copy section before canonical scope groups only when unread channels exist', () => {
+    const navigationStart = html.indexOf('class="sidebar-scope-navigation"');
+    const navigationEnd = html.indexOf('class="sidebar-workspace-footer"', navigationStart);
+    const navigation = html.slice(navigationStart, navigationEnd);
+    const unreadIndex = navigation.indexOf('class="sidebar-unread-section"');
+    const groupsIndex = navigation.indexOf('x-for="group in $store.chat.sidebarScopeChannelGroups"');
+    const resolvedLabel = "$store.chat.getChannelLabel(channel) || channel.name || 'Channel'";
+
+    expect(unreadIndex).toBeGreaterThan(-1);
+    expect(groupsIndex).toBeGreaterThan(unreadIndex);
+    expect(navigation).toContain('x-show="$store.chat.sidebarUnreadChannels.length > 0"');
+    expect(navigation).toContain('aria-label="Unread channels"');
+    expect(navigation).toContain('class="sidebar-unread-heading">Unread</h2>');
+    expect(navigation).toContain('x-for="channel in $store.chat.sidebarUnreadChannels"');
+    expect(navigation).toContain(':key="`sidebar-unread-channel-${channel.record_id}`"');
+    expect(navigation).toContain(`:aria-label="'Open unread ' + (${resolvedLabel})"`);
+    expect(navigation).toContain(`:title="${resolvedLabel}"`);
+    expect(navigation).toContain(`x-text="${resolvedLabel}"`);
+    expect(navigation).toContain('@click="$store.chat.selectWorkContextChannel(channel.record_id, $event)"');
+    expect(navigation).toContain(":class=\"{ active: $store.chat.pgContextSelectedChannelId === channel.record_id && !$store.chat.pgContextSelectedThreadId }\"");
+    expect(styles).toMatch(/\.sidebar-unread-section\s*\{[^}]*border-bottom:\s*1px solid var\(--border\);/s);
+    expect(styles).toMatch(/\.sidebar-unread-channel\s*\{[^}]*min-height:\s*34px;[^}]*font-weight:\s*800;/s);
+    expect(styles).toMatch(/\.sidebar-unread-channel\.active\s*\{[^}]*background:\s*#eff6ff;[^}]*color:\s*#1d4ed8;/s);
   });
 
   it('uses the existing workspace avatar image and initials fallback state', () => {

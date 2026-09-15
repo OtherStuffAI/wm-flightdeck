@@ -58,3 +58,17 @@ export function buildSidebarScopeChannelGroups(scopes = [], channels = []) {
   }
   return [...dmGroups, ...groups];
 }
+
+export function buildSidebarUnreadChannels(groups = [], isUnread = () => false) {
+  const unread = [];
+  const seenChannelIds = new Set();
+  for (const group of Array.isArray(groups) ? groups : []) {
+    for (const channel of Array.isArray(group?.channels) ? group.channels : []) {
+      const id = recordId(channel);
+      if (!id || seenChannelIds.has(id) || !isVisibleRecord(channel) || isUnread(id) !== true) continue;
+      seenChannelIds.add(id);
+      unread.push(channel);
+    }
+  }
+  return unread;
+}

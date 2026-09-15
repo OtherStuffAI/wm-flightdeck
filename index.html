@@ -1195,6 +1195,24 @@
             <span class="sidebar-workspace-overview-label">Home</span>
           </button>
           <p class="sidebar-scope-navigation-status" x-show="!$store.chat.scopesLoaded">Loading navigation…</p>
+          <section class="sidebar-unread-section" x-show="$store.chat.sidebarUnreadChannels.length > 0" x-cloak aria-label="Unread channels">
+            <h2 class="sidebar-unread-heading">Unread</h2>
+            <div class="sidebar-unread-channel-list">
+              <template x-for="channel in $store.chat.sidebarUnreadChannels" :key="`sidebar-unread-channel-${channel.record_id}`">
+                <button
+                  type="button"
+                  class="sidebar-unread-channel"
+                  :class="{ active: $store.chat.pgContextSelectedChannelId === channel.record_id && !$store.chat.pgContextSelectedThreadId }"
+                  :aria-current="$store.chat.pgContextSelectedChannelId === channel.record_id && !$store.chat.pgContextSelectedThreadId ? 'page' : null"
+                  :aria-label="'Open unread ' + ($store.chat.getChannelLabel(channel) || channel.name || 'Channel')"
+                  :title="$store.chat.getChannelLabel(channel) || channel.name || 'Channel'"
+                  @click="$store.chat.selectWorkContextChannel(channel.record_id, $event)"
+                >
+                  <span class="sidebar-unread-channel-label" x-text="$store.chat.getChannelLabel(channel) || channel.name || 'Channel'"></span>
+                </button>
+              </template>
+            </div>
+          </section>
           <template x-for="group in $store.chat.sidebarScopeChannelGroups" :key="`sidebar-scope-${group.scope.record_id}`">
             <section class="sidebar-scope-group">
               <h2 class="sidebar-scope-heading">

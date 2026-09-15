@@ -2391,6 +2391,67 @@ button:disabled {
   font-size: 0.78rem;
 }
 
+.sidebar-unread-section {
+  margin: 0 0 0.65rem;
+  padding: 0 0 0.55rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-unread-heading {
+  margin: 0;
+  padding: 0.2rem 0.65rem 0.25rem;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.sidebar-unread-channel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.sidebar-unread-channel {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  padding: 0.34rem 0.65rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.sidebar-unread-channel:hover {
+  background: #f8fafc;
+}
+
+.sidebar-unread-channel.active {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.sidebar-unread-channel:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: -2px;
+}
+
+.sidebar-unread-channel-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sidebar-scope-group + .sidebar-scope-group {
   margin-top: 0.65rem;
 }

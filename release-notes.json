@@ -1720,6 +1720,13 @@
       "notes": [
         "Refresh scopes and channels as required control-plane data during Tower PG startup and full sync so navigation appears without visiting Setup first."
       ]
+    },
+    {
+      "buildNumber": 1998,
+      "label": "Unread channel shortcuts",
+      "notes": [
+        "Show unread channels in a shortcut section at the top of the left sidebar while keeping each channel in its normal scope location."
+      ]
     }
   ]
 }

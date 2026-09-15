@@ -95,7 +95,7 @@ import {
   recordNavigationPointer,
   waitForNavigationPaint,
 } from './navigation-paint.js';
-import { buildSidebarScopeChannelGroups } from './sidebar-navigation.js';
+import { buildSidebarScopeChannelGroups, buildSidebarUnreadChannels } from './sidebar-navigation.js';
 
 // ---------------------------------------------------------------------------
 
@@ -983,6 +983,13 @@ export const channelsManagerMixin = {
 
   get sidebarScopeChannelGroups() {
     return buildSidebarScopeChannelGroups(this.scopes, this.channels);
+  },
+
+  get sidebarUnreadChannels() {
+    return buildSidebarUnreadChannels(
+      this.sidebarScopeChannelGroups,
+      (channelId) => this.isChannelUnread?.(channelId) === true,
+    );
   },
 
   get dmScope() {
