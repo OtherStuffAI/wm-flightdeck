@@ -10,8 +10,12 @@
     "schemas:bundle": "node scripts/generate-flightdeck-schema-bundle.mjs",
     "build": "node scripts/generate-flightdeck-schema-bundle.mjs && node scripts/build-flightdeck.mjs",
     "preview": "vite preview",
+    "lint": "biome check . --formatter-enabled=false --assist-enabled=false --diagnostic-level=error",
+    "lint:fix": "biome check . --write --formatter-enabled=false --diagnostic-level=error",
+    "format": "biome format . --write",
     "check:public-source": "node scripts/check-public-source.mjs",
     "verify:dist": "node scripts/verify-dist-assets.mjs",
+    "validate": "bun run lint && bun run check:public-source && bun run test && bun run build && bun run verify:dist && git diff --check",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:perf": "PLAYWRIGHT_DISABLE_VIDEO=1 playwright test tests/e2e/performance-baseline.spec.cjs"
@@ -40,6 +44,7 @@
     "turndown": "^7.2.4"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.13",
     "fake-indexeddb": "^6.0.0",
     "jsdom": "^29.0.1",
     "playwright": "1.51.1",

@@ -44,6 +44,29 @@ bun install
 bun run test
 ```
 
+Run the first-pass source quality gate with:
+
+```bash
+bun run lint
+```
+
+`lint` uses Biome for fast parser and baseline recommended-rule coverage across
+Flight Deck source, scripts, tests, JSON, and CSS while preserving the existing
+formatting baseline. `bun run lint:fix` applies safe Biome fixes without
+reformatting the repository; `bun run format` is available for explicit
+developer formatting work.
+
+Before committing a source checkpoint, run:
+
+```bash
+bun run validate
+```
+
+`validate` composes lint, public-source checks, Vitest, build, dist asset
+verification, and `git diff --check`. The build step uses the normal local
+Flight Deck build behavior, so release build metadata may change and should be
+committed when appropriate.
+
 Build the static site with:
 
 ```bash

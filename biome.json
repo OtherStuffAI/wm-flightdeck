@@ -1,0 +1,67 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "maxSize": 2097152,
+    "includes": [
+      "src/**/*.js",
+      "src/**/*.css",
+      "scripts/**/*.js",
+      "scripts/**/*.mjs",
+      "tests/**/*.js",
+      "tests/**/*.cjs",
+      "tests/fixtures/**/*.json",
+      "*.json",
+      "*.cjs",
+      "*.js",
+      "!src/generated/**",
+      "!tests/e2e/fixtures/**"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "all"
+    }
+  },
+  "json": {
+    "formatter": {
+      "indentStyle": "space",
+      "indentWidth": 2,
+      "trailingCommas": "none"
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "correctness": {
+        "noUnsafeFinally": "off"
+      },
+      "suspicious": {
+        "noAssignInExpressions": "off",
+        "noDuplicateCase": "off",
+        "useIterableCallbackReturn": "off"
+      }
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  }
+}
