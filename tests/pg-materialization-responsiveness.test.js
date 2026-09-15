@@ -40,7 +40,10 @@ class NodeWorkerAdapter {
 describe('large PG bundle main-thread responsiveness', () => {
   let client;
 
-  afterEach(() => client?.dispose('test-cleanup'));
+  afterEach(() => {
+    client?.dispose('test-cleanup');
+    client = null;
+  });
 
   it('keeps the caller event loop responsive during a real 20,000-row Dexie worker transaction', async () => {
     const runId = randomUUID();
@@ -70,18 +73,23 @@ describe('large PG bundle main-thread responsiveness', () => {
       previous = now;
       ticks += 1;
     }, 2);
-    const startedAt = performance.now();
-    const result = await client.materialize({
-      workspaceDbKey: `responsiveness-db-${runId}`,
-      store: {
-        workspaceOwnerNpub: 'npub1owner',
-        session: { npub: 'npub1viewer' },
-        currentWorkspace: { workspaceId: 'workspace-1' },
-      },
-      bundle,
-    });
-    const totalMs = performance.now() - startedAt;
-    clearInterval(timer);
+    let result;
+    let totalMs = 0;
+    try {
+      const startedAt = performance.now();
+      result = await client.materialize({
+        workspaceDbKey: `responsiveness-db-${runId}`,
+        store: {
+          workspaceOwnerNpub: 'npub1owner',
+          session: { npub: 'npub1viewer' },
+          currentWorkspace: { workspaceId: 'workspace-1' },
+        },
+        bundle,
+      });
+      totalMs = performance.now() - startedAt;
+    } finally {
+      clearInterval(timer);
+    }
 
     expect(result).toMatchObject({ applied: 20_000, cursor: 'cursor-20000' });
     expect(totalMs).toBeGreaterThanOrEqual(100);

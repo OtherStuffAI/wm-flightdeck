@@ -54,17 +54,19 @@ After source changes:
 Use the repository's configured Wingman development runtime. Do not start a
 standalone preview, deploy, or modify adjacent services unless the user asks.
 
-After UI changes, run the scriptable Playwright performance baseline:
+After UI changes, run the scriptable, agent-independent Playwright performance
+baseline:
 
 ```bash
 PLAYWRIGHT_DISABLE_VIDEO=1 bun run test:e2e:perf
 ```
 
 Compare the results against `docs/playwright-performance-baseline.md` or the
-latest documented baseline, and report the observed numbers in the handoff.
-Meaningful slowdowns in text entry or loading/navigation performance are
-unacceptable unless the operator explicitly accepts the regression. Treat dropped
-characters, long tasks during typing, or obvious loading regressions as blockers.
+latest documented baseline, and report the observed baseline numbers in the
+handoff instead of just saying the command passed. Meaningful regressions in
+text entry, dropped characters, long tasks during typing, or loading/navigation
+slowdown are unacceptable unless the product owner explicitly accepts the
+regression.
 
 ## Shared-tree safety
 
