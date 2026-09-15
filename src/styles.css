@@ -20,6 +20,7 @@
   --color-accent: #3b82f6;
   --danger: #ef4444;
   --unread-pastel-red: rgba(254, 226, 226, 0.62);
+  --inbox-working-blue: rgba(191, 219, 254, 0.88);
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
@@ -6061,6 +6062,32 @@ button:disabled {
 .flightdeck-summary-panel-inbox .flightdeck-summary-card-inbox-unread:hover,
 .flightdeck-summary-panel-inbox .flightdeck-summary-card-inbox-unread:focus-visible {
   background: var(--unread-pastel-red);
+}
+
+.flightdeck-summary-panel-inbox .flightdeck-summary-card-inbox-working,
+.flightdeck-summary-panel-inbox .flightdeck-summary-card-inbox-working:hover,
+.flightdeck-summary-panel-inbox .flightdeck-summary-card-inbox-working:focus-visible {
+  animation: deck-inbox-working-pulse 2.1s ease-in-out infinite;
+  background: var(--inbox-working-blue);
+}
+
+@keyframes deck-inbox-working-pulse {
+  0%,
+  100% {
+    background: var(--inbox-working-blue);
+  }
+  50% {
+    background: #ffffff;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flightdeck-summary-panel-inbox .flightdeck-summary-card-inbox-working,
+  .flightdeck-summary-panel-inbox .flightdeck-summary-card-inbox-working:hover,
+  .flightdeck-summary-panel-inbox .flightdeck-summary-card-inbox-working:focus-visible {
+    animation: none;
+    background: var(--inbox-working-blue);
+  }
 }
 
 .attention-feed-header select {

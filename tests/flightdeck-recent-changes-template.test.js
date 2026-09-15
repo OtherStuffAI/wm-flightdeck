@@ -75,6 +75,25 @@ describe('flight deck summary template', () => {
     expect(styles).toMatch(/\.chat-post-thread-unread,[\s\S]*background:\s*var\(--unread-pastel-red\)/);
   });
 
+  it('binds Inbox working animation separately from unread state', () => {
+    const html = readFileSync(INDEX_PATH, 'utf8');
+    const styles = readFileSync(STYLES_PATH, 'utf8');
+    const inbox = html.slice(
+      html.indexOf('data-testid="flightdeck-summary-inbox"'),
+      html.indexOf('<div class="flightdeck-summary-grid"')
+    );
+
+    expect(inbox.match(/'flightdeck-summary-card-inbox-working': \$store\.chat\.isDeckInboxItemWorking\(item\)/g)).toHaveLength(3);
+    expect(inbox).toMatch(/item\.inboxKind === 'chat'[\s\S]*flightdeck-summary-card-inbox-working/);
+    expect(inbox).toMatch(/item\.inboxKind === 'task'[\s\S]*flightdeck-summary-card-inbox-working/);
+    expect(inbox).toMatch(/item\.inboxKind === 'document'[\s\S]*flightdeck-summary-card-inbox-working/);
+    expect(inbox).not.toMatch(/item\.inboxKind === 'file'[\s\S]*flightdeck-summary-card-inbox-working/);
+    expect(styles).toMatch(/--inbox-working-blue:\s*rgba\(191, 219, 254, 0\.88\)/);
+    expect(styles).toMatch(/\.flightdeck-summary-panel-inbox \.flightdeck-summary-card-inbox-working,[\s\S]*animation:\s*deck-inbox-working-pulse 2\.1s ease-in-out infinite;[\s\S]*background:\s*var\(--inbox-working-blue\)/);
+    expect(styles).toMatch(/@keyframes deck-inbox-working-pulse[\s\S]*50%\s*\{[\s\S]*background:\s*#ffffff;/);
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.flightdeck-summary-panel-inbox \.flightdeck-summary-card-inbox-working,[\s\S]*animation:\s*none;[\s\S]*background:\s*var\(--inbox-working-blue\)/);
+  });
+
   it('keeps a uniform Inbox border while removing only the top accent', () => {
     const styles = readFileSync(STYLES_PATH, 'utf8');
 

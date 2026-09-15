@@ -1734,6 +1734,13 @@
       "notes": [
         "Keep document content and comments in separate scroll panes on narrow screens so the referenced text stays visible while writing a comment."
       ]
+    },
+    {
+      "buildNumber": 2000,
+      "label": "Inbox working pulse",
+      "notes": [
+        "Pulse Inbox cards from soft blue to white while Autopilot is actively working on their linked chat thread, task, or document."
+      ]
     }
   ]
 }

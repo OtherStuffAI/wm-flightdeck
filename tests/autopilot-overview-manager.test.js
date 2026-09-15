@@ -14,6 +14,8 @@ import {
   deriveDeckThreadCreateTitle,
   filterAutopilotOverviewInbox,
   getOverviewFileSourceContract,
+  isDeckInboxActivityWorking,
+  isDeckInboxItemWorking,
   nextDeckInboxVisibleCount,
   sliceAutopilotOverviewInbox,
 } from '../src/autopilot-overview-manager.js';
@@ -190,7 +192,113 @@ describe('autopilot overview manager', () => {
       id: 'tower-thread-1',
       rootRecordId: 'source-message-1',
       channelId: 'chan-a',
+      latestMessageRecordId: 'reply-1',
+      messageIds: ['reply-1'],
     });
+  });
+
+  it('detects active Autopilot work for Inbox cards without depending on unread state', () => {
+    const nowMs = Date.parse('2026-09-15T05:00:00.000Z');
+    const workingActivity = {
+      record_id: 'activity-row',
+      activity_id: 'activity-a',
+      turn_id: 'turn-a',
+      channel_id: 'chan-a',
+      thread_id: 'thread-a',
+      trigger_message_id: 'reply-a-new',
+      state: 'working',
+      visibility: 'user_visible',
+      expires_at: '2026-09-15T05:05:00.000Z',
+    };
+    const completedActivity = { ...workingActivity, activity_id: 'activity-b', state: 'completed' };
+    const expiredActivity = { ...workingActivity, activity_id: 'activity-c', expires_at: '2026-09-15T04:59:59.000Z' };
+
+    expect(isDeckInboxActivityWorking(workingActivity, nowMs)).toBe(true);
+    expect(isDeckInboxActivityWorking(completedActivity, nowMs)).toBe(false);
+    expect(isDeckInboxActivityWorking(expiredActivity, nowMs)).toBe(false);
+    expect(isDeckInboxItemWorking({
+      inboxKind: 'chat',
+      id: 'thread-a',
+      channelId: 'chan-a',
+      isUnread: false,
+    }, [workingActivity], { nowMs })).toBe(true);
+    expect(isDeckInboxItemWorking({
+      inboxKind: 'chat',
+      id: 'thread-a',
+      channelId: 'chan-a',
+      isUnread: true,
+    }, [completedActivity, expiredActivity], { nowMs })).toBe(false);
+    expect(isDeckInboxItemWorking({
+      inboxKind: 'chat',
+      id: 'thread-a',
+      channelId: 'other-channel',
+    }, [workingActivity], { nowMs })).toBe(false);
+    expect(isDeckInboxItemWorking({
+      inboxKind: 'file',
+      id: 'thread-a',
+      channelId: 'chan-a',
+    }, [workingActivity], { nowMs })).toBe(false);
+  });
+
+  it('matches task and document Inbox cards through reliable linked thread activity', () => {
+    const nowMs = Date.parse('2026-09-15T05:00:00.000Z');
+    const [taskRow] = buildAutopilotOverviewTasks({
+      tasks: [{
+        record_id: 'task-a',
+        title: 'Task from thread',
+        state: 'in_progress',
+        pg_channel_id: 'chan-a',
+        pg_thread_id: 'thread-a',
+        updated_at: '2026-09-15T04:50:00.000Z',
+      }],
+    });
+    const [docRow] = buildAutopilotOverviewDocuments({
+      documents: [{
+        record_id: 'doc-a',
+        title: 'Doc from thread',
+        pg_channel_id: 'chan-a',
+        pg_thread_id: 'thread-a',
+        updated_at: '2026-09-15T04:55:00.000Z',
+      }],
+    });
+    const workingActivity = {
+      record_id: 'activity-row',
+      activity_id: 'activity-a',
+      turn_id: 'turn-a',
+      channel_id: 'chan-a',
+      thread_id: 'thread-a',
+      state: 'working',
+      visibility: 'user_visible',
+      expires_at: '2026-09-15T05:05:00.000Z',
+    };
+
+    expect(taskRow).toMatchObject({ channelId: 'chan-a', threadId: 'thread-a' });
+    expect(docRow).toMatchObject({ channelId: 'chan-a', threadId: 'thread-a' });
+    expect(isDeckInboxItemWorking({ ...taskRow, inboxKind: 'task' }, [workingActivity], { nowMs })).toBe(true);
+    expect(isDeckInboxItemWorking({ ...docRow, inboxKind: 'document' }, [workingActivity], { nowMs })).toBe(true);
+  });
+
+  it('exposes the Inbox working helper on the overview store mixin', () => {
+    const store = {
+      responseActivityTick: 1,
+      getVisibleAgentActivities: () => [{
+        record_id: 'activity-row',
+        activity_id: 'activity-a',
+        turn_id: 'turn-a',
+        channel_id: 'chan-a',
+        thread_id: 'thread-a',
+        state: 'working',
+        visibility: 'user_visible',
+        expires_at: '2999-01-01T00:00:00.000Z',
+      }],
+      isCurrentAgentActivityWorking: () => true,
+    };
+
+    expect(autopilotOverviewManagerMixin.isDeckInboxItemWorking.call(store, {
+      inboxKind: 'chat',
+      id: 'thread-a',
+      channelId: 'chan-a',
+    })).toBe(true);
   });
 
   it('combines entity activity newest first while retaining one row per thread', () => {

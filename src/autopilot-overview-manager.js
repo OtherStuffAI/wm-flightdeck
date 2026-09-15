@@ -10,6 +10,7 @@ import {
   isTaskActivityAuthoredByViewer,
   latestTaskActivity,
 } from './task-attention-actor.js';
+import { isTerminalAgentActivity } from './agent-activity.js';
 import {
   resolveHorizontalSwipe,
   resolveVisibleThreadNeighbour,
@@ -49,6 +50,57 @@ function memoizedProjection(store, key, references, build) {
 function shouldIncludeInboxTask(row = {}) {
   const state = normalizeString(row.taskState || row.state).toLowerCase();
   return state === 'done' || !isTerminalTaskState(state);
+}
+
+function normalizedDeckInboxChannelId(item = {}) {
+  return normalizeString(item.channelId || item.context?.channelId || item.pg_channel_id || item.channel_id);
+}
+
+function normalizedDeckInboxThreadIds(item = {}) {
+  return [
+    item.threadId,
+    item.id,
+    item.rootRecordId,
+    item.recordId,
+    item.pg_thread_id,
+    item.thread_id,
+    item.context?.threadId,
+  ].map(normalizeString).filter(Boolean);
+}
+
+function normalizedDeckInboxMessageIds(item = {}) {
+  return [
+    item.latestMessageRecordId,
+    item.rootRecordId,
+    ...(Array.isArray(item.messageIds) ? item.messageIds : []),
+  ].map(normalizeString).filter(Boolean);
+}
+
+export function isDeckInboxActivityWorking(activity = {}, nowMs = Date.now()) {
+  if (!activity?.record_id || isTerminalAgentActivity(activity)) return false;
+  const expiresAt = Date.parse(activity.expires_at || '');
+  return Number.isFinite(expiresAt) && expiresAt > nowMs;
+}
+
+export function isDeckInboxItemWorking(item = {}, activities = [], options = {}) {
+  if (!item || item.inboxKind === 'file') return false;
+  const nowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : Date.now();
+  const isActivityWorking = typeof options.isActivityWorking === 'function'
+    ? options.isActivityWorking
+    : (activity) => isDeckInboxActivityWorking(activity, nowMs);
+  const itemChannelId = normalizedDeckInboxChannelId(item);
+  const threadIds = new Set(normalizedDeckInboxThreadIds(item));
+  const messageIds = new Set(item.inboxKind === 'chat' ? normalizedDeckInboxMessageIds(item) : []);
+  if (threadIds.size === 0 && messageIds.size === 0) return false;
+  return (Array.isArray(activities) ? activities : []).some((activity) => {
+    if (!isActivityWorking(activity)) return false;
+    const activityChannelId = normalizeString(activity.channel_id);
+    if (itemChannelId && activityChannelId && itemChannelId !== activityChannelId) return false;
+    const activityThreadId = normalizeString(activity.thread_id);
+    if (activityThreadId && threadIds.has(activityThreadId)) return true;
+    const triggerMessageId = normalizeString(activity.trigger_message_id);
+    return triggerMessageId && messageIds.has(triggerMessageId);
+  });
 }
 
 export function normalizeInboxSearchText(value) {
@@ -312,8 +364,10 @@ export function buildAutopilotOverviewThreads({
         scopeId: channelScopeId || null,
         title: rootTitle || '(empty thread)',
         latestMessage: normalizeString(message.body),
+        latestMessageRecordId: message.record_id,
         latestMessageUpdatedAt: message.updated_at || '',
         latestMessageSender: message.sender_npub || '',
+        messageIds: [message.record_id],
         messageBodies: [normalizeString(message.body)],
         messageCount: 1,
         rootRecordId: isThreadRoot ? message.record_id : (normalizeString(message.parent_message_id) || threadId),
@@ -326,6 +380,7 @@ export function buildAutopilotOverviewThreads({
     }
 
     existing.messageCount += 1;
+    existing.messageIds.push(message.record_id);
     existing.messageBodies.push(normalizeString(message.body));
     existing.isUnread = existing.isUnread || (resourceViewStateMode
       ? unreadThreadMap?.[threadId] === true
@@ -340,6 +395,7 @@ export function buildAutopilotOverviewThreads({
     }
     if (messageTs > existingTs || (messageTs === existingTs && String(message.record_id).localeCompare(String(existing.id)) > 0)) {
       existing.latestMessage = normalizeString(message.body);
+      existing.latestMessageRecordId = message.record_id;
       existing.latestMessageUpdatedAt = message.updated_at || '';
       existing.latestMessageSender = message.sender_npub || '';
     }
@@ -412,6 +468,8 @@ export function buildAutopilotOverviewTasks({
       title: readableTitle(task, 'Untitled task'),
       subtitle: task.status || formatStateLabel(task.state) || 'Task',
       taskState: task.state || 'new',
+      channelId: task.pg_channel_id || task.channel_id || null,
+      threadId: task.pg_thread_id || task.thread_id || null,
       reason: commentDrove
         ? `${attentionComments.length} recent ${attentionComments.length === 1 ? 'comment' : 'comments'}`
         : (task.updated_at ? 'Task updated' : 'Task created'),
@@ -432,6 +490,7 @@ export function buildAutopilotOverviewTasks({
       context: {
         scopeId: recordScopeId(task) || null,
         channelId: task.pg_channel_id || task.channel_id || null,
+        threadId: task.pg_thread_id || task.thread_id || null,
       },
       hrefTarget: { section: 'tasks', recordId: task.record_id, focusId: latestComment?.record_id || null },
     });
@@ -496,6 +555,8 @@ export function buildAutopilotOverviewDocuments({
       recordId: document.record_id,
       title: readableTitle(document, 'Untitled document'),
       subtitle: document.summary || document.content || 'Document',
+      channelId: document.pg_channel_id || document.channel_id || null,
+      threadId: document.pg_thread_id || document.thread_id || null,
       reason: commentsForDocument.length > 0
         ? `${commentsForDocument.length} unresolved ${commentsForDocument.length === 1 ? 'comment' : 'comments'}`
         : (document.updated_at ? 'Document updated' : 'Document created'),
@@ -517,6 +578,7 @@ export function buildAutopilotOverviewDocuments({
       context: {
         scopeId: recordScopeId(document) || null,
         channelId: document.pg_channel_id || document.channel_id || null,
+        threadId: document.pg_thread_id || document.thread_id || null,
       },
       hrefTarget: { section: 'docs', recordId: document.record_id, focusId: latestComment?.record_id || null },
     });
@@ -1259,6 +1321,18 @@ export const autopilotOverviewManagerMixin = {
   setDeckInboxType(value) {
     this.deckInboxType = ['chat', 'task', 'document', 'file'].includes(value) ? value : 'all';
     autopilotOverviewManagerMixin.resetDeckInboxSources.call(this);
+  },
+
+  isDeckInboxItemWorking(item) {
+    void this.responseActivityTick;
+    const activities = typeof this.getVisibleAgentActivities === 'function'
+      ? this.getVisibleAgentActivities()
+      : this.agentActivities;
+    return isDeckInboxItemWorking(item, activities, {
+      isActivityWorking: (activity) => (typeof this.isCurrentAgentActivityWorking === 'function'
+        ? this.isCurrentAgentActivityWorking(activity)
+        : isDeckInboxActivityWorking(activity)),
+    });
   },
 
   setDeckInboxSearchDraft(value) {
