@@ -1736,10 +1736,10 @@
       ]
     },
     {
-      "buildNumber": 2000,
-      "label": "Inbox working pulse",
+      "buildNumber": 2002,
+      "label": "Rollback Inbox working pulse",
       "notes": [
-        "Pulse Inbox cards from soft blue to white while Autopilot is actively working on their linked chat thread, task, or document."
+        "Remove the live Inbox working-pulse calculation to restore thread loading and typing responsiveness while a cached working-status design is prepared."
       ]
     }
   ]
