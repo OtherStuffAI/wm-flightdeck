@@ -231,6 +231,54 @@ describe('PG workspace manager mode', () => {
     expect(store.showWorkspaceAccessGate).toBe(true);
   });
 
+  it('lets a fresh Tower PG workspace list clear a stale local forgotten marker', async () => {
+    const api = await import('../src/api.js');
+    const remoteWorkspace = {
+      identity: {
+        tower_service_npub: 'npub1tower',
+        workspace_service_npub: 'npub1workspace',
+        workspace_owner_npub: 'npub1owner',
+        workspace_id: 'workspace-1',
+        app_npub: 'flightdeck_pg',
+      },
+      tower_base_url: 'https://tower.example',
+      label: 'Recovered from Tower',
+      description: 'Tower still lists this workspace',
+      capabilities: ['pg_scopes'],
+    };
+    api.listTowerPgWorkspaces.mockResolvedValue({ workspaces: [remoteWorkspace] });
+    const persistWorkspaceSettings = vi.fn().mockResolvedValue(undefined);
+    const store = await buildStore({
+      forgottenPgWorkspaces: [{
+        sessionNpub: 'npub1user',
+        workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
+        workspaceId: 'workspace-1',
+        workspaceServiceNpub: 'npub1workspace',
+        workspaceOwnerNpub: 'npub1owner',
+        towerServiceNpub: 'npub1tower',
+        appNpub: 'flightdeck_pg',
+        forgottenAt: '2026-09-14T00:00:00.000Z',
+        reason: 'descriptor_not_found',
+      }],
+      persistWorkspaceSettings,
+    });
+
+    await store.loadRemoteWorkspaces();
+
+    expect(store.forgottenPgWorkspaces).toEqual([]);
+    expect(store.knownWorkspaces).toHaveLength(1);
+    expect(store.knownWorkspaces[0]).toMatchObject({
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceServiceNpub: 'npub1workspace',
+      workspaceId: 'workspace-1',
+      name: 'Recovered from Tower',
+      pgBackendMode: true,
+    });
+    expect(store.showWorkspaceAccessGate).toBe(true);
+    expect(persistWorkspaceSettings).toHaveBeenCalled();
+  });
+
   it('continues from the workspace access gate by selecting and bootstrapping the first workspace', async () => {
     const workspace = {
       workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',

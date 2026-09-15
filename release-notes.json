@@ -1775,6 +1775,13 @@
       "label": "Playwright performance baseline",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2010,
+      "label": "Tower workspace cache recovery",
+      "notes": [
+        "Let a fresh Tower workspace list restore workspaces hidden by stale device-local removal markers."
+      ]
     }
   ]
 }

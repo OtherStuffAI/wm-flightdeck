@@ -2176,8 +2176,10 @@ export const workspaceManagerMixin = {
             if (workspace && !avatarUrl) delete workspace.avatarUrl;
             return workspace;
           })
-          .filter(Boolean)
-          .filter((workspace) => !this.isPgWorkspaceForgottenThisLoad(workspace));
+          .filter(Boolean);
+        for (const workspace of workspaces) {
+          this.clearPgWorkspaceForgotten(workspace);
+        }
         const remoteKeys = new Set(workspaces
           .map((workspace) => workspace.workspaceKey || workspace.workspaceOwnerNpub)
           .filter(Boolean));
