@@ -1769,6 +1769,12 @@
       "notes": [
         "List accessible Tower workspaces after selecting a Tower even when the hosted app namespace filter has no matches."
       ]
+    },
+    {
+      "buildNumber": 2009,
+      "label": "Playwright performance baseline",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
