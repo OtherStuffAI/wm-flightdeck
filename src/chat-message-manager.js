@@ -1144,6 +1144,7 @@ export const chatMessageManagerMixin = {
       }
     }
     this.agentActivities = Array.isArray(activities) ? activities : [];
+    this.scheduleDeckInboxWorkingProjectionRefresh?.();
     this.revealPendingThreadAgentActivity(this.getVisibleAgentActivities());
     this.updateResponseActivityTimer();
   },

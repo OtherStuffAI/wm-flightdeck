@@ -9,6 +9,7 @@ import {
   buildAutopilotOverviewFiles,
   buildAutopilotOverviewTasks,
   buildAutopilotOverviewThreads,
+  buildInboxWorkingResourceKeys,
   buildRecentChannels,
   countUnresolvedDocumentComments,
   deriveDeckThreadCreateTitle,
@@ -588,6 +589,181 @@ describe('autopilot overview manager', () => {
     });
 
     expect(getter('autopilotOverviewInbox').filter((item) => item.isUnread)).toEqual([]);
+  });
+
+  it('marks Inbox rows working from fresh nonterminal cached activity keys', () => {
+    const workingResourceKeys = buildInboxWorkingResourceKeys([
+      {
+        record_id: 'activity-chat',
+        activity_id: 'activity-chat',
+        turn_id: 'turn-chat',
+        visibility: 'user_visible',
+        state: 'working',
+        channel_id: 'chan-1',
+        thread_id: 'thread-1',
+        trigger_message_id: 'message-1',
+        agent_npub: 'agent-a',
+        expires_at: '2026-09-15T06:10:00.000Z',
+        created_at: '2026-09-15T06:00:00.000Z',
+      },
+      {
+        record_id: 'activity-task',
+        activity_id: 'activity-task',
+        turn_id: 'turn-task',
+        visibility: 'user_visible',
+        state: 'working',
+        task_id: 'task-1',
+        agent_npub: 'agent-a',
+        expires_at: '2026-09-15T06:10:00.000Z',
+        created_at: '2026-09-15T06:01:00.000Z',
+      },
+      {
+        record_id: 'activity-doc',
+        activity_id: 'activity-doc',
+        turn_id: 'turn-doc',
+        visibility: 'user_visible',
+        state: 'working',
+        target_record_id: 'doc-1',
+        target_record_family_hash: recordFamilyHash('document'),
+        agent_npub: 'agent-a',
+        expires_at: '2026-09-15T06:10:00.000Z',
+        created_at: '2026-09-15T06:02:00.000Z',
+      },
+    ], { nowMs: Date.parse('2026-09-15T06:05:00.000Z') });
+
+    const inbox = buildAutopilotOverviewInbox({
+      threads: [{
+        id: 'thread-1',
+        rootRecordId: 'message-1',
+        channelId: 'chan-1',
+        title: 'Thread',
+        latestMessageUpdatedAt: '2026-09-15T06:03:00.000Z',
+      }],
+      tasks: [{
+        id: 'task:task-1',
+        recordId: 'task-1',
+        title: 'Task',
+        activityAt: '2026-09-15T06:02:00.000Z',
+      }],
+      documents: [{
+        id: 'document:doc-1',
+        recordId: 'doc-1',
+        title: 'Doc',
+        activityAt: '2026-09-15T06:01:00.000Z',
+      }],
+      files: [{
+        object_id: 'file-1',
+        name: 'Evidence.pdf',
+        activityAt: '2026-09-15T06:04:00.000Z',
+      }],
+      workingResourceKeys,
+    });
+
+    expect(inbox.find((row) => row.inboxKind === 'chat')?.isWorking).toBe(true);
+    expect(inbox.find((row) => row.inboxKind === 'task')?.isWorking).toBe(true);
+    expect(inbox.find((row) => row.inboxKind === 'document')?.isWorking).toBe(true);
+    expect(inbox.find((row) => row.inboxKind === 'file')?.isWorking).toBe(false);
+  });
+
+  it('does not mark Inbox rows working for terminal or stale activity', () => {
+    const workingResourceKeys = buildInboxWorkingResourceKeys([
+      {
+        record_id: 'terminal',
+        activity_id: 'terminal',
+        turn_id: 'terminal',
+        visibility: 'user_visible',
+        state: 'completed',
+        channel_id: 'chan-1',
+        thread_id: 'thread-1',
+        agent_npub: 'agent-a',
+        expires_at: '2026-09-15T06:10:00.000Z',
+        created_at: '2026-09-15T06:00:00.000Z',
+      },
+      {
+        record_id: 'stale',
+        activity_id: 'stale',
+        turn_id: 'stale',
+        visibility: 'user_visible',
+        state: 'working',
+        channel_id: 'chan-2',
+        thread_id: 'thread-2',
+        agent_npub: 'agent-a',
+        expires_at: '2026-09-15T05:59:00.000Z',
+        created_at: '2026-09-15T06:01:00.000Z',
+      },
+    ], { nowMs: Date.parse('2026-09-15T06:05:00.000Z') });
+
+    const inbox = buildAutopilotOverviewInbox({
+      threads: [
+        { id: 'thread-1', channelId: 'chan-1', latestMessageUpdatedAt: '2026-09-15T06:03:00.000Z' },
+        { id: 'thread-2', channelId: 'chan-2', latestMessageUpdatedAt: '2026-09-15T06:02:00.000Z' },
+      ],
+      workingResourceKeys,
+    });
+
+    expect(inbox.map((row) => row.isWorking)).toEqual([false, false]);
+  });
+
+  it('keeps the Inbox working projection cached across unrelated composer updates', () => {
+    const store = {
+      channels: [{ record_id: 'chan-1', title: 'Inbox' }],
+      messages: [{
+        record_id: 'message-1',
+        pg_thread_id: 'thread-1',
+        channel_id: 'chan-1',
+        body: 'Thread activity',
+        updated_at: '2026-09-15T06:03:00.000Z',
+      }],
+      fileMessages: [],
+      fileBrowserRows: [],
+      taskComments: [],
+      docComments: [],
+      fileComments: [],
+      tasks: [],
+      documents: [],
+      autopilotOverviewContext: { scopeId: 'all', channelId: 'all' },
+      scopesMap: null,
+      session: {},
+      signingNpub: '',
+      isTowerPgMode: true,
+      _unreadChannels: {},
+      _unreadThreadItems: {},
+      _unreadTaskItems: {},
+      _unreadDocItems: {},
+      agentActivities: [{
+        record_id: 'activity',
+        activity_id: 'activity',
+        turn_id: 'turn',
+        visibility: 'user_visible',
+        state: 'working',
+        channel_id: 'chan-1',
+        thread_id: 'thread-1',
+        agent_npub: 'agent-a',
+        expires_at: '2999-01-01T00:00:00.000Z',
+        created_at: '2026-09-15T06:00:00.000Z',
+      }],
+      deckInboxWorkingProjectionRevision: 1,
+    };
+    const getter = (name) => Object.getOwnPropertyDescriptor(autopilotOverviewManagerMixin, name).get.call(store);
+    Object.defineProperties(store, {
+      autopilotOverviewComments: { get: () => getter('autopilotOverviewComments') },
+      autopilotOverviewThreads: { get: () => getter('autopilotOverviewThreads') },
+      autopilotOverviewFiles: { get: () => getter('autopilotOverviewFiles') },
+      autopilotOverviewTasks: { get: () => getter('autopilotOverviewTasks') },
+      autopilotOverviewDocuments: { get: () => getter('autopilotOverviewDocuments') },
+      deckInboxWorkingResourceKeys: { get: () => getter('deckInboxWorkingResourceKeys') },
+    });
+
+    const keys = getter('deckInboxWorkingResourceKeys');
+    const inbox = getter('autopilotOverviewInbox');
+    expect(inbox[0]).toMatchObject({ inboxKind: 'chat', isWorking: true });
+
+    store.threadInput = 'ordinary composer typing';
+    expect(getter('deckInboxWorkingResourceKeys')).toBe(keys);
+    expect(getter('autopilotOverviewInbox')).toBe(inbox);
+
+    store.deckInboxWorkingProjectionRevision += 1;
+    expect(getter('deckInboxWorkingResourceKeys')).not.toBe(keys);
   });
 
   it('filters overview threads by scope and channel together', () => {

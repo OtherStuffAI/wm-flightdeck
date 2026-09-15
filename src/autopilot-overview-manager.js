@@ -7,6 +7,10 @@ import { isTerminalTaskState } from './attention-feed.js';
 import { recordFamilyHash } from './translators/chat.js';
 import { formatStateLabel } from './translators/tasks.js';
 import {
+  isTerminalAgentActivity,
+  selectVisibleAgentActivities,
+} from './agent-activity.js';
+import {
   isTaskActivityAuthoredByViewer,
   latestTaskActivity,
 } from './task-attention-actor.js';
@@ -24,6 +28,7 @@ export const DECK_INBOX_PAGE_SIZE = 50;
 const OPEN_COMMENT_STATUSES = new Set(['', 'open', 'unresolved', 'active']);
 const TASK_FAMILY = recordFamilyHash('task');
 const DOCUMENT_FAMILY = recordFamilyHash('document');
+const MAX_TIMEOUT_MS = 2_147_483_647;
 const overviewProjectionCache = new WeakMap();
 
 function normalizeString(value) {
@@ -89,6 +94,65 @@ function isKeyLikeDisplay(value) {
 function timestampMs(value) {
   const ts = Date.parse(value || '');
   return Number.isFinite(ts) ? ts : 0;
+}
+
+function addWorkingKey(keys, prefix, value) {
+  const normalized = normalizeString(value);
+  if (normalized) keys.add(`${prefix}:${normalized}`);
+}
+
+function addInboxActivityWorkingKeys(keys, activity = {}) {
+  const channelId = normalizeString(activity.channel_id);
+  const threadId = normalizeString(activity.thread_id);
+  const triggerMessageId = normalizeString(activity.trigger_message_id);
+  const targetRecordId = normalizeString(activity.target_record_id);
+  const targetFamily = normalizeString(activity.target_record_family_hash || activity.record_family_hash).toLowerCase();
+
+  addWorkingKey(keys, 'thread', threadId);
+  addWorkingKey(keys, 'message', triggerMessageId);
+  if (channelId && threadId) keys.add(`channel-thread:${channelId}:${threadId}`);
+  if (targetFamily.endsWith(':task')) addWorkingKey(keys, 'task', targetRecordId);
+  if (targetFamily.endsWith(':document')) addWorkingKey(keys, 'document', targetRecordId);
+  addWorkingKey(keys, 'task', activity.task_id || activity.taskId);
+  addWorkingKey(keys, 'document', activity.document_id || activity.documentId);
+}
+
+export function buildInboxWorkingResourceKeys(activities = [], { nowMs = Date.now() } = {}) {
+  const keys = new Set();
+  for (const activity of selectVisibleAgentActivities(Array.isArray(activities) ? activities : [], 'connected', nowMs)) {
+    if (isTerminalAgentActivity(activity)) continue;
+    const expiresAt = Date.parse(activity.expires_at || '');
+    if (!Number.isFinite(expiresAt) || expiresAt <= nowMs) continue;
+    addInboxActivityWorkingKeys(keys, activity);
+  }
+  return keys;
+}
+
+function soonestInboxWorkingExpiry(activities = [], nowMs = Date.now()) {
+  let next = Infinity;
+  for (const activity of selectVisibleAgentActivities(Array.isArray(activities) ? activities : [], 'connected', nowMs)) {
+    if (isTerminalAgentActivity(activity)) continue;
+    const expiresAt = Date.parse(activity.expires_at || '');
+    if (Number.isFinite(expiresAt) && expiresAt > nowMs) next = Math.min(next, expiresAt);
+  }
+  return Number.isFinite(next) ? next : 0;
+}
+
+function isInboxRowWorking(row = {}, workingResourceKeys = null) {
+  if (!workingResourceKeys?.has || row.inboxKind === 'file') return false;
+  if (row.inboxKind === 'chat') {
+    const threadId = normalizeString(row.id);
+    const rootRecordId = normalizeString(row.rootRecordId);
+    const channelId = normalizeString(row.channelId);
+    return (channelId && threadId && workingResourceKeys.has(`channel-thread:${channelId}:${threadId}`))
+      || (channelId && rootRecordId && workingResourceKeys.has(`channel-thread:${channelId}:${rootRecordId}`))
+      || workingResourceKeys.has(`thread:${threadId}`)
+      || workingResourceKeys.has(`thread:${rootRecordId}`)
+      || workingResourceKeys.has(`message:${rootRecordId}`);
+  }
+  if (row.inboxKind === 'task') return workingResourceKeys.has(`task:${normalizeString(row.recordId)}`);
+  if (row.inboxKind === 'document') return workingResourceKeys.has(`document:${normalizeString(row.recordId)}`);
+  return false;
 }
 
 function parseDateKey(value) {
@@ -620,31 +684,32 @@ export function getOverviewFileSourceContract(row = {}) {
   };
 }
 
-export function buildAutopilotOverviewInbox({ threads = [], files = [], documents = [], tasks = [] } = {}) {
+export function buildAutopilotOverviewInbox({ threads = [], files = [], documents = [], tasks = [], workingResourceKeys = null } = {}) {
   return [
     ...(Array.isArray(threads) ? threads : []).map((row) => ({
       ...row,
       inboxKind: 'chat',
       inboxActivityAt: row.latestMessageUpdatedAt || '',
-    })),
+    })).map((row) => ({ ...row, isWorking: isInboxRowWorking(row, workingResourceKeys) })),
     ...(Array.isArray(files) ? files : []).map((row) => ({
       ...row,
       ...getOverviewFileSourceContract(row),
       inboxKind: 'file',
       inboxActivityAt: row.activityAt || row.updated_at || row.created_at || row.uploaded_at || '',
+      isWorking: false,
     })),
     ...(Array.isArray(documents) ? documents : []).map((row) => ({
       ...row,
       inboxKind: 'document',
       inboxActivityAt: row.activityAt || '',
-    })),
+    })).map((row) => ({ ...row, isWorking: isInboxRowWorking(row, workingResourceKeys) })),
     ...(Array.isArray(tasks) ? tasks : [])
       .filter((row) => shouldIncludeInboxTask(row))
       .map((row) => ({
         ...row,
         inboxKind: 'task',
         inboxActivityAt: row.activityAt || '',
-      })),
+      })).map((row) => ({ ...row, isWorking: isInboxRowWorking(row, workingResourceKeys) })),
   ].sort((left, right) => {
     const ts = timestampMs(right.inboxActivityAt) - timestampMs(left.inboxActivityAt);
     if (ts !== 0) return ts;
@@ -755,6 +820,8 @@ export const autopilotOverviewManagerMixin = {
   deckInboxVisibleCount: DECK_INBOX_PAGE_SIZE,
   deckInboxContextKey: '',
   deckInboxScopeId: '',
+  deckInboxWorkingProjectionRevision: 0,
+  deckInboxWorkingExpireTimer: null,
 
   get deckThreadComposerChannelOptions() {
     return (Array.isArray(this.channels) ? this.channels : [])
@@ -1304,6 +1371,23 @@ export const autopilotOverviewManagerMixin = {
     }
   },
 
+  scheduleDeckInboxWorkingProjectionRefresh() {
+    this.deckInboxWorkingProjectionRevision = Number(this.deckInboxWorkingProjectionRevision || 0) + 1;
+    if (this.deckInboxWorkingExpireTimer && typeof window !== 'undefined') {
+      window.clearTimeout(this.deckInboxWorkingExpireTimer);
+    }
+    this.deckInboxWorkingExpireTimer = null;
+    if (typeof window === 'undefined') return;
+    const now = Date.now();
+    const expiresAt = soonestInboxWorkingExpiry(this.agentActivities, now);
+    if (!expiresAt) return;
+    const delay = Math.min(Math.max(0, expiresAt - now + 50), MAX_TIMEOUT_MS);
+    this.deckInboxWorkingExpireTimer = window.setTimeout(() => {
+      this.deckInboxWorkingExpireTimer = null;
+      this.scheduleDeckInboxWorkingProjectionRefresh();
+    }, delay);
+  },
+
   get autopilotOverviewDailyScopeDateKey() {
     return this.dailyScopeSelectedDate || this.getTodayDateKey?.() || new Date().toISOString().slice(0, 10);
   },
@@ -1579,9 +1663,17 @@ export const autopilotOverviewManagerMixin = {
     const files = this.autopilotOverviewFiles;
     const documents = this.autopilotOverviewDocuments;
     const tasks = this.autopilotOverviewTasks;
-    return memoizedProjection(this, 'inbox', [threads, files, documents, tasks], () => (
-      buildAutopilotOverviewInbox({ threads, files, documents, tasks })
+    const workingResourceKeys = this.deckInboxWorkingResourceKeys;
+    return memoizedProjection(this, 'inbox', [threads, files, documents, tasks, workingResourceKeys], () => (
+      buildAutopilotOverviewInbox({ threads, files, documents, tasks, workingResourceKeys })
     ));
+  },
+
+  get deckInboxWorkingResourceKeys() {
+    return memoizedProjection(this, 'inbox-working-keys', [
+      this.agentActivities,
+      this.deckInboxWorkingProjectionRevision,
+    ], () => buildInboxWorkingResourceKeys(this.agentActivities));
   },
 
   get deckInboxCurrentContextKey() {

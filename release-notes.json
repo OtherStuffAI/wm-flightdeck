@@ -1741,6 +1741,13 @@
       "notes": [
         "Remove the live Inbox working-pulse calculation to restore thread loading and typing responsiveness while a cached working-status design is prepared."
       ]
+    },
+    {
+      "buildNumber": 2003,
+      "label": "Cached Inbox working pulse",
+      "notes": [
+        "Show a blue-to-white working pulse on Inbox cards using cached Autopilot activity state so card rendering stays responsive."
+      ]
     }
   ]
 }

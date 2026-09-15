@@ -75,6 +75,27 @@ describe('flight deck summary template', () => {
     expect(styles).toMatch(/\.chat-post-thread-unread,[\s\S]*background:\s*var\(--unread-pastel-red\)/);
   });
 
+  it('binds Inbox working cards to cached row state, not a live activity scan helper', () => {
+    const html = readFileSync(INDEX_PATH, 'utf8');
+    const styles = readFileSync(STYLES_PATH, 'utf8');
+    const inbox = html.slice(
+      html.indexOf('data-testid="flightdeck-summary-inbox"'),
+      html.indexOf('<div class="flightdeck-summary-grid"')
+    );
+
+    expect(html).not.toContain('isDeckInboxItemWorking');
+    expect(inbox).not.toMatch(/\$store\.chat\.[^"'`<>]*Working\(\s*item\s*\)/);
+    expect(inbox).not.toContain('agentActivities');
+    expect(inbox.match(/'flightdeck-summary-card-inbox-working': item\.isWorking/g)).toHaveLength(3);
+    expect(inbox).toMatch(/item\.inboxKind === 'chat'[\s\S]*flightdeck-summary-card-inbox-working/);
+    expect(inbox).toMatch(/item\.inboxKind === 'task'[\s\S]*flightdeck-summary-card-inbox-working/);
+    expect(inbox).toMatch(/item\.inboxKind === 'document'[\s\S]*flightdeck-summary-card-inbox-working/);
+    expect(inbox).not.toMatch(/item\.inboxKind === 'file'[\s\S]*flightdeck-summary-card-inbox-working/);
+    expect(styles).toMatch(/--inbox-working-blue:\s*rgba\(219, 234, 254, 0\.86\)/);
+    expect(styles).toMatch(/animation:\s*flightdeck-inbox-working-pulse 2\.1s ease-in-out infinite alternate/);
+    expect(styles).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.flightdeck-summary-card-inbox-working[\s\S]*animation:\s*none;/);
+  });
+
   it('keeps a uniform Inbox border while removing only the top accent', () => {
     const styles = readFileSync(STYLES_PATH, 'utf8');
 
