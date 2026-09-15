@@ -11943,7 +11943,9 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   border-radius: 0;
   background: var(--surface);
   box-shadow: none;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   z-index: 1;
 }
 
@@ -19071,9 +19073,48 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     padding: 0.75rem;
   }
 
+  .docs-section:has(.docs-editor-v3) {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .docs-section:has(.docs-editor-v3) .docs-view,
+  .docs-section:has(.docs-editor-v3) .docs-editor-v3,
+  .docs-section:has(.docs-editor-v3) .doc-content-block {
+    display: flex;
+    flex: 1 1 0;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .doc-content-layout,
   .doc-content-layout-with-thread {
     display: block;
+  }
+
+  .doc-content-layout-mobile-comments,
+  .doc-content-layout-with-thread.doc-content-layout-mobile-comments,
+  .docs-section.chat-doc-inline-section .doc-content-layout-mobile-comments {
+    display: grid;
+    grid-template-rows: minmax(8rem, 42%) minmax(0, 1fr);
+    gap: 0.75rem;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .doc-content-layout-mobile-comments .doc-preview-surface,
+  .docs-section.chat-doc-inline-section .doc-content-layout-mobile-comments .doc-preview-surface {
+    display: block !important;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    padding-right: 0.25rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
   }
 
   .doc-comment-thread-panel {
@@ -19085,6 +19126,24 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     margin-top: 1rem;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
+  }
+
+  .doc-content-layout-mobile-comments .doc-comment-thread-panel,
+  .docs-section.chat-doc-inline-section .doc-content-layout-mobile-comments .doc-comment-thread-panel {
+    display: flex !important;
+    min-height: 0;
+    height: 100%;
+    max-height: 100%;
+    margin-top: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .doc-content-layout-mobile-comments .doc-thread-list {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .doc-comment-drawer-rail {
@@ -19167,6 +19226,10 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   .doc-content-layout-mobile-comments .doc-comment-drawer-rail,
   .doc-content-layout-mobile-comments .doc-comment-connector {
     display: none !important;
+  }
+
+  .doc-content-layout-mobile-comments .doc-preview-surface {
+    display: block !important;
   }
 
   .doc-content-layout-mobile-comments .doc-comment-thread-panel {

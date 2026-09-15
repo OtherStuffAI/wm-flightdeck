@@ -1727,6 +1727,13 @@
       "notes": [
         "Show unread channels in a shortcut section at the top of the left sidebar while keeping each channel in its normal scope location."
       ]
+    },
+    {
+      "buildNumber": 1999,
+      "label": "Independent document comment scrolling",
+      "notes": [
+        "Keep document content and comments in separate scroll panes on narrow screens so the referenced text stays visible while writing a comment."
+      ]
     }
   ]
 }

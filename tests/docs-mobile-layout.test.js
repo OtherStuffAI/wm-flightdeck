@@ -101,4 +101,16 @@ describe('docs mobile layout', () => {
     expect(mobileCss).toContain('.doc-content-layout-mobile-comments .doc-preview-surface');
     expect(mobileCss).toContain('.doc-content-layout-mobile-comments .doc-comment-thread-panel');
   });
+
+  it('keeps mobile document comments and document content in independent scroll panes', () => {
+    const css = readProjectFile('src/styles.css');
+    const mobileStart = css.lastIndexOf('@media (max-width: 768px)');
+    expect(mobileStart).toBeGreaterThanOrEqual(0);
+    const mobileCss = css.slice(mobileStart);
+
+    expect(mobileCss).toMatch(/\.doc-content-layout-mobile-comments,[\s\S]*\.docs-section\.chat-doc-inline-section \.doc-content-layout-mobile-comments\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-rows:\s*minmax\(8rem,\s*42%\)\s*minmax\(0,\s*1fr\);[\s\S]*overflow:\s*hidden;/);
+    expect(mobileCss).toMatch(/\.doc-content-layout-mobile-comments \.doc-preview-surface,[\s\S]*\.docs-section\.chat-doc-inline-section \.doc-content-layout-mobile-comments \.doc-preview-surface\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*overscroll-behavior:\s*contain;/);
+    expect(mobileCss).toMatch(/\.doc-content-layout-mobile-comments \.doc-comment-thread-panel,[\s\S]*\.docs-section\.chat-doc-inline-section \.doc-content-layout-mobile-comments \.doc-comment-thread-panel\s*\{[\s\S]*overflow-x:\s*hidden;[\s\S]*overflow-y:\s*auto;[\s\S]*overscroll-behavior:\s*contain;/);
+    expect(mobileCss).toMatch(/\.doc-content-layout-mobile-comments \.doc-thread-list\s*\{[\s\S]*min-height:\s*0;[\s\S]*overflow-y:\s*auto;[\s\S]*overscroll-behavior:\s*contain;/);
+  });
 });

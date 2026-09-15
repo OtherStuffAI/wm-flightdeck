@@ -146,6 +146,47 @@ test('narrow document layout retains its stacked single-pane behavior', async ({
   expect(metrics.switcherDisplay).not.toBe('none');
 });
 
+test('mobile comments mode keeps the document and comment panes separately scrollable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 820 });
+  await page.setContent(documentFixture());
+
+  const metrics = await page.evaluate(() => {
+    const layout = document.querySelector('.doc-content-layout');
+    layout.classList.add('doc-content-layout-mobile-comments');
+    const documentSurface = document.querySelector('.doc-preview-surface');
+    const comments = document.querySelector('.doc-comment-thread-panel');
+    const commentsList = document.querySelector('.doc-thread-list');
+    documentSurface.scrollTop = 220;
+    comments.scrollTop = 160;
+    commentsList.scrollTop = 120;
+    return {
+      layoutDisplay: getComputedStyle(layout).display,
+      layoutRows: getComputedStyle(layout).gridTemplateRows,
+      documentDisplay: getComputedStyle(documentSurface).display,
+      documentOverflowY: getComputedStyle(documentSurface).overflowY,
+      documentCanScroll: documentSurface.scrollHeight > documentSurface.clientHeight,
+      documentScrollTop: documentSurface.scrollTop,
+      commentsDisplay: getComputedStyle(comments).display,
+      commentsOverflowY: getComputedStyle(comments).overflowY,
+      commentsListOverflowY: getComputedStyle(commentsList).overflowY,
+      commentsListCanScroll: commentsList.scrollHeight > commentsList.clientHeight,
+      commentsListScrollTop: commentsList.scrollTop,
+    };
+  });
+
+  expect(metrics.layoutDisplay).toBe('grid');
+  expect(metrics.layoutRows).toContain('px');
+  expect(metrics.documentDisplay).toBe('block');
+  expect(metrics.documentOverflowY).toBe('auto');
+  expect(metrics.documentCanScroll).toBe(true);
+  expect(metrics.documentScrollTop).toBeGreaterThan(0);
+  expect(metrics.commentsDisplay).toBe('flex');
+  expect(metrics.commentsOverflowY).toBe('auto');
+  expect(metrics.commentsListOverflowY).toBe('auto');
+  expect(metrics.commentsListCanScroll).toBe(true);
+  expect(metrics.commentsListScrollTop).toBeGreaterThan(0);
+});
+
 test('mobile document top matter stays compact before the body', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 820 });
   await page.setContent(documentFixture());
