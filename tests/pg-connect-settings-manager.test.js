@@ -232,6 +232,59 @@ describe('PG connect settings manager', () => {
     expect(api.getTowerPgWorkspaceMe).not.toHaveBeenCalled();
   });
 
+  it('falls back to Tower-visible PG workspaces when the build app namespace lists none', async () => {
+    const api = await import('../src/api.js');
+    api.listTowerPgWorkspaces
+      .mockResolvedValueOnce({ workspaces: [] })
+      .mockResolvedValueOnce({
+        workspaces: [{
+          identity: {
+            tower_service_npub: 'npub1tower',
+            workspace_service_npub: 'npub1workspace',
+            workspace_owner_npub: 'npub1owner',
+            workspace_id: 'workspace-1',
+            app_npub: 'flightdeck_pg',
+          },
+          tower_base_url: 'https://tower.example',
+          label: 'Existing Tower Workspace',
+          description: 'Created under the Tower workspace namespace',
+          links: descriptor.links,
+        }],
+      });
+    const { connectSettingsManagerMixin } = await import('../src/connect-settings-manager.js');
+    const store = createStore({
+      backendUrl: 'https://tower.example',
+      connectHostUrl: 'https://tower.example',
+      connectHostServiceNpub: 'npub1tower',
+      connectWorkspaces: [],
+    });
+    Object.defineProperties(store, Object.getOwnPropertyDescriptors(connectSettingsManagerMixin));
+
+    await store.loadConnectWorkspaces();
+
+    expect(api.listTowerPgWorkspaces).toHaveBeenNthCalledWith(1, {
+      baseUrl: 'https://tower.example',
+      appNpub: DEFAULT_BUILD_PG_APP_NPUB,
+      limit: undefined,
+    });
+    expect(api.listTowerPgWorkspaces).toHaveBeenNthCalledWith(2, {
+      baseUrl: 'https://tower.example',
+      appNpub: '',
+      limit: undefined,
+    });
+    expect(store.connectWorkspaces).toHaveLength(1);
+    expect(store.connectWorkspaces[0]).toMatchObject({
+      workspaceId: 'workspace-1',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceServiceNpub: 'npub1workspace',
+      appNpub: 'flightdeck_pg',
+      directHttpsUrl: 'https://tower.example',
+      name: 'Existing Tower Workspace',
+      pgBackendMode: true,
+    });
+    expect(store.connectWorkspacesError).toBeNull();
+  });
+
   it('creates PG workspaces through Tower admin setup and connects with the returned descriptor', async () => {
     const api = await import('../src/api.js');
     api.createTowerPgAdminWorkspace.mockResolvedValue({ descriptor });

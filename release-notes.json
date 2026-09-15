@@ -1762,6 +1762,13 @@
       "notes": [
         "Show channels with active Autopilot work in the sidebar shortcut section alongside unread channels, without adding render-time activity scans."
       ]
+    },
+    {
+      "buildNumber": 2007,
+      "label": "Reliable Tower workspace listing",
+      "notes": [
+        "List accessible Tower workspaces after selecting a Tower even when the hosted app namespace filter has no matches."
+      ]
     }
   ]
 }

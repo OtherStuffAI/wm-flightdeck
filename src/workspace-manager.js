@@ -179,6 +179,18 @@ function samePgWorkspaceIdentity(left = {}, right = {}) {
   return Boolean(leftId && rightId && leftId === rightId && leftService && leftService === rightService);
 }
 
+function resultWorkspaces(result) {
+  return Array.isArray(result?.workspaces) ? result.workspaces : [];
+}
+
+async function listTowerPgWorkspacesForSession({ baseUrl, appNpub, limit } = {}) {
+  const filtered = await listTowerPgWorkspaces({ baseUrl, appNpub, limit });
+  if (resultWorkspaces(filtered).length > 0 || !String(appNpub || '').trim()) {
+    return filtered;
+  }
+  return listTowerPgWorkspaces({ baseUrl, appNpub: '', limit });
+}
+
 export function guessDefaultBackendUrl() {
   return DEFAULT_SUPERBASED_URL || '';
 }
@@ -2137,7 +2149,7 @@ export const workspaceManagerMixin = {
         const existingKeys = new Set((this.knownWorkspaces || [])
           .map((workspace) => workspace.workspaceKey || workspace.workspaceOwnerNpub)
           .filter(Boolean));
-        const result = await listTowerPgWorkspaces({ baseUrl: activeBackendUrl, appNpub: FLIGHT_DECK_PG_APP_NPUB, limit: 200 });
+        const result = await listTowerPgWorkspacesForSession({ baseUrl: activeBackendUrl, appNpub: FLIGHT_DECK_PG_APP_NPUB, limit: 200 });
         const workspaces = (result.workspaces || [])
           .map((entry) => {
             const workspaceInput = {

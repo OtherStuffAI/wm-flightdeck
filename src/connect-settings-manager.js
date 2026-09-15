@@ -84,6 +84,18 @@ function pgErrorMessage(error, fallback = 'Flight Deck PG connection failed') {
   return error?.message || String(error || fallback);
 }
 
+function resultWorkspaces(result) {
+  return Array.isArray(result?.workspaces) ? result.workspaces : [];
+}
+
+async function listTowerPgWorkspacesForPicker({ baseUrl, appNpub, limit } = {}) {
+  const filtered = await listTowerPgWorkspaces({ baseUrl, appNpub, limit });
+  if (resultWorkspaces(filtered).length > 0 || !String(appNpub || '').trim()) {
+    return filtered;
+  }
+  return listTowerPgWorkspaces({ baseUrl, appNpub: '', limit });
+}
+
 const PG_WORKSPACE_BOOTSTRAP_TEMPLATES = {
   company: {
     id: 'company',
@@ -1031,7 +1043,7 @@ export const connectSettingsManagerMixin = {
     this.connectWorkspacesError = null;
     try {
       if (isTowerPgBackendMode()) {
-        const result = await listTowerPgWorkspaces({
+        const result = await listTowerPgWorkspacesForPicker({
           baseUrl: this.connectHostUrl || this.backendUrl,
           appNpub: FLIGHT_DECK_PG_APP_NPUB,
         });

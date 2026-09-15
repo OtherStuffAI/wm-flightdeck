@@ -186,6 +186,51 @@ describe('PG workspace manager mode', () => {
     });
   });
 
+  it('keeps Tower-visible PG workspaces when the build app namespace discovery is empty', async () => {
+    const api = await import('../src/api.js');
+    api.listTowerPgWorkspaces
+      .mockResolvedValueOnce({ workspaces: [] })
+      .mockResolvedValueOnce({
+        workspaces: [{
+          identity: {
+            tower_service_npub: 'npub1tower',
+            workspace_service_npub: 'npub1workspace',
+            workspace_owner_npub: 'npub1owner',
+            workspace_id: 'workspace-1',
+            app_npub: 'flightdeck_pg',
+          },
+          tower_base_url: 'https://tower.example',
+          label: 'Wingmen',
+          description: 'PG workspace',
+          capabilities: ['pg_scopes'],
+        }],
+      });
+    const store = await buildStore();
+
+    await store.loadRemoteWorkspaces();
+
+    expect(api.listTowerPgWorkspaces).toHaveBeenNthCalledWith(1, {
+      baseUrl: 'https://tower.example',
+      appNpub: expect.any(String),
+      limit: 200,
+    });
+    expect(api.listTowerPgWorkspaces).toHaveBeenNthCalledWith(2, {
+      baseUrl: 'https://tower.example',
+      appNpub: '',
+      limit: 200,
+    });
+    expect(store.knownWorkspaces[0]).toMatchObject({
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceServiceNpub: 'npub1workspace',
+      workspaceId: 'workspace-1',
+      appNpub: 'flightdeck_pg',
+      pgSessionNpub: 'npub1user',
+      pgBackendMode: true,
+    });
+    expect(store.showWorkspaceAccessGate).toBe(true);
+  });
+
   it('continues from the workspace access gate by selecting and bootstrapping the first workspace', async () => {
     const workspace = {
       workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg',
