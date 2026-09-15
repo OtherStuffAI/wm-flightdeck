@@ -95,13 +95,34 @@ import {
   recordNavigationPointer,
   waitForNavigationPaint,
 } from './navigation-paint.js';
-import { buildSidebarScopeChannelGroups, buildSidebarUnreadChannels } from './sidebar-navigation.js';
+import {
+  buildSidebarActiveChannelIds,
+  buildSidebarScopeChannelGroups,
+  buildSidebarUnreadChannels,
+} from './sidebar-navigation.js';
 
 // ---------------------------------------------------------------------------
 
 const FULL_NPUB_PATTERN = /^npub1[023456789acdefghjklmnpqrstuvwxyz]{50,}$/i;
 const SYSTEM_SCOPE_IDS = new Set(['__all__', '__recent__', '__unscoped__']);
 const mentionRosterRequests = new WeakMap();
+const sidebarProjectionCache = new WeakMap();
+
+function memoizedSidebarProjection(store, key, references, build) {
+  let cache = sidebarProjectionCache.get(store);
+  if (!cache) {
+    cache = new Map();
+    sidebarProjectionCache.set(store, cache);
+  }
+  const previous = cache.get(key);
+  const unchanged = previous
+    && previous.references.length === references.length
+    && references.every((value, index) => Object.is(value, previous.references[index]));
+  if (unchanged) return previous.value;
+  const value = build();
+  cache.set(key, { references: [...references], value });
+  return value;
+}
 
 function refreshPgChannelInBackground(store, channelId) {
   const key = String(channelId || '').trim();
@@ -985,10 +1006,19 @@ export const channelsManagerMixin = {
     return buildSidebarScopeChannelGroups(this.scopes, this.channels);
   },
 
+  get sidebarActiveChannelIds() {
+    const workingResourceKeys = this.deckInboxWorkingResourceKeys;
+    return memoizedSidebarProjection(this, 'active-channel-ids', [workingResourceKeys], () => (
+      buildSidebarActiveChannelIds(workingResourceKeys)
+    ));
+  },
+
   get sidebarUnreadChannels() {
+    const activeChannelIds = this.sidebarActiveChannelIds;
     return buildSidebarUnreadChannels(
       this.sidebarScopeChannelGroups,
       (channelId) => this.isChannelUnread?.(channelId) === true,
+      (channelId) => activeChannelIds.has(channelId),
     );
   },
 

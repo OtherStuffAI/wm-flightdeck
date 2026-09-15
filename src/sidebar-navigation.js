@@ -59,13 +59,30 @@ export function buildSidebarScopeChannelGroups(scopes = [], channels = []) {
   return [...dmGroups, ...groups];
 }
 
-export function buildSidebarUnreadChannels(groups = [], isUnread = () => false) {
+export function buildSidebarActiveChannelIds(workingResourceKeys = null) {
+  const activeChannelIds = new Set();
+  if (!workingResourceKeys?.forEach) return activeChannelIds;
+
+  workingResourceKeys.forEach((key) => {
+    const value = String(key || '').trim();
+    if (!value.startsWith('channel-thread:')) return;
+    const channelAndThread = value.slice('channel-thread:'.length);
+    const separatorIndex = channelAndThread.indexOf(':');
+    const channelId = separatorIndex >= 0 ? channelAndThread.slice(0, separatorIndex) : '';
+    if (channelId) activeChannelIds.add(channelId);
+  });
+
+  return activeChannelIds;
+}
+
+export function buildSidebarUnreadChannels(groups = [], isUnread = () => false, isActive = () => false) {
   const unread = [];
   const seenChannelIds = new Set();
   for (const group of Array.isArray(groups) ? groups : []) {
     for (const channel of Array.isArray(group?.channels) ? group.channels : []) {
       const id = recordId(channel);
-      if (!id || seenChannelIds.has(id) || !isVisibleRecord(channel) || isUnread(id) !== true) continue;
+      if (!id || seenChannelIds.has(id) || !isVisibleRecord(channel)) continue;
+      if (isUnread(id) !== true && isActive(id) !== true) continue;
       seenChannelIds.add(id);
       unread.push(channel);
     }

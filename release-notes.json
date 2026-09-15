@@ -1755,6 +1755,13 @@
       "notes": [
         "Restore Tower PG workspaces only after the signer session is ready so refreshes do not open a selected Tower with an empty workspace shell."
       ]
+    },
+    {
+      "buildNumber": 2005,
+      "label": "Unread and active channel shortcuts",
+      "notes": [
+        "Show channels with active Autopilot work in the sidebar shortcut section alongside unread channels, without adding render-time activity scans."
+      ]
     }
   ]
 }
