@@ -1782,6 +1782,13 @@
       "notes": [
         "Let a fresh Tower workspace list restore workspaces hidden by stale device-local removal markers."
       ]
+    },
+    {
+      "buildNumber": 2012,
+      "label": "Tower workspace request diagnostics",
+      "notes": [
+        "Use the signed browser session, not a stale workspace key, when listing Tower PG workspaces and show the exact Tower list request details in the picker."
+      ]
     }
   ]
 }

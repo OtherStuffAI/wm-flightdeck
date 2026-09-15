@@ -235,7 +235,23 @@ describe('PG connect settings manager', () => {
   it('falls back to Tower-visible PG workspaces when the build app namespace lists none', async () => {
     const api = await import('../src/api.js');
     api.listTowerPgWorkspaces
-      .mockResolvedValueOnce({ workspaces: [] })
+      .mockResolvedValueOnce({
+        workspaces: [],
+        towerPgRequest: {
+          method: 'GET',
+          url: `https://tower.example/api/v4/flightdeck-pg/workspaces?app_npub=${DEFAULT_BUILD_PG_APP_NPUB}`,
+          route: '/api/v4/flightdeck-pg/workspaces',
+          query: `app_npub=${DEFAULT_BUILD_PG_APP_NPUB}`,
+          body: null,
+          appNpub: DEFAULT_BUILD_PG_APP_NPUB,
+          appNpubSent: true,
+          signerNpub: 'npub1user',
+          usedWorkspaceKey: false,
+          transportMode: 'https',
+          httpStatus: 200,
+          responseShape: { type: 'object', keys: ['workspaces'], workspacesCount: 0 },
+        },
+      })
       .mockResolvedValueOnce({
         workspaces: [{
           identity: {
@@ -250,6 +266,20 @@ describe('PG connect settings manager', () => {
           description: 'Created under the Tower workspace namespace',
           links: descriptor.links,
         }],
+        towerPgRequest: {
+          method: 'GET',
+          url: 'https://tower.example/api/v4/flightdeck-pg/workspaces',
+          route: '/api/v4/flightdeck-pg/workspaces',
+          query: '',
+          body: null,
+          appNpub: '',
+          appNpubSent: false,
+          signerNpub: 'npub1user',
+          usedWorkspaceKey: false,
+          transportMode: 'https',
+          httpStatus: 200,
+          responseShape: { type: 'object', keys: ['workspaces'], workspacesCount: 1 },
+        },
       });
     const { connectSettingsManagerMixin } = await import('../src/connect-settings-manager.js');
     const store = createStore({
@@ -283,6 +313,32 @@ describe('PG connect settings manager', () => {
       pgBackendMode: true,
     });
     expect(store.connectWorkspacesError).toBeNull();
+    expect(store.connectWorkspaceRequestDiagnostics).toMatchObject({
+      screen: 'connect-modal-pg-workspace-picker',
+      sessionNpub: 'npub1user',
+      towerServiceNpub: 'npub1tower',
+      responseWorkspaceCount: 1,
+      renderedWorkspaceCount: 1,
+      attempts: [
+        expect.objectContaining({
+          appNpub: DEFAULT_BUILD_PG_APP_NPUB,
+          appNpubSent: true,
+          signerNpub: 'npub1user',
+          httpStatus: 200,
+          responseShape: expect.objectContaining({ workspacesCount: 0 }),
+        }),
+        expect.objectContaining({
+          appNpub: '',
+          appNpubSent: false,
+          signerNpub: 'npub1user',
+          httpStatus: 200,
+          responseShape: expect.objectContaining({ workspacesCount: 1 }),
+        }),
+      ],
+    });
+    expect(store.connectWorkspaceRequestSummary()).toContain('retry GET https://tower.example/api/v4/flightdeck-pg/workspaces');
+    expect(store.connectWorkspaceRequestSummary()).toContain('without app_npub');
+    expect(store.connectWorkspaceRequestSummary()).toContain('rendered 1');
   });
 
   it('creates PG workspaces through Tower admin setup and connects with the returned descriptor', async () => {

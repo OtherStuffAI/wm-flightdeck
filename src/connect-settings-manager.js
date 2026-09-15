@@ -89,11 +89,64 @@ function resultWorkspaces(result) {
 }
 
 async function listTowerPgWorkspacesForPicker({ baseUrl, appNpub, limit } = {}) {
-  const filtered = await listTowerPgWorkspaces({ baseUrl, appNpub, limit });
-  if (resultWorkspaces(filtered).length > 0 || !String(appNpub || '').trim()) {
-    return filtered;
+  const attempts = [];
+  let filtered;
+  try {
+    filtered = await listTowerPgWorkspaces({ baseUrl, appNpub, limit });
+    if (filtered?.towerPgRequest) attempts.push(filtered.towerPgRequest);
+  } catch (error) {
+    if (error?.towerPgRequest) attempts.push(error.towerPgRequest);
+    error.towerPgWorkspaceList = { attempts };
+    throw error;
   }
-  return listTowerPgWorkspaces({ baseUrl, appNpub: '', limit });
+  if (resultWorkspaces(filtered).length > 0 || !String(appNpub || '').trim()) {
+    return { ...filtered, towerPgWorkspaceList: { attempts } };
+  }
+  try {
+    const unfiltered = await listTowerPgWorkspaces({ baseUrl, appNpub: '', limit });
+    if (unfiltered?.towerPgRequest) attempts.push(unfiltered.towerPgRequest);
+    return { ...unfiltered, towerPgWorkspaceList: { attempts } };
+  } catch (error) {
+    if (error?.towerPgRequest) attempts.push(error.towerPgRequest);
+    error.towerPgWorkspaceList = { attempts };
+    throw error;
+  }
+}
+
+function shortDiagnosticNpub(value) {
+  const text = trimText(value);
+  if (!text) return 'unknown signer';
+  if (text.length <= 18) return text;
+  return `${text.slice(0, 10)}...${text.slice(-6)}`;
+}
+
+function buildConnectWorkspaceDiagnostics(store, result, renderedWorkspaces = []) {
+  const attempts = Array.isArray(result?.towerPgWorkspaceList?.attempts)
+    ? result.towerPgWorkspaceList.attempts
+    : (result?.towerPgRequest ? [result.towerPgRequest] : []);
+  return {
+    screen: 'connect-modal-pg-workspace-picker',
+    sessionNpub: trimText(store?.session?.npub),
+    towerServiceNpub: trimText(store?.connectHostServiceNpub),
+    attempts,
+    responseWorkspaceCount: resultWorkspaces(result).length,
+    renderedWorkspaceCount: Array.isArray(renderedWorkspaces) ? renderedWorkspaces.length : 0,
+  };
+}
+
+function buildConnectWorkspaceErrorDiagnostics(store, error) {
+  const attempts = Array.isArray(error?.towerPgWorkspaceList?.attempts)
+    ? error.towerPgWorkspaceList.attempts
+    : (error?.towerPgRequest ? [error.towerPgRequest] : []);
+  return {
+    screen: 'connect-modal-pg-workspace-picker',
+    sessionNpub: trimText(store?.session?.npub),
+    towerServiceNpub: trimText(store?.connectHostServiceNpub),
+    attempts,
+    responseWorkspaceCount: null,
+    renderedWorkspaceCount: 0,
+    error: error?.message || String(error || ''),
+  };
 }
 
 const PG_WORKSPACE_BOOTSTRAP_TEMPLATES = {
@@ -1038,16 +1091,29 @@ export const connectSettingsManagerMixin = {
   },
 
   async loadConnectWorkspaces() {
-    if (!this.session?.npub) { this.connectWorkspacesError = 'Sign in first'; return; }
+    if (!this.session?.npub) {
+      this.connectWorkspacesError = 'Sign in first';
+      this.connectWorkspaceRequestDiagnostics = {
+        screen: 'connect-modal-pg-workspace-picker',
+        sessionNpub: '',
+        towerServiceNpub: trimText(this.connectHostServiceNpub),
+        attempts: [],
+        responseWorkspaceCount: null,
+        renderedWorkspaceCount: 0,
+        error: 'Sign in first',
+      };
+      return;
+    }
     this.connectWorkspacesBusy = true;
     this.connectWorkspacesError = null;
+    this.connectWorkspaceRequestDiagnostics = null;
     try {
       if (isTowerPgBackendMode()) {
         const result = await listTowerPgWorkspacesForPicker({
           baseUrl: this.connectHostUrl || this.backendUrl,
           appNpub: FLIGHT_DECK_PG_APP_NPUB,
         });
-        this.connectWorkspaces = (result.workspaces || []).map((entry) => ({
+        const renderedWorkspaces = (result.workspaces || []).map((entry) => ({
           ...entry,
           directHttpsUrl: normalizeBackendUrl(entry.tower_base_url || this.connectHostUrl || this.backendUrl),
           serviceNpub: entry.identity?.tower_service_npub || this.connectHostServiceNpub,
@@ -1059,6 +1125,8 @@ export const connectSettingsManagerMixin = {
           description: entry.description,
           pgBackendMode: true,
         }));
+        this.connectWorkspaces = renderedWorkspaces;
+        this.connectWorkspaceRequestDiagnostics = buildConnectWorkspaceDiagnostics(this, result, renderedWorkspaces);
         return;
       }
       const result = await getWorkspaces(this.session.npub);
@@ -1070,6 +1138,7 @@ export const connectSettingsManagerMixin = {
       }));
     } catch (error) {
       this.connectWorkspacesError = `Failed to load workspaces: ${error?.message || error}`;
+      this.connectWorkspaceRequestDiagnostics = buildConnectWorkspaceErrorDiagnostics(this, error);
       this.connectWorkspaces = [];
     } finally {
       this.connectWorkspacesBusy = false;
@@ -1373,9 +1442,29 @@ export const connectSettingsManagerMixin = {
     this.connectPgSelectedScopeIndex = 0;
     this.connectWorkspaces = [];
     this.connectWorkspacesError = null;
+    this.connectWorkspaceRequestDiagnostics = null;
     this.connectNewWorkspaceName = '';
     this.connectNewWorkspaceDescription = '';
     this.resetConnectPgBootstrapState();
+  },
+
+  connectWorkspaceRequestSummary() {
+    const diagnostics = this.connectWorkspaceRequestDiagnostics || null;
+    const attempts = Array.isArray(diagnostics?.attempts) ? diagnostics.attempts : [];
+    if (!attempts.length) return diagnostics?.error || '';
+    const segments = attempts.map((attempt, index) => {
+      const label = index === 0 ? 'Tower list' : 'retry';
+      const filter = attempt.appNpubSent ? `app_npub=${attempt.appNpub}` : 'without app_npub';
+      const status = attempt.httpStatus ? `HTTP ${attempt.httpStatus}` : 'no HTTP response';
+      const count = attempt.responseShape?.workspacesCount;
+      const countText = Number.isFinite(count) ? `, ${count} returned` : '';
+      return `${label} ${attempt.method} ${attempt.url} (${filter}, signer ${shortDiagnosticNpub(attempt.signerNpub)}, ${attempt.transportMode || 'https'}, ${status}${countText})`;
+    });
+    const rendered = Number.isFinite(diagnostics.renderedWorkspaceCount)
+      ? `; rendered ${diagnostics.renderedWorkspaceCount}`
+      : '';
+    const error = diagnostics.error ? `; ${diagnostics.error}` : '';
+    return `${segments.join('; ')}${rendered}${error}`;
   },
 
   // --- known hosts ---

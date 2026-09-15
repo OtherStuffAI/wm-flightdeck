@@ -623,6 +623,7 @@ export function initApp() {
     connectWorkspaces: [],
     connectWorkspacesBusy: false,
     connectWorkspacesError: null,
+    connectWorkspaceRequestDiagnostics: null,
     connectNewWorkspaceName: '',
     connectNewWorkspaceDescription: '',
     connectCreatingWorkspace: false,

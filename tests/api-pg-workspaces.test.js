@@ -206,12 +206,14 @@ describe('Tower PG API helpers', () => {
     );
   });
 
-  it('lists Tower PG workspaces without encrypted workspace-key auth', async () => {
-    const { createNip98AuthHeaderForSecret } = await import('../src/auth/nostr.js');
+  it('lists Tower PG workspaces with real-user auth when a workspace key is active', async () => {
+    const { createNip98AuthHeader, createNip98AuthHeaderForSecret } = await import('../src/auth/nostr.js');
+    const { getActiveWorkspaceKeySecretForAuth } = await import('../src/crypto/workspace-keys.js');
     const api = await import('../src/api.js');
     api.setBaseUrl('https://tower.example');
+    getActiveWorkspaceKeySecretForAuth.mockReturnValueOnce(new Uint8Array([7]));
 
-    await api.listTowerPgWorkspaces({ appNpub: 'flightdeck_pg', limit: 25 });
+    const result = await api.listTowerPgWorkspaces({ appNpub: 'flightdeck_pg', limit: 25 });
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       'https://tower.example/api/v4/flightdeck-pg/workspaces?app_npub=flightdeck_pg&limit=25',
@@ -220,6 +222,69 @@ describe('Tower PG API helpers', () => {
           Authorization: 'NIP98 GET https://tower.example/api/v4/flightdeck-pg/workspaces?app_npub=flightdeck_pg&limit=25',
         }),
       }),
+    );
+    expect(createNip98AuthHeader).toHaveBeenCalledWith(
+      'https://tower.example/api/v4/flightdeck-pg/workspaces?app_npub=flightdeck_pg&limit=25',
+      'GET',
+      null,
+      {
+        signTimeoutMs: 10000,
+        timeoutMessage: 'NIP-98 signing timed out for GET https://tower.example/api/v4/flightdeck-pg/workspaces?app_npub=flightdeck_pg&limit=25',
+        priority: 'normal',
+      },
+    );
+    expect(createNip98AuthHeaderForSecret).not.toHaveBeenCalled();
+    expect(result.towerPgRequest).toMatchObject({
+      method: 'GET',
+      url: 'https://tower.example/api/v4/flightdeck-pg/workspaces?app_npub=flightdeck_pg&limit=25',
+      route: '/api/v4/flightdeck-pg/workspaces',
+      query: 'app_npub=flightdeck_pg&limit=25',
+      body: null,
+      appNpub: 'flightdeck_pg',
+      appNpubSent: true,
+      signerNpub: 'npub1session',
+      usedWorkspaceKey: false,
+      transportMode: 'https',
+      httpStatus: 200,
+      responseShape: {
+        type: 'object',
+        keys: ['ok', 'requestUrl'],
+      },
+    });
+  });
+
+  it('uses real-user auth for Tower PG connection service and verification routes', async () => {
+    const { createNip98AuthHeader, createNip98AuthHeaderForSecret } = await import('../src/auth/nostr.js');
+    const { getActiveWorkspaceKeySecretForAuth } = await import('../src/crypto/workspace-keys.js');
+    const api = await import('../src/api.js');
+    api.setBaseUrl('https://tower.example');
+    getActiveWorkspaceKeySecretForAuth.mockReturnValue(new Uint8Array([7]));
+
+    await api.getTowerPgService({ appNpub: 'flightdeck_pg' });
+    await api.getTowerPgWorkspaceDescriptor('workspace-1', { appNpub: 'flightdeck_pg' });
+    await api.getTowerPgWorkspaceMe('workspace-1', { appNpub: 'flightdeck_pg' });
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+    expect(createNip98AuthHeader).toHaveBeenNthCalledWith(
+      1,
+      'https://tower.example/api/v4/flightdeck-pg/service',
+      'GET',
+      null,
+      expect.objectContaining({ priority: 'normal' }),
+    );
+    expect(createNip98AuthHeader).toHaveBeenNthCalledWith(
+      2,
+      'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/descriptor',
+      'GET',
+      null,
+      expect.objectContaining({ priority: 'normal' }),
+    );
+    expect(createNip98AuthHeader).toHaveBeenNthCalledWith(
+      3,
+      'https://tower.example/api/v4/flightdeck-pg/workspaces/workspace-1/me',
+      'GET',
+      null,
+      expect.objectContaining({ priority: 'normal' }),
     );
     expect(createNip98AuthHeaderForSecret).not.toHaveBeenCalled();
   });

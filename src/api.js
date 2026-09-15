@@ -302,10 +302,18 @@ function resolveTowerPgUrl(pathOrUrl, baseUrl = _baseUrl) {
   return `${base}${value.startsWith('/') ? value : `/${value}`}`;
 }
 
-async function signedTowerPgFetch(pathOrUrl, { method = 'GET', body, baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB, authTimeoutMs, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS } = {}) {
+async function signedTowerPgFetch(pathOrUrl, {
+  method = 'GET',
+  body,
+  baseUrl = _baseUrl,
+  appNpub = FLIGHT_DECK_PG_APP_NPUB,
+  authTimeoutMs,
+  timeoutMs = DEFAULT_FETCH_TIMEOUT_MS,
+  useWorkspaceKey = true,
+} = {}) {
   const requestUrl = resolveTowerPgUrl(pathOrUrl, baseUrl);
   const headers = {
-    Authorization: await createApiAuthHeader(requestUrl, method, body ?? null, { authTimeoutMs }),
+    Authorization: await createApiAuthHeader(requestUrl, method, body ?? null, { authTimeoutMs, useWorkspaceKey }),
   };
   const cleanAppNpub = String(appNpub || '').trim();
   if (cleanAppNpub) headers['x-flightdeck-pg-app-npub'] = cleanAppNpub;
@@ -317,6 +325,39 @@ async function signedTowerPgFetch(pathOrUrl, { method = 'GET', body, baseUrl = _
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal: createFetchTimeoutSignal(timeoutMs),
   });
+}
+
+function responseShape(payload) {
+  if (Array.isArray(payload)) return { type: 'array', length: payload.length };
+  if (!payload || typeof payload !== 'object') return { type: typeof payload };
+  const shape = { type: 'object', keys: Object.keys(payload).sort() };
+  for (const [key, value] of Object.entries(payload)) {
+    if (Array.isArray(value)) shape[`${key}Count`] = value.length;
+  }
+  return shape;
+}
+
+function towerPgRequestInfo({ requestUrl, method = 'GET', appNpub = '', response = null, payload = null, baseUrl = _baseUrl, useWorkspaceKey = true }) {
+  let signingUrl = requestUrl;
+  try {
+    signingUrl = resolveTowerSigningUrl(requestUrl);
+  } catch {}
+  const parsed = new URL(requestUrl);
+  return {
+    method: String(method || 'GET').toUpperCase(),
+    url: requestUrl,
+    route: parsed.pathname,
+    query: parsed.search ? parsed.search.slice(1) : '',
+    body: null,
+    appNpub: String(appNpub || '').trim(),
+    appNpubSent: Boolean(String(appNpub || '').trim()),
+    signerNpub: getEffectiveViewerNpub(),
+    usedWorkspaceKey: Boolean(useWorkspaceKey),
+    transportMode: getTowerTransport(baseUrl).mode,
+    signingUrl,
+    httpStatus: response?.status ?? null,
+    responseShape: payload == null ? null : responseShape(payload),
+  };
 }
 
 async function signedFetchWithFallbacks(path, { method = 'GET', body } = {}, options = {}) {
@@ -451,7 +492,7 @@ export async function getWorkspaces(memberNpub) {
 export async function getTowerPgService({ baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
   const requestPath = '/api/v4/flightdeck-pg/service';
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
-  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
+  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub, useWorkspaceKey: false });
   return normalizeTowerConnectionResponse(await json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' }));
 }
 
@@ -461,8 +502,26 @@ export async function listTowerPgWorkspaces({ baseUrl = _baseUrl, appNpub = FLIG
   if (limit) params.set('limit', String(limit));
   const requestPath = `/api/v4/flightdeck-pg/workspaces?${params.toString()}`;
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
-  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
-  return normalizeTowerConnectionResponse(await json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' }));
+  try {
+    const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub, useWorkspaceKey: false });
+    const payload = await json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
+    const normalized = normalizeTowerConnectionResponse(payload);
+    return {
+      ...normalized,
+      towerPgRequest: towerPgRequestInfo({ requestUrl, method: 'GET', appNpub, response: resp, payload: normalized, baseUrl, useWorkspaceKey: false }),
+    };
+  } catch (error) {
+    error.towerPgRequest = towerPgRequestInfo({
+      requestUrl: error?.requestUrl || requestUrl,
+      method: 'GET',
+      appNpub,
+      response: error?.status ? { status: error.status } : null,
+      payload: error?.payload || null,
+      baseUrl,
+      useWorkspaceKey: false,
+    });
+    throw error;
+  }
 }
 
 export async function createTowerPgAdminWorkspace(body, { baseUrl = _baseUrl, appNpub = FLIGHT_DECK_PG_APP_NPUB } = {}) {
@@ -506,7 +565,7 @@ export async function getTowerPgWorkspaceDescriptor(workspaceId, { baseUrl = _ba
   if (!encodedWorkspaceId && !path) throw new Error('Tower PG workspace id is required');
   const requestPath = path || `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/descriptor`;
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
-  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
+  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub, useWorkspaceKey: false });
   return normalizeTowerConnectionResponse(await json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' }));
 }
 
@@ -515,7 +574,7 @@ export async function getTowerPgWorkspaceMe(workspaceId, { baseUrl = _baseUrl, a
   if (!encodedWorkspaceId && !path) throw new Error('Tower PG workspace id is required');
   const requestPath = path || `/api/v4/flightdeck-pg/workspaces/${encodedWorkspaceId}/me`;
   const requestUrl = resolveTowerPgUrl(requestPath, baseUrl);
-  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub });
+  const resp = await signedTowerPgFetch(requestPath, { baseUrl, appNpub, useWorkspaceKey: false });
   return json(resp, { requestUrl, method: 'GET', prefix: 'Tower PG API' });
 }
 

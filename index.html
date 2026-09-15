@@ -724,6 +724,11 @@
                   >
                     No PG workspaces found on this Tower. Create a new one below.
                   </p>
+                  <p
+                    class="connect-workspace-diagnostics"
+                    x-show="$store.chat.connectWorkspaceRequestDiagnostics && !$store.chat.connectWorkspacesBusy"
+                    x-text="$store.chat.connectWorkspaceRequestSummary()"
+                  ></p>
                   <div class="connect-create-fields connect-v8-create-fields">
                     <label><span>Name</span><input type="text" x-model="$store.chat.connectNewWorkspaceName" placeholder="My workspace" /></label>
                     <label><span>Description</span><input type="text" x-model="$store.chat.connectNewWorkspaceDescription" placeholder="Optional" /></label>

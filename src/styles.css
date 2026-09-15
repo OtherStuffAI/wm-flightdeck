@@ -1655,6 +1655,14 @@ button:disabled {
   color: #475569;
 }
 .connect-workspace-loading, .connect-workspace-empty { text-align: center; color: var(--muted); padding: 1rem 0; }
+.connect-workspace-diagnostics {
+  color: #475569;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  margin: 0.45rem 0 0;
+  overflow-wrap: anywhere;
+}
 .connect-create-workspace {
   margin: 0;
 }
