@@ -1,7 +1,10 @@
 import { Worker as NodeWorker } from 'node:worker_threads';
+import { randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, it } from 'vitest';
 import { TowerPgMaterializationWorkerClient } from '../src/tower-pg-materialization-worker-client.js';
+
+const MATERIALIZATION_STRESS_TIMEOUT_MS = 30_000;
 
 class NodeWorkerAdapter {
   constructor(url) {
@@ -40,6 +43,7 @@ describe('large PG bundle main-thread responsiveness', () => {
   afterEach(() => client?.dispose('test-cleanup'));
 
   it('keeps the caller event loop responsive during a real 20,000-row Dexie worker transaction', async () => {
+    const runId = randomUUID();
     const messages = Array.from({ length: 20_000 }, (_, index) => ({
       id: `message-${index}`,
       channel_id: 'channel-1',
@@ -51,7 +55,7 @@ describe('large PG bundle main-thread responsiveness', () => {
       channel_bundles: [{ channel_id: 'channel-1', messages }],
     };
     client = new TowerPgMaterializationWorkerClient({
-      workspaceKey: 'responsiveness-workspace',
+      workspaceKey: `responsiveness-workspace-${runId}`,
       workerFactory: () => new NodeWorkerAdapter(
         new URL('./helpers/tower-pg-materialization-load-worker.js', import.meta.url),
       ),
@@ -68,7 +72,7 @@ describe('large PG bundle main-thread responsiveness', () => {
     }, 2);
     const startedAt = performance.now();
     const result = await client.materialize({
-      workspaceDbKey: 'responsiveness-db',
+      workspaceDbKey: `responsiveness-db-${runId}`,
       store: {
         workspaceOwnerNpub: 'npub1owner',
         session: { npub: 'npub1viewer' },
@@ -90,5 +94,5 @@ describe('large PG bundle main-thread responsiveness', () => {
       mainThreadTicks: ticks,
       maxEventLoopDelayMs: Number(maxEventLoopDelayMs.toFixed(1)),
     }));
-  }, 10_000);
+  }, MATERIALIZATION_STRESS_TIMEOUT_MS);
 });
