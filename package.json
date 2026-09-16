@@ -13,6 +13,8 @@
     "lint": "biome check . --formatter-enabled=false --assist-enabled=false --diagnostic-level=error",
     "lint:fix": "biome check . --write --formatter-enabled=false --diagnostic-level=error",
     "format": "biome format . --write",
+    "unused": "bun run unused:report",
+    "unused:report": "knip --no-exit-code --reporter compact --no-config-hints",
     "check:public-source": "node scripts/check-public-source.mjs",
     "verify:dist": "node scripts/verify-dist-assets.mjs",
     "validate": "bun run lint && bun run check:public-source && bun run test && bun run build && bun run verify:dist && git diff --check",
@@ -47,6 +49,7 @@
     "@biomejs/biome": "^2.5.13",
     "fake-indexeddb": "^6.0.0",
     "jsdom": "^29.0.1",
+    "knip": "^6.35.1",
     "playwright": "1.51.1",
     "vite": "^6.2.0",
     "vitest": "^3.0.0"

@@ -56,6 +56,20 @@ formatting baseline. `bun run lint:fix` applies safe Biome fixes without
 reformatting the repository; `bun run format` is available for explicit
 developer formatting work.
 
+Run the report-first unused-code check with either command:
+
+```bash
+bun run unused
+bun run unused:report
+```
+
+The unused-code report uses Knip and exits zero even when it finds baseline
+issues. Treat it as evidence for task handoffs, not as delete permission. Knip
+reports static unused files, dependencies, exports, duplicate exports, and
+unlisted imports; it does not prove that runtime branches, feature-flag paths,
+workspace-specific paths, or backend-driven UI states are dead. See
+`docs/unused-code-report.md` for the current baseline and cleanup guidance.
+
 Before committing a source checkpoint, run:
 
 ```bash

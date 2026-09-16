@@ -1,0 +1,48 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "index.html",
+    "src/main.js",
+    "src/worker/sync-worker-runner.js",
+    "src/worker/tower-pg-materialization-worker.js",
+    "src/worker/legacy-workspace-recovery-worker.js",
+    "vite.config.js",
+    "playwright.config.cjs",
+    "scripts/**/*.js",
+    "scripts/**/*.mjs",
+    "scripts/**/*.cjs",
+    "tests/**/*.test.js",
+    "tests/**/*.cjs",
+    "tests/e2e/**/*.spec.cjs",
+    "tests/setup.js",
+    ".github/workflows/*.yml",
+    ".github/workflows/*.yaml"
+  ],
+  "project": [
+    "src/**/*.js",
+    "scripts/**/*.js",
+    "scripts/**/*.mjs",
+    "tests/**/*.js",
+    "tests/**/*.cjs",
+    "*.js",
+    "*.cjs",
+    "*.mjs"
+  ],
+  "ignoreFiles": [
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    "node_modules/**",
+    ".vite/**",
+    ".cache/**",
+    "src/generated/**",
+    "tests/e2e/fixtures/**",
+    "test-results/**",
+    "tmp/**",
+    "data/**",
+    "docs/log/**"
+  ],
+  "ignoreUnresolved": [
+    "../../sb-publisher/src/schema-validate.js"
+  ]
+}

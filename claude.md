@@ -97,6 +97,23 @@ Do not leave orphan scaffolding. A new persisted record family normally needs
 its Dexie table, translator, worker dispatch, sync registration, UI consumer,
 and tests in the same coherent change.
 
+## Unused-code and dead-path reporting
+
+Run `bun run unused:report` when changing module boundaries, removing features,
+or noticing stale paths while working. The Knip report is intentionally
+report-first and non-blocking: use it to gather evidence for unused files,
+dependencies, exports, duplicate exports, and unlisted imports, but do not
+silently delete broad findings without task scope and review.
+
+Feed unused-code and suspected dead-path findings back to the managing agent in
+task comments, callbacks, or handoffs. If a notable stale path is outside the
+active task, flag it to the product owner or manager after the update instead
+of folding cleanup into unrelated work.
+
+Static unused-code output does not prove runtime deadness. For suspected dead
+runtime paths, recommend or add focused coverage, browser-flow probes, feature
+flag coverage, or production telemetry before removing behavior.
+
 Required baseline validation:
 
 ```bash
