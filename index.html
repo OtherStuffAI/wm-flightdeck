@@ -336,6 +336,18 @@
         </button>
       </div>
       <div class="session-controls" x-show="$store.chat.isLoggedIn">
+        <div
+          class="tower-connection-indicator"
+          x-show="$store.chat.towerConnectionIndicatorLabel"
+          x-cloak
+          role="status"
+          aria-live="polite"
+          :title="$store.chat.towerConnectionIndicatorTitle"
+          :data-state="$store.chat.towerReachabilityState"
+        >
+          <span class="tower-connection-dot" aria-hidden="true"></span>
+          <span x-text="$store.chat.towerConnectionIndicatorLabel"></span>
+        </div>
         <button
           class="avatar-chip"
           :class="{

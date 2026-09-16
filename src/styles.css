@@ -191,6 +191,36 @@ button:disabled {
   padding-top: 0;
 }
 
+.tower-connection-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 28px;
+  padding: 0 0.65rem;
+  border: 1px solid #fed7aa;
+  border-radius: 999px;
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.tower-connection-indicator[data-state="offline"] {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.tower-connection-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent);
+}
+
 .mobile-scope-switcher {
   display: none;
 }
@@ -15937,6 +15967,11 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
   .session-controls {
     flex: 0 0 auto;
+  }
+
+  .tower-connection-indicator {
+    max-width: 116px;
+    padding-inline: 0.5rem;
   }
 
   .channel-row-workspace-avatar-btn,

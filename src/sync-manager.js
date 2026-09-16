@@ -148,6 +148,36 @@ const WAPP_FAMILY_FRESH_MS = 30_000;
 const COLLECTION_FAMILY_FRESH_MS = 30_000;
 const DETAIL_FAMILY_FRESH_MS = 15_000;
 const STARTUP_SYNC_PROGRESS_DELAY_MS = 1_500;
+const OFFLINE_MESSAGE_RESYNC_DELAY_MS = 250;
+const OFFLINE_MESSAGE_RESYNC_IDLE_TIMEOUT_MS = 1_500;
+
+function isBrowserOffline() {
+  return typeof navigator !== 'undefined' && navigator?.onLine === false;
+}
+
+function scheduleIdle(callback) {
+  const scope = typeof window !== 'undefined' ? window : globalThis;
+  if (typeof scope?.requestIdleCallback === 'function') {
+    return {
+      kind: 'idle',
+      id: scope.requestIdleCallback(callback, { timeout: OFFLINE_MESSAGE_RESYNC_IDLE_TIMEOUT_MS }),
+    };
+  }
+  return {
+    kind: 'timeout',
+    id: setTimeout(() => callback(), 0),
+  };
+}
+
+function cancelIdle(handle) {
+  if (!handle) return;
+  const scope = typeof window !== 'undefined' ? window : globalThis;
+  if (handle.kind === 'idle' && typeof scope?.cancelIdleCallback === 'function') {
+    scope.cancelIdleCallback(handle.id);
+    return;
+  }
+  clearTimeout(handle.id);
+}
 
 async function mapWithConcurrency(items, concurrency, mapper) {
   const rows = Array.isArray(items) ? items : [];
@@ -170,8 +200,99 @@ async function mapWithConcurrency(items, concurrency, mapper) {
 
 export const syncManagerMixin = {
 
+  towerReachabilityState: 'online',
+  towerReachabilityReason: '',
+  offlineMessageResyncArmed: false,
+  offlineMessageResyncScheduled: false,
+  offlineMessageResyncTimer: null,
+  offlineMessageResyncIdleHandle: null,
+  offlineMessageResyncReason: '',
+  offlineMessageLastResult: null,
+
   traceFlightDeckTiming(message, details = null) {
     flightDeckTrace('message-timing', message, details);
+  },
+
+  get towerConnectionIndicatorLabel() {
+    if (!isTowerPgBackendMode() || !this.isLoggedIn) return '';
+    if (isBrowserOffline() || this.towerReachabilityState === 'offline') return 'Offline';
+    if (this.towerReachabilityState === 'reconnecting') return 'Reconnecting';
+    return '';
+  },
+
+  get towerConnectionIndicatorTitle() {
+    const label = this.towerConnectionIndicatorLabel;
+    if (!label) return '';
+    const reason = String(this.towerReachabilityReason || '').trim();
+    return reason ? `${label}: ${reason}` : label;
+  },
+
+  markTowerReachabilityDegraded(reason = 'transport-unreachable', state = 'reconnecting') {
+    if (!isTowerPgBackendMode()) return false;
+    this.offlineMessageResyncArmed = true;
+    this.towerReachabilityState = isBrowserOffline() || state === 'offline' ? 'offline' : 'reconnecting';
+    this.towerReachabilityReason = String(reason || 'transport-unreachable');
+    return true;
+  },
+
+  markTowerReachabilityRecovered(reason = 'transport-recovered', options = {}) {
+    if (!isTowerPgBackendMode()) return false;
+    if (isBrowserOffline()) {
+      return this.markTowerReachabilityDegraded('browser-offline', 'offline');
+    }
+    const shouldSchedule = this.offlineMessageResyncArmed === true;
+    this.towerReachabilityState = 'online';
+    this.towerReachabilityReason = String(reason || 'transport-recovered');
+    if (!shouldSchedule) return false;
+    return this.scheduleOfflineMessageResync({
+      refresh: options.refresh === true,
+      reason,
+      delayMs: options.delayMs,
+    });
+  },
+
+  scheduleOfflineMessageResync(options = {}) {
+    if (!isTowerPgBackendMode()) return false;
+    if (isBrowserOffline()) {
+      this.markTowerReachabilityDegraded('browser-offline', 'offline');
+      return false;
+    }
+    if (!this.offlineMessageResyncArmed) return false;
+    if (this.offlineMessageResyncScheduled || this.offlineMessageResyncInFlight) return false;
+
+    const delayMs = Math.max(0, Number(options.delayMs ?? OFFLINE_MESSAGE_RESYNC_DELAY_MS) || 0);
+    const refresh = options.refresh === true;
+    this.offlineMessageResyncScheduled = true;
+    this.offlineMessageResyncReason = String(options.reason || 'connectivity-recovered');
+    this.offlineMessageResyncTimer = setTimeout(() => {
+      this.offlineMessageResyncTimer = null;
+      this.offlineMessageResyncIdleHandle = scheduleIdle(async () => {
+        this.offlineMessageResyncIdleHandle = null;
+        this.offlineMessageResyncScheduled = false;
+        this.offlineMessageResyncArmed = false;
+        try {
+          const result = await this.retryUnsyncedOutgoingMessages?.({ refresh });
+          this.offlineMessageLastResult = result || null;
+        } catch (error) {
+          this.offlineMessageLastResult = {
+            attempted: 0,
+            sent: 0,
+            failed: 0,
+            error: error?.message || String(error),
+          };
+          this.markTowerReachabilityDegraded('offline-message-resync-failed', 'reconnecting');
+        }
+      });
+    }, delayMs);
+    return true;
+  },
+
+  cancelScheduledOfflineMessageResync() {
+    if (this.offlineMessageResyncTimer) clearTimeout(this.offlineMessageResyncTimer);
+    cancelIdle(this.offlineMessageResyncIdleHandle);
+    this.offlineMessageResyncTimer = null;
+    this.offlineMessageResyncIdleHandle = null;
+    this.offlineMessageResyncScheduled = false;
   },
 
   getTowerSyncService() {
@@ -2784,6 +2905,7 @@ export const syncManagerMixin = {
 
     if (status === 'catch-up-required') {
       this.catchUpSyncActive = true;
+      this.markTowerReachabilityDegraded?.('sse-catch-up-required', 'reconnecting');
       this.scheduleBackgroundSync(50);
       return;
     }
@@ -2801,18 +2923,20 @@ export const syncManagerMixin = {
       const pgHydration = this.isEncryptedRecordSyncDisabled
         ? this.queueTowerPgSSEHydration([])
         : null;
-      void this.retryUnsyncedOutgoingMessages?.({ refresh: false });
+      this.markTowerReachabilityRecovered?.('sse-connected', { refresh: false });
       // Widen heartbeat polling now that SSE is live
       this.scheduleBackgroundSync();
       return pgHydration;
     }
 
     if (status === 'reconnecting' || status === 'disconnected') {
+      this.markTowerReachabilityDegraded?.(`sse-${status}`, 'reconnecting');
       this.scheduleBackgroundSync(50);
       return;
     }
 
     if (status === 'fallback-polling') {
+      this.markTowerReachabilityDegraded?.('sse-fallback-polling', 'reconnecting');
       // SSE gave up reconnecting — tighten polling back to normal cadence
       this.scheduleBackgroundSync();
       return;
@@ -3020,6 +3144,7 @@ export const syncManagerMixin = {
   stopBackgroundSync() {
     const service = this._towerSyncService;
     if (this.backgroundSyncTimer) clearTimeout(this.backgroundSyncTimer);
+    this.cancelScheduledOfflineMessageResync?.();
     this.disposeTowerSyncService('stop-background-sync');
     if (this.visibilityHandler && typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.visibilityHandler);
@@ -3047,10 +3172,14 @@ export const syncManagerMixin = {
 
   ensureBackgroundSync(runSoon = false) {
     if (!this.visibilityHandler && typeof document !== 'undefined') {
-      this.visibilityHandler = () => {
+      this.visibilityHandler = (event) => {
         if (document.hidden) return;
         this.ensureBackgroundSync(true);
-        void this.retryUnsyncedOutgoingMessages?.({ refresh: false });
+        if (event?.type === 'online') {
+          this.markTowerReachabilityRecovered?.('browser-online', { refresh: false });
+        } else if (isBrowserOffline()) {
+          this.markTowerReachabilityDegraded?.('browser-offline', 'offline');
+        }
       };
       document.addEventListener('visibilitychange', this.visibilityHandler);
       window.addEventListener('focus', this.visibilityHandler, { passive: true });
@@ -3092,7 +3221,7 @@ export const syncManagerMixin = {
         this.markEncryptedRecordSyncDisabled();
         await this.recoverVisibleAgentActivities();
         await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? this.runTowerPgWorkspaceSync());
-        await this.retryUnsyncedOutgoingMessages?.({ refresh: false });
+        this.markTowerReachabilityRecovered?.('background-sync-success', { refresh: false });
       } else {
         await this.performSync({ silent: true });
       }
@@ -3106,6 +3235,7 @@ export const syncManagerMixin = {
         error: error?.message || String(error),
         nextRetryMs: this.syncBackoffMs,
       });
+      this.markTowerReachabilityDegraded?.('background-sync-failed', 'reconnecting');
     } finally {
       if (this.sseStatus === 'fallback-polling') {
         flightDeckTrace('message-timing', 'fallback tick completed', {
@@ -3455,7 +3585,7 @@ export const syncManagerMixin = {
       if (this.canAdminWorkspace && typeof this.refreshWappPublishingGrants === 'function') {
         await this.refreshWappPublishingGrants();
       }
-      await this.retryUnsyncedOutgoingMessages?.({ refresh: false });
+      this.markTowerReachabilityRecovered?.('full-sync-success', { refresh: false });
       this.markSyncFamilyProgress(step.id, 'done');
       this.updateSyncSession({
         phase: 'pulling',

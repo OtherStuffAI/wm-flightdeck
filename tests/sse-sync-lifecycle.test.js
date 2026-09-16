@@ -541,16 +541,69 @@ describe('handleSSEStatus', () => {
     expect(store.sseStatus).toBe('connected');
   });
 
-  it('kicks the offline outgoing message retry queue when SSE reconnects', async () => {
-    const retryUnsyncedOutgoingMessages = vi.fn().mockResolvedValue({ attempted: 1, sent: 1, failed: 0 });
+  it('does not scan failed outgoing messages on a healthy initial SSE connect', async () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    const scheduleOfflineMessageResync = vi.fn();
     const { fn, store } = bindMethod('handleSSEStatus', {
       sseStatus: 'disconnected',
-      retryUnsyncedOutgoingMessages,
+      scheduleOfflineMessageResync,
     });
     fn({ status: 'connected' });
     await flushMicrotasks();
     expect(store.sseStatus).toBe('connected');
-    expect(retryUnsyncedOutgoingMessages).toHaveBeenCalledWith({ refresh: false });
+    expect(scheduleOfflineMessageResync).not.toHaveBeenCalled();
+  });
+
+  it('coalesces a background failed-message scan after SSE recovers from a degraded state', async () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    const scheduleOfflineMessageResync = vi.fn();
+    const { fn, store } = bindMethod('handleSSEStatus', {
+      sseStatus: 'connected',
+      scheduleOfflineMessageResync,
+    });
+
+    fn({ status: 'reconnecting' });
+    expect(store.offlineMessageResyncArmed).toBe(true);
+    expect(store.towerReachabilityState).toBe('reconnecting');
+
+    fn({ status: 'connected' });
+
+    expect(store.sseStatus).toBe('connected');
+    expect(scheduleOfflineMessageResync).toHaveBeenCalledTimes(1);
+    expect(scheduleOfflineMessageResync).toHaveBeenCalledWith({
+      refresh: false,
+      reason: 'sse-connected',
+      delayMs: undefined,
+    });
+  });
+
+  it('runs the failed-message scan as one delayed background job after recovery', async () => {
+    vi.useFakeTimers();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const retryUnsyncedOutgoingMessages = vi.fn().mockResolvedValue({ attempted: 0, sent: 0, failed: 0 });
+    const { store } = bindMethod('scheduleOfflineMessageResync', {
+      retryUnsyncedOutgoingMessages,
+    });
+
+    try {
+      expect(store.scheduleOfflineMessageResync({ reason: 'healthy', delayMs: 1 })).toBe(false);
+      store.markTowerReachabilityDegraded('background-sync-failed', 'reconnecting');
+      expect(store.scheduleOfflineMessageResync({ reason: 'background-sync-success', delayMs: 25 })).toBe(true);
+      expect(store.scheduleOfflineMessageResync({ reason: 'duplicate', delayMs: 25 })).toBe(false);
+      expect(retryUnsyncedOutgoingMessages).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(25);
+      await vi.runOnlyPendingTimersAsync();
+      await flushMicrotasks();
+
+      expect(retryUnsyncedOutgoingMessages).toHaveBeenCalledTimes(1);
+      expect(retryUnsyncedOutgoingMessages).toHaveBeenCalledWith({ refresh: false });
+      expect(store.offlineMessageResyncScheduled).toBe(false);
+      expect(store.offlineMessageResyncArmed).toBe(false);
+    } finally {
+      store.cancelScheduledOfflineMessageResync();
+      vi.useRealTimers();
+    }
   });
 
   it('signs the exact legacy semantic URL requested by the worker', async () => {

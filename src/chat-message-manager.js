@@ -2376,6 +2376,7 @@ export const chatMessageManagerMixin = {
         } else {
           await this.setMessageSyncStatus(msgId, 'failed');
         }
+        this.markTowerReachabilityDegraded?.('chat-message-send-failed', 'reconnecting');
         this.error = error?.message || 'Failed to sync PG message';
         return false;
       }
@@ -2625,6 +2626,7 @@ export const chatMessageManagerMixin = {
       } catch (error) {
         const failed = await persistReply(() => updateExistingMessageSyncStatus(msgId, 'failed'));
         if (failed) patchReply(failed);
+        this.markTowerReachabilityDegraded?.('chat-reply-send-failed', 'reconnecting');
         if (isSendCurrent()) this.error = error?.message || 'Failed to sync PG reply';
         return false;
       }

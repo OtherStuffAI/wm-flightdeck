@@ -1810,6 +1810,14 @@
       "notes": [
         "Retry failed local chat sends automatically when Flight Deck reconnects, preserving mentions, attachments, and thread context without showing duplicate delivered messages."
       ]
+    },
+    {
+      "buildNumber": 2021,
+      "label": "Background offline resend",
+      "notes": [
+        "Keep offline chat resend recovery off the loading and typing paths, waking a bounded background retry only after degraded connection signals recover.",
+        "Show a compact Offline or Reconnecting header badge only when Tower PG connectivity is degraded."
+      ]
     }
   ]
 }
