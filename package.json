@@ -42,11 +42,11 @@
     "diff": "^8.0.4",
     "highlight.js": "^11.11.1",
     "marked": "^17.0.4",
-    "nostr-tools": "^2.17.0",
-    "turndown": "^7.2.4"
+    "nostr-tools": "^2.17.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.13",
+    "esbuild": "0.25.12",
     "fake-indexeddb": "^6.0.0",
     "jsdom": "^29.0.1",
     "knip": "^6.35.1",

@@ -26,31 +26,26 @@ unit tests, Playwright flows, production telemetry, or targeted browser probes.
 
 Latest run:
 
-- Unused files: 1
-- Unused dependencies: 1
-- Unlisted dependencies: 2
+- Unused files: 0
+- Unused dependencies: 0
+- Unlisted dependencies: 0
 - Unused exports: 68
 - Duplicate exports: 4
 - Unresolved imports: 0 after ignoring the intentional adjacent-suite schema
   validator path used by `tests/schema-sync.test.js`
 
-## Likely safe cleanup candidates
+## Completed first cleanup pass
 
-- `src/crypto/group-key-store.js`: no imports found in source, scripts, tests,
-  or templates. The active group key implementation appears to be
-  `src/crypto/group-keys.js`. Remove only after confirming no external or
-  older migration path imports it.
-- `turndown`: present in `package.json` and `bun.lock`, but no source, test,
-  script, or docs usage was found. A dependency-only cleanup pass can remove it
-  if no pending editor/import work needs it.
+- Removed `src/crypto/group-key-store.js` after confirming no imports in source,
+  scripts, tests, docs, or templates. The active group key implementation is
+  `src/crypto/group-keys.js`.
+- Removed unused dependency `turndown` from `package.json` and `bun.lock`.
+- Added `esbuild` as an explicit dev dependency because
+  `scripts/validate-document-browser-replay.mjs` and
+  `scripts/verify-retained-activity-browser.mjs` import it directly.
 
 ## Review-needed candidates
 
-- `scripts/validate-document-browser-replay.mjs` and
-  `scripts/verify-retained-activity-browser.mjs` import `esbuild` directly while
-  relying on Vite's transitive install. Decide whether to add `esbuild` as an
-  explicit dev dependency or rewrite the scripts to use Bun/Vite-owned build
-  paths.
 - The 68 unused-export findings are mostly exported helpers/constants in active
   modules. Many are used internally in the same file or are plausible test,
   compatibility, or future-extension seams. Review by feature area before
@@ -86,14 +81,9 @@ Latest run:
 
 ## Recommended next cleanup passes
 
-1. Dependency hygiene pass: remove `turndown` if no pending rich-editor import
-   work needs it, and decide whether `esbuild` should become an explicit dev
-   dependency for the two replay scripts.
-2. File-level cleanup pass: verify and remove `src/crypto/group-key-store.js`
-   if the old in-memory API has no external consumers.
-3. Export-surface pass: review unused exports by domain, starting with helpers
+1. Export-surface pass: review unused exports by domain, starting with helpers
    that are only used internally and have test coverage.
-4. Runtime dead-path pass: add coverage-oriented checks for suspected stale
+2. Runtime dead-path pass: add coverage-oriented checks for suspected stale
    feature paths before removing behavior. Good candidates are Playwright probes
    around feature flags, workspace/backend modes, and Tower payload-driven UI
    states.

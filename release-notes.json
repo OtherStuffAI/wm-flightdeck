@@ -1818,6 +1818,12 @@
         "Keep offline chat resend recovery off the loading and typing paths, waking a bounded background retry only after degraded connection signals recover.",
         "Show a compact Offline or Reconnecting header badge only when Tower PG connectivity is degraded."
       ]
+    },
+    {
+      "buildNumber": 2024,
+      "label": "Unused-code cleanup",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
