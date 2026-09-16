@@ -1824,6 +1824,13 @@
       "label": "Unused-code cleanup",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2026,
+      "label": "Scrollable scope management",
+      "notes": [
+        "Move Manage scopes to the bottom of the scrollable scope and channel list so the workspace switcher stays focused on workspace changes."
+      ]
     }
   ]
 }

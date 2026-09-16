@@ -1297,6 +1297,9 @@
               </div>
             </section>
           </template>
+          <div class="sidebar-manage-scopes-footer" x-show="$store.chat.canAccessScopeSettings">
+            <button type="button" class="sidebar-scope-heading-control" @click="$store.chat.openScopeManagement()">Manage scopes</button>
+          </div>
         </section>
         <div
           class="sidebar-workspace-footer"
@@ -1392,9 +1395,6 @@
                 Add workspace...
               </button>
             </div>
-          </div>
-          <div class="sidebar-manage-scopes-footer" x-show="$store.chat.canAccessScopeSettings">
-            <button type="button" class="sidebar-scope-heading-control" @click="$store.chat.openScopeManagement()">Manage scopes</button>
           </div>
         </div>
       </nav>

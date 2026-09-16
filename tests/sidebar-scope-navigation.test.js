@@ -250,7 +250,7 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(styles).toMatch(/\.sidebar-scope-channel-menu\s*\{[^}]*width:\s*36px;[^}]*height:\s*36px;/s);
   });
 
-  it('keeps only the middle hierarchy scrollable and hides it in collapsed/mobile rails', () => {
+  it('keeps the scope navigation stack scrollable and hides it in collapsed/mobile rails', () => {
     expect(styles).toMatch(/\.sidebar-nav\s*\{[^}]*flex:\s*0 0 auto;/s);
     expect(styles).toMatch(/\.sidebar-scope-navigation\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;[^}]*overscroll-behavior-y:\s*contain;/s);
     expect(styles).toMatch(/\.sidebar-scope-heading-control:focus-visible\s*\{[^}]*outline:\s*2px solid #2563eb;/s);
@@ -277,14 +277,17 @@ describe('expanded sidebar scope/channel navigation', () => {
     expect(styles).not.toContain('sidebar-workspace-navigation-divider');
   });
 
-  it('places Manage scopes in the bottom sidebar footer with a separator', () => {
+  it('places Manage scopes at the bottom of the scrollable scope navigation stack', () => {
     const navigationStart = html.indexOf('class="sidebar-scope-navigation"');
     const footerStart = html.indexOf('class="sidebar-workspace-footer"', navigationStart);
     const navigation = html.slice(navigationStart, footerStart);
     const footer = html.slice(footerStart, html.indexOf('</nav>', footerStart));
+    const groupsIndex = navigation.indexOf('x-for="group in $store.chat.sidebarScopeChannelGroups"');
+    const manageIndex = navigation.indexOf('class="sidebar-manage-scopes-footer"');
 
-    expect(navigation).not.toContain('$store.chat.openScopeManagement()');
-    expect(footer).toMatch(/class="sidebar-workspace-shell"[\s\S]*class="sidebar-manage-scopes-footer"[\s\S]*x-show="\$store\.chat\.canAccessScopeSettings"[\s\S]*class="sidebar-scope-heading-control"[\s\S]*@click="\$store\.chat\.openScopeManagement\(\)"[\s\S]*>Manage scopes<\/button>/s);
+    expect(manageIndex).toBeGreaterThan(groupsIndex);
+    expect(navigation).toMatch(/class="sidebar-manage-scopes-footer"[\s\S]*x-show="\$store\.chat\.canAccessScopeSettings"[\s\S]*class="sidebar-scope-heading-control"[\s\S]*@click="\$store\.chat\.openScopeManagement\(\)"[\s\S]*>Manage scopes<\/button>/s);
+    expect(footer).not.toContain('$store.chat.openScopeManagement()');
     expect(styles).toMatch(/\.sidebar-manage-scopes-footer\s*\{[^}]*border-top:\s*1px solid var\(--border\);/s);
   });
 });
