@@ -31,3 +31,26 @@ export function mergeThreadHistoryIds(known = [], page = [], firstPage = false) 
   return [...new Set(firstPage && !anchored && pending.length
     ? [...pending, ...merged] : [...merged, ...pending])];
 }
+
+export function clampBranchEffectiveMessageIds(ids = [], rows = [], thread = {}) {
+  const branchPointId = String(thread?.pg_branch_point_message_id ?? thread?.branch_point_message_id ?? '').trim();
+  const threadId = String(thread?.pg_thread_id ?? thread?.id ?? thread?.record_id ?? '').trim();
+  const normalizedIds = [...new Set((Array.isArray(ids) ? ids : [])
+    .map((id) => String(id || '').trim())
+    .filter(Boolean))];
+  if (!branchPointId || !threadId || !normalizedIds.includes(branchPointId)) return normalizedIds;
+  const rowsById = new Map((Array.isArray(rows) ? rows : [])
+    .filter((row) => row?.record_id || row?.id)
+    .map((row) => [String(row.record_id || row.id), row]));
+  let throughBranchPoint = true;
+  return normalizedIds.filter((id) => {
+    if (throughBranchPoint) {
+      if (id === branchPointId) throughBranchPoint = false;
+      return true;
+    }
+    const row = rowsById.get(id);
+    const rowThreadId = String(row?.pg_thread_id ?? row?.thread_id ?? '').trim();
+    const owningThreadId = String(row?.pg_owning_thread_id ?? row?.owning_thread_id ?? rowThreadId).trim();
+    return rowThreadId === threadId || owningThreadId === threadId;
+  });
+}

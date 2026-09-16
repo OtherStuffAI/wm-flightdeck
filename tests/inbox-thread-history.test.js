@@ -133,6 +133,29 @@ describe('real Inbox thread history path', () => {
     expect((await db.chat_messages.get('branch')).pg_effective_message_ids).toEqual(ids);
   });
 
+  it('clamps broad branch-history pages to the selected branch point', async () => {
+    openWorkspaceDb(key); await seed('ancestor', 4); await seed('branch', 1);
+    const db = getWorkspaceDb(); const s = store();
+    const branchThread = { ...rawThread('branch'), parent_thread_id: 'ancestor', branch_point_message_id: 'ancestor-2' };
+    await db.chat_messages.put(mapPgThreadToLocal(branchThread));
+    await hydrateTowerPgSyncBundle(s, { thread_history_page: {
+      channelId: 'channel-a',
+      thread: branchThread,
+      messages: [
+        { ...rawMessage('ancestor', 1), inherited: true, effective_thread_id: 'branch' },
+        { ...rawMessage('ancestor', 2), inherited: true, effective_thread_id: 'branch' },
+        { ...rawMessage('ancestor', 3), inherited: true, effective_thread_id: 'branch' },
+        rawMessage('branch', 1),
+      ],
+      nextCursor: null,
+    } });
+
+    expect((await db.chat_messages.get('branch')).pg_effective_message_ids).toEqual(['ancestor-1', 'ancestor-2', 'branch-1']);
+    const rows = await getThreadMessagePresentationWindow('channel-a', 'branch');
+    expect(rows.map(row => row.record_id)).toEqual(expect.arrayContaining(['ancestor-1', 'ancestor-2', 'branch-1']));
+    expect(rows.some(row => row.record_id === 'ancestor-3')).toBe(false);
+  });
+
   it('does not regress continuation on replay or reordered pages and rejects stale authority', async () => {
     openWorkspaceDb(key); const db = getWorkspaceDb(); const s = store();
     const page = (cursor, nextCursor, numbers, version = 1) => ({ thread_history_page: {

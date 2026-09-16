@@ -1,4 +1,4 @@
-import { threadHistoryLineage, mergeThreadHistoryIds } from './thread-history-coverage.js';
+import { clampBranchEffectiveMessageIds, threadHistoryLineage, mergeThreadHistoryIds } from './thread-history-coverage.js';
 import { FLIGHT_DECK_PG_APP_NPUB } from './app-identity.js';
 import { normalizeBackendUrl } from './utils/state-helpers.js';
 import {
@@ -2172,7 +2172,11 @@ async function materializeThreadHistoryPage(store, page) {
       return !revoked(record) && (!record || Number(record.row?.row_version || record.row?.version || 0) <= Number(row.version || 0));
     });
     const tombstones = new Set(rows.filter((row, index) => revoked(authority[index]) || row.record_state === 'deleted').map(row => row.record_id));
-    const ids = mergeThreadHistoryIds(known.filter(id => !tombstones.has(id)), current.filter(row => row.record_state !== 'deleted').map(row => row.record_id), !page.cursor);
+    const ids = clampBranchEffectiveMessageIds(
+      mergeThreadHistoryIds(known.filter(id => !tombstones.has(id)), current.filter(row => row.record_state !== 'deleted').map(row => row.record_id), !page.cursor),
+      current,
+      thread,
+    );
     // Only the expected forward edge may move continuation. Replayed first or
     // reordered pages can add membership but cannot move the cursor backwards.
     if (page.cursor && !priorCoverage) throw new Error('Conversation history lineage changed; reopen to retry');
@@ -2245,7 +2249,7 @@ export async function hydrateTowerPgThreadMessages(store, channelId, threadId, d
         workspaceOwnerNpub: context.workspaceOwnerNpub,
         senderNpub: '',
       }),
-      pg_effective_message_ids: rows.map((row) => row.record_id),
+      pg_effective_message_ids: clampBranchEffectiveMessageIds(rows.map((row) => row.record_id), rows, rawThread),
     });
   }
   return rows;

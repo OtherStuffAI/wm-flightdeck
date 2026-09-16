@@ -1,4 +1,4 @@
-import { threadHistoryLineage, mergeThreadHistoryIds } from './thread-history-coverage.js';
+import { clampBranchEffectiveMessageIds, threadHistoryLineage, mergeThreadHistoryIds } from './thread-history-coverage.js';
 import Dexie from 'dexie';
 import { taskIndexFields, compareIndexedTasks } from './task-index-keys.js';
 import {
@@ -936,6 +936,7 @@ export async function getThreadMessagePresentationWindow(channelId, rootId, opti
   const effectiveIds = mergeThreadHistoryIds(thread?.pg_effective_message_ids || [],
     coverage?.value?.lineage === lineage ? coverage.value.messageIds : []).slice(-limit);
   const effective = effectiveIds.length ? await db.chat_messages.bulkGet(effectiveIds) : [];
+  const clampedEffectiveIds = clampBranchEffectiveMessageIds(effectiveIds, effective.filter(Boolean), thread);
   const sourceId = thread?.pg_source_message_id;
   const source = sourceId && sourceId !== rootId ? await db.chat_messages.get(sourceId) : null;
   const parent = root || thread;
@@ -949,7 +950,7 @@ export async function getThreadMessagePresentationWindow(channelId, rootId, opti
   for (const [index, row] of candidates.entries()) {
     if (revoked(authority[index + 2])) continue;
     // Indexed own-thread replies remain live; inherited rows require membership.
-    if (row.pg_thread_id && row.pg_thread_id !== threadId && !effectiveIds.includes(row.record_id)) continue;
+    if (row.pg_thread_id && row.pg_thread_id !== threadId && !clampedEffectiveIds.includes(row.record_id)) continue;
     if (!row || row.channel_id !== channelId || row.record_state === 'deleted' || row.record_id === rootId) continue;
     rows.set(row.record_id, { ...row, parent_message_id: rootId });
   }

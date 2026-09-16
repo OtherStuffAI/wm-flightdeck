@@ -607,6 +607,32 @@ describe('PG read hydrator', () => {
     });
   });
 
+  it('clamps branch hydration to the selected parent message while keeping child replies', async () => {
+    const persisted = [];
+    await hydrateTowerPgThreadMessages(store(), 'channel-1', 'child-thread', {
+      getTowerPgChannelThreads: async () => ({ threads: [{
+        id: 'child-thread', workspace_id: 'workspace-1', scope_id: 'scope-1', channel_id: 'channel-1',
+        source_message_id: null, parent_thread_id: 'parent-thread', branch_point_message_id: 'm2',
+        row_version: 1,
+      }, { id: 'parent-thread', source_message_id: 'm1', channel_id: 'channel-1' }] }),
+      getTowerPgChannelMessages: async () => ({
+        messages: [
+          { id: 'm1', channel_id: 'channel-1', thread_id: 'parent-thread', owning_thread_id: 'parent-thread', effective_thread_id: 'child-thread', inherited: true, read_only: true, body: 'before', row_version: 1 },
+          { id: 'm2', channel_id: 'channel-1', thread_id: 'parent-thread', owning_thread_id: 'parent-thread', effective_thread_id: 'child-thread', inherited: true, read_only: true, body: 'branch point', row_version: 1 },
+          { id: 'm3', channel_id: 'channel-1', thread_id: 'parent-thread', owning_thread_id: 'parent-thread', effective_thread_id: 'child-thread', inherited: true, read_only: true, body: 'too late', row_version: 1 },
+          { id: 'child-1', channel_id: 'channel-1', thread_id: 'child-thread', owning_thread_id: 'child-thread', effective_thread_id: 'child-thread', body: 'child reply', row_version: 1 },
+        ],
+        next_cursor: null,
+      }),
+      upsertMessage: async (row) => persisted.push(row),
+    });
+
+    expect(persisted.at(-1)).toMatchObject({
+      record_id: 'child-thread',
+      pg_effective_message_ids: ['m1', 'm2', 'child-1'],
+    });
+  });
+
   it('preserves deleted PG message state during local mapping', () => {
     expect(mapPgMessageToLocal({
       id: 'message-deleted',
