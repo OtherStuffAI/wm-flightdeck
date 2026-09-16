@@ -2801,6 +2801,7 @@ export const syncManagerMixin = {
       const pgHydration = this.isEncryptedRecordSyncDisabled
         ? this.queueTowerPgSSEHydration([])
         : null;
+      void this.retryUnsyncedOutgoingMessages?.({ refresh: false });
       // Widen heartbeat polling now that SSE is live
       this.scheduleBackgroundSync();
       return pgHydration;
@@ -3023,6 +3024,7 @@ export const syncManagerMixin = {
     if (this.visibilityHandler && typeof document !== 'undefined') {
       document.removeEventListener('visibilitychange', this.visibilityHandler);
       window.removeEventListener('focus', this.visibilityHandler);
+      window.removeEventListener('online', this.visibilityHandler);
       this.visibilityHandler = null;
     }
     // Compatibility for callers/tests that stop the legacy lifecycle before a
@@ -3048,9 +3050,11 @@ export const syncManagerMixin = {
       this.visibilityHandler = () => {
         if (document.hidden) return;
         this.ensureBackgroundSync(true);
+        void this.retryUnsyncedOutgoingMessages?.({ refresh: false });
       };
       document.addEventListener('visibilitychange', this.visibilityHandler);
       window.addEventListener('focus', this.visibilityHandler, { passive: true });
+      window.addEventListener('online', this.visibilityHandler, { passive: true });
     }
     if (this.isEncryptedRecordSyncDisabled) this.markEncryptedRecordSyncDisabled();
     // Data age alone must not replace usable local state with a blocking
@@ -3088,6 +3092,7 @@ export const syncManagerMixin = {
         this.markEncryptedRecordSyncDisabled();
         await this.recoverVisibleAgentActivities();
         await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? this.runTowerPgWorkspaceSync());
+        await this.retryUnsyncedOutgoingMessages?.({ refresh: false });
       } else {
         await this.performSync({ silent: true });
       }
@@ -3450,6 +3455,7 @@ export const syncManagerMixin = {
       if (this.canAdminWorkspace && typeof this.refreshWappPublishingGrants === 'function') {
         await this.refreshWappPublishingGrants();
       }
+      await this.retryUnsyncedOutgoingMessages?.({ refresh: false });
       this.markSyncFamilyProgress(step.id, 'done');
       this.updateSyncSession({
         phase: 'pulling',

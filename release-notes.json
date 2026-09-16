@@ -1803,6 +1803,13 @@
       "notes": [
         "Compress desktop task-board controls into one owner row, keeping owner and frequent filters visible while moving sort, child scopes, read, and bulk actions into the task menu."
       ]
+    },
+    {
+      "buildNumber": 2019,
+      "label": "Automatic offline chat resend",
+      "notes": [
+        "Retry failed local chat sends automatically when Flight Deck reconnects, preserving mentions, attachments, and thread context without showing duplicate delivered messages."
+      ]
     }
   ]
 }

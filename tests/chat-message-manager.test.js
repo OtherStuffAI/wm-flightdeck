@@ -3741,6 +3741,243 @@ describe('chat message actions menu', () => {
     }
   });
 
+  it('automatically retries a failed offline PG channel send and reconciles without a duplicate', async () => {
+    const workspaceDbKey = 'chat-message-manager-auto-resync-channel';
+    openWorkspaceDb(workspaceDbKey);
+    await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const attachment = {
+      kind: 'file', storage_object_id: 'storage-1', filename: 'brief.pdf',
+      content_type: 'application/pdf', size_bytes: 12,
+    };
+    const mention = { type: 'agent', npub: 'npub1agent', label: 'Agent' };
+    createTowerPgMessageFromLocal
+      .mockRejectedValueOnce(new Error('Offline'))
+      .mockImplementationOnce(async (_store, localRow) => ({
+        ...localRow,
+        record_id: 'delivered-auto-1',
+        pg_record_type: 'message',
+        pg_thread_id: 'thread-delivered-1',
+        sync_status: 'synced',
+      }));
+
+    try {
+      const store = createStore({
+        session: { npub: 'npub1operator-a' },
+        currentWorkspace: { workspaceId: 'workspace-1', pgBackendMode: true },
+        workspaceOwnerNpub: 'npub1owner',
+        selectedChannelId: 'channel-1',
+        pgContextSelectedChannelId: 'channel-1',
+        channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }],
+        messageInput: 'Offline body @[Agent](mention:agent:npub1agent)',
+        messageFileDrafts: [{
+          draft_id: 'draft-file-1', status: 'ready', file: { name: 'brief.pdf' },
+          error: '', preview_url: 'blob:brief', ...attachment,
+        }],
+        selectedAgentMentionsByComposer: { message: [mention], thread: [] },
+        clearChatFileDrafts: vi.fn(function clearChatFileDrafts(context) {
+          if (context === 'message') this.messageFileDrafts = [];
+        }),
+      });
+
+      expect(await store.sendMessage()).toBe(false);
+      const failed = (await getMessagesByChannel('channel-1')).find(row => row.sync_status === 'failed');
+      expect(failed).toMatchObject({
+        body: 'Offline body @[Agent](mention:agent:npub1agent)',
+        attachments: [attachment],
+        pg_metadata: { mentions: [mention] },
+        pg_workspace_id: 'workspace-1',
+        pg_scope_id: 'scope-1',
+        pg_client_request_id: failed.record_id,
+      });
+
+      await expect(store.retryUnsyncedOutgoingMessages()).resolves.toEqual({ attempted: 1, sent: 1, failed: 0 });
+
+      const retry = createTowerPgMessageFromLocal.mock.calls[1][1];
+      expect(retry).toMatchObject({
+        record_id: failed.record_id,
+        pg_client_request_id: failed.record_id,
+        body: failed.body,
+        attachments: [attachment],
+        pg_metadata: { mentions: [mention] },
+        channel_id: 'channel-1',
+        pg_workspace_id: 'workspace-1',
+        pg_scope_id: 'scope-1',
+      });
+      const rows = await getMessagesByChannel('channel-1');
+      expect(rows.map(row => row.record_id)).toEqual(['delivered-auto-1']);
+      expect(rows[0]).toMatchObject({ pg_client_record_id: failed.record_id, sync_status: 'synced' });
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
+  });
+
+  it('automatically retries a failed PG reply with its original parent thread context', async () => {
+    const workspaceDbKey = 'chat-message-manager-auto-resync-reply';
+    openWorkspaceDb(workspaceDbKey);
+    await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const root = {
+      record_id: 'root-1', channel_id: 'channel-1', parent_message_id: null,
+      body: 'Root', pg_backend: true, pg_thread_id: 'thread-1', sync_status: 'synced',
+      sender_npub: 'npub1operator-a', record_state: 'active',
+    };
+    const failed = {
+      record_id: 'failed-reply', pg_client_request_id: 'failed-reply', pg_backend: true,
+      channel_id: 'channel-1', parent_message_id: 'root-1', pg_thread_id: 'thread-1',
+      body: 'Reply with file [brief.pdf](storage://storage-1)',
+      attachments: [{ kind: 'file', storage_object_id: 'storage-1', filename: 'brief.pdf' }],
+      pg_metadata: { mentions: [{ type: 'agent', npub: 'npub1agent', label: 'Agent' }] },
+      sender_npub: 'npub1operator-a', sync_status: 'failed', record_state: 'active', version: 1,
+      pg_workspace_id: 'workspace-1', pg_scope_id: 'scope-1',
+    };
+    createTowerPgMessageFromLocal.mockImplementation(async (_store, localRow) => ({
+      ...localRow,
+      record_id: 'delivered-reply',
+      pg_record_type: 'message',
+      sync_status: 'synced',
+    }));
+
+    try {
+      await upsertMessage(root);
+      await upsertMessage(failed);
+      const store = createStore({
+        session: { npub: 'npub1operator-a' },
+        currentWorkspace: { workspaceId: 'workspace-1', pgBackendMode: true },
+        selectedChannelId: 'channel-1',
+        activeThreadId: 'different-open-thread',
+        channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }],
+        messages: [root],
+      });
+
+      expect(await store.retryUnsyncedOutgoingMessages()).toMatchObject({ attempted: 1, sent: 1, failed: 0 });
+      expect(createTowerPgMessageFromLocal).toHaveBeenCalledWith(
+        store,
+        expect.objectContaining({
+          record_id: 'failed-reply',
+          pg_client_request_id: 'failed-reply',
+          parent_message_id: 'root-1',
+          pg_thread_id: 'thread-1',
+          body: failed.body,
+          attachments: failed.attachments,
+          pg_metadata: failed.pg_metadata,
+        }),
+        expect.objectContaining({
+          parentMessage: { record_id: 'root-1', pg_thread_id: 'thread-1' },
+        }),
+      );
+      expect((await getMessagesByChannel('channel-1')).map(row => row.record_id)).toEqual(['root-1', 'delivered-reply']);
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
+  });
+
+  it('does not duplicate an automatic retry while the same failed message is in flight', async () => {
+    const workspaceDbKey = 'chat-message-manager-auto-resync-in-flight';
+    openWorkspaceDb(workspaceDbKey);
+    await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    let resolveSend;
+    createTowerPgMessageFromLocal.mockImplementation((_store, localRow) => new Promise((resolve) => {
+      resolveSend = () => resolve({ ...localRow, record_id: 'delivered-in-flight', sync_status: 'synced', pg_record_type: 'message' });
+    }));
+    const failed = {
+      record_id: 'failed-local', pg_client_request_id: 'failed-local', pg_backend: true,
+      channel_id: 'channel-1', parent_message_id: null, body: 'Retry once', attachments: [],
+      sender_npub: 'npub1operator-a', sync_status: 'failed', record_state: 'active', version: 1,
+    };
+
+    try {
+      await upsertMessage(failed);
+      const store = createStore({
+        session: { npub: 'npub1operator-a' },
+        selectedChannelId: 'channel-1',
+        channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }],
+        messages: [failed],
+      });
+      const first = store.retryUnsyncedOutgoingMessages();
+      await vi.waitFor(() => expect(createTowerPgMessageFromLocal).toHaveBeenCalledTimes(1));
+      await expect(store.retryUnsyncedOutgoingMessages()).resolves.toEqual({ attempted: 0, sent: 0, failed: 0 });
+      await expect(store.resendFailedMessage('failed-local')).resolves.toBe(false);
+      resolveSend();
+      await expect(first).resolves.toMatchObject({ attempted: 1, sent: 1, failed: 0 });
+      expect(createTowerPgMessageFromLocal).toHaveBeenCalledTimes(1);
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
+  });
+
+  it('keeps failed automatic retries recoverable for a later online transition', async () => {
+    const workspaceDbKey = 'chat-message-manager-auto-resync-repeat-failure';
+    openWorkspaceDb(workspaceDbKey);
+    await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const failed = {
+      record_id: 'failed-local', pg_client_request_id: 'failed-local', pg_backend: true,
+      channel_id: 'channel-1', parent_message_id: null, body: 'Retry later', attachments: [],
+      sender_npub: 'npub1operator-a', sync_status: 'failed', record_state: 'active', version: 1,
+    };
+    createTowerPgMessageFromLocal
+      .mockRejectedValueOnce(new Error('Still offline'))
+      .mockImplementationOnce(async (_store, localRow) => ({
+        ...localRow, record_id: 'delivered-later', sync_status: 'synced', pg_record_type: 'message',
+      }));
+
+    try {
+      await upsertMessage(failed);
+      const store = createStore({
+        session: { npub: 'npub1operator-a' },
+        selectedChannelId: 'channel-1',
+        channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }],
+        messages: [failed],
+      });
+
+      await expect(store.retryUnsyncedOutgoingMessages()).resolves.toEqual({ attempted: 1, sent: 0, failed: 1 });
+      const retained = await getMessageById('failed-local');
+      expect(retained).toMatchObject({ body: 'Retry later', sync_status: 'failed' });
+      expect(store.canResendMessage(retained)).toBe(true);
+
+      await expect(store.retryUnsyncedOutgoingMessages()).resolves.toEqual({ attempted: 1, sent: 1, failed: 0 });
+      expect((await getMessagesByChannel('channel-1')).map(row => row.record_id)).toEqual(['delivered-later']);
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
+  });
+
+  it('ignores delivered, deleted, other-author, canonical, and non-idempotent failed messages', async () => {
+    const workspaceDbKey = 'chat-message-manager-auto-resync-eligibility';
+    openWorkspaceDb(workspaceDbKey);
+    await clearRuntimeData();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const base = {
+      pg_backend: true, channel_id: 'channel-1', parent_message_id: null,
+      body: 'Do not retry', attachments: [], sender_npub: 'npub1operator-a',
+      sync_status: 'failed', record_state: 'active', version: 1,
+    };
+    const rows = [
+      { ...base, record_id: 'delivered', pg_client_request_id: 'delivered', sync_status: 'synced' },
+      { ...base, record_id: 'deleted', pg_client_request_id: 'deleted', record_state: 'deleted' },
+      { ...base, record_id: 'other-author', pg_client_request_id: 'other-author', sender_npub: 'npub1other' },
+      { ...base, record_id: 'canonical', pg_client_request_id: 'canonical', pg_record_type: 'message' },
+      { ...base, record_id: 'mismatched-client', pg_client_request_id: 'client-original' },
+    ];
+
+    try {
+      await Promise.all(rows.map(row => upsertMessage(row)));
+      const store = createStore({
+        session: { npub: 'npub1operator-a' },
+        selectedChannelId: 'channel-1',
+        channels: [{ record_id: 'channel-1', scope_id: 'scope-1' }],
+        messages: rows,
+      });
+
+      await expect(store.retryUnsyncedOutgoingMessages()).resolves.toEqual({ attempted: 0, sent: 0, failed: 0 });
+      expect(createTowerPgMessageFromLocal).not.toHaveBeenCalled();
+    } finally {
+      await deleteWorkspaceDb(workspaceDbKey);
+    }
+  });
+
   it('loads a root message and its structured mentions into the main composer', () => {
     isTowerPgBackendMode.mockReturnValue(true);
     const message = {

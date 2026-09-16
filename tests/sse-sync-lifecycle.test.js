@@ -541,6 +541,18 @@ describe('handleSSEStatus', () => {
     expect(store.sseStatus).toBe('connected');
   });
 
+  it('kicks the offline outgoing message retry queue when SSE reconnects', async () => {
+    const retryUnsyncedOutgoingMessages = vi.fn().mockResolvedValue({ attempted: 1, sent: 1, failed: 0 });
+    const { fn, store } = bindMethod('handleSSEStatus', {
+      sseStatus: 'disconnected',
+      retryUnsyncedOutgoingMessages,
+    });
+    fn({ status: 'connected' });
+    await flushMicrotasks();
+    expect(store.sseStatus).toBe('connected');
+    expect(retryUnsyncedOutgoingMessages).toHaveBeenCalledWith({ refresh: false });
+  });
+
   it('signs the exact legacy semantic URL requested by the worker', async () => {
     const store = createStore({
       session: { npub: 'npub1viewer' },

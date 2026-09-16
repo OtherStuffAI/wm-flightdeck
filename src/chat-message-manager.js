@@ -13,6 +13,7 @@ import {
   getCurrentWorkspaceDbKey,
   withWorkspaceMessageTransaction,
   getMessageById,
+  getWorkspaceDb,
   updateExistingMessageSyncStatus,
   upsertMessage,
   replaceMessageRecord,
@@ -458,6 +459,7 @@ export const chatMessageManagerMixin = {
 
   composerSendPending: { message: false, thread: false },
   messageResendPendingIds: [],
+  offlineMessageResyncInFlight: false,
   branchSubmittingMessageId: null,
   branchRequestIdsByMessage: {},
   branchThreadError: '',
@@ -2771,7 +2773,7 @@ export const chatMessageManagerMixin = {
   },
 
   async resendFailedMessage(recordId) {
-    const message = this.getChatMessageById(recordId);
+    const message = this.getChatMessageById(recordId) || await getMessageById(recordId);
     if (!this.canResendMessage(message)) return false;
     const normalizedId = String(recordId).trim();
     this.messageResendPendingIds = [...(this.messageResendPendingIds || []), normalizedId];
@@ -2792,6 +2794,41 @@ export const chatMessageManagerMixin = {
     } finally {
       this.messageResendPendingIds = (this.messageResendPendingIds || [])
         .filter((id) => id !== normalizedId);
+    }
+  },
+
+  async retryUnsyncedOutgoingMessages(options = {}) {
+    if (!isTowerPgBackendMode() || this.offlineMessageResyncInFlight) return { attempted: 0, sent: 0, failed: 0 };
+    const viewerNpub = String(this.session?.npub || '').trim();
+    if (!viewerNpub) return { attempted: 0, sent: 0, failed: 0 };
+
+    this.offlineMessageResyncInFlight = true;
+    try {
+      const db = getWorkspaceDb();
+      const rows = await db.chat_messages
+        .where('sync_status')
+        .equals('failed')
+        .toArray();
+      const candidates = rows
+        .filter((message) => this.canResendMessage(message))
+        .sort((left, right) => String(left.updated_at || '').localeCompare(String(right.updated_at || '')));
+
+      let sent = 0;
+      let failed = 0;
+      for (const message of candidates) {
+        const recordId = String(message?.record_id || '').trim();
+        if (!recordId || this.isMessageResendPending(recordId)) continue;
+        const ok = await this.resendFailedMessage(recordId);
+        if (ok) sent += 1;
+        else failed += 1;
+      }
+
+      if (options.refresh !== false && (sent > 0 || failed > 0)) {
+        await this.refreshMessages?.({ scrollToLatest: sent > 0 }).catch(() => {});
+      }
+      return { attempted: sent + failed, sent, failed };
+    } finally {
+      this.offlineMessageResyncInFlight = false;
     }
   },
 
