@@ -1831,6 +1831,13 @@
       "notes": [
         "Move Manage scopes to the bottom of the scrollable scope and channel list so the workspace switcher stays focused on workspace changes."
       ]
+    },
+    {
+      "buildNumber": 2027,
+      "label": "Wrapping task titles",
+      "notes": [
+        "Wrap long task-detail titles while viewing and editing on laptop and mobile layouts, including URL-like text beside the activity panel."
+      ]
     }
   ]
 }

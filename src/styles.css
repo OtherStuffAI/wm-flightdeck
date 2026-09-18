@@ -17958,14 +17958,24 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 }
 
 .task-detail-title {
+  display: block;
+  box-sizing: border-box;
   width: 100%;
+  max-width: 100%;
   color: #020617;
   font-size: clamp(1.6rem, 2.2vw, 2.2rem);
   line-height: 1.12;
   font-weight: 750;
   letter-spacing: 0;
   min-width: 0;
+  min-height: calc(1.12em + 0.35rem);
+  field-sizing: content;
+  resize: none;
+  white-space: pre-wrap;
+  word-break: break-word;
   overflow-wrap: anywhere;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: none;
   border-bottom: 2px solid transparent;
   padding: 0.1rem 0 0.25rem;

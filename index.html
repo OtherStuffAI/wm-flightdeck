@@ -3293,16 +3293,17 @@
                       <button type="button" class="task-quick-date-link" :disabled="$store.chat.taskDetailSaving" @click="$store.chat.applyTaskDetailQuickAction('this_week')">This Week</button>
                     </div>
                   </div>
-                  <input
+                  <textarea
                     class="task-detail-title"
-                    type="text"
+                    rows="1"
                     x-show="$store.chat.isTaskDetailEditing()"
                     x-model="$store.chat.editingTask.title"
                     @input="$store.chat.handleEditingTaskDraftChanged()"
                     :readonly="!$store.chat.isTaskDetailEditing()"
                     :class="{ 'task-readonly-control': !$store.chat.isTaskDetailEditing() }"
+                    aria-label="Task title"
                     placeholder="Task title"
-                  />
+                  ></textarea>
 
                   <!-- State row -->
                   <div class="task-detail-fields" x-show="$store.chat.isTaskDetailEditing()">
