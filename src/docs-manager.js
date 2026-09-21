@@ -235,6 +235,21 @@ function hasProseMirrorContentModel(contentModel = {}) {
     && contentModel?.editor_state?.type === 'doc';
 }
 
+function normalizedDocumentPlainText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function proseMirrorPlainText(node = null) {
+  if (!node || typeof node !== 'object') return '';
+  if (node.type === 'text') return String(node.text || '');
+  if (node.type === 'hardBreak') return '\n';
+  const children = Array.isArray(node.content) ? node.content : [];
+  const content = children.map(proseMirrorPlainText).join('');
+  return ['paragraph', 'heading', 'blockquote', 'listItem', 'taskItem'].includes(node.type)
+    ? `${content}\n`
+    : content;
+}
+
 const PG_DOCUMENT_ACCEPTED_CONTENT_FIELDS = [
   'content',
   'content_format',
@@ -2688,9 +2703,27 @@ export const docsManagerMixin = {
         this.commitDocBlockEdit();
       }
       try {
+        // Make the explicit Save boundary durable before serialization,
+        // storage preparation, signing, or transport can fail. The normal
+        // input debounce is intentionally not sufficient here: a user can
+        // type and immediately press Save before that timer fires.
+        await this.persistSelectedDocDraft({ immediate: true });
         const saved = await this.saveSelectedDocItem({ autosave: false });
         if (!saved) return false;
-      } catch {
+      } catch (error) {
+        // Some failures happen before saveSelectedPgDocItem reaches its own
+        // persistence branch (for example an editor serialization exception).
+        // Keep the latest visible state recoverable and leave edit mode open.
+        await this.persistSelectedDocDraft({
+          immediate: true,
+          remoteOutcome: {
+            status: 'error',
+            code: error?.code || 'save_failed',
+            at: new Date().toISOString(),
+          },
+        }).catch(() => {});
+        this.docAutosaveState = 'error';
+        if (!this.error) this.error = error?.message || 'Failed to save document. Your draft remains open and recoverable.';
         return false;
       }
     }
@@ -4043,11 +4076,26 @@ export const docsManagerMixin = {
     }
     const contentModel = this.buildSelectedDocContentModel();
     const visibleEditorText = this.docEditorMode === 'rich' ? this.getVisibleDocRichEditorText() : '';
-    if (!String(contentModel.content || '').trim() && visibleEditorText) {
+    const normalizedVisibleText = normalizedDocumentPlainText(visibleEditorText);
+    const normalizedSerializedText = normalizedDocumentPlainText(proseMirrorPlainText(contentModel.editor_state));
+    if (normalizedVisibleText
+      && (!normalizedSerializedText || normalizedVisibleText.length > normalizedSerializedText.length)) {
+      // A stale adapter can still serialize the last accepted body while a
+      // duplicate visible editor contains a much longer draft. Preserve the
+      // complete visible text as a plain recovery model before refusing Save;
+      // keeping edit mode open also retains the original rich DOM in memory.
+      const recoveryModel = createDocumentEditorState({
+        content: visibleEditorText,
+        content_blocks: [],
+      }).contentModel;
+      this.docEditorContent = recoveryModel.content;
+      this.docEditorBlocks = normalizeDocumentBlocks(recoveryModel.content_blocks, recoveryModel.content);
+      this.docEditorProseMirrorState = recoveryModel.editor_state;
+      this.docEditorContentModel = recoveryModel;
       this.docAutosaveState = 'error';
-      await this.persistSelectedDocDraft({ integrityError: 'visible_editor_content_not_serialized' });
+      await this.persistSelectedDocDraft({ integrityError: 'visible_editor_content_exceeds_serialized_model' });
       if (!autosave) {
-        this.error = 'The visible document could not be serialized safely. Your draft is still open; please retry Save.';
+        this.error = 'The visible document did not match the save model. Your complete text is still open and stored as a recovery draft; please retry Save.';
       }
       return null;
     }

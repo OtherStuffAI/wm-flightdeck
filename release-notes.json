@@ -1845,6 +1845,14 @@
       "notes": [
         "Read chat messages aloud with private, device-native speech controls on supported iPhone, Android, and desktop browsers."
       ]
+    },
+    {
+      "buildNumber": 2031,
+      "label": "Recoverable document save failures",
+      "notes": [
+        "Keep document drafts open and recoverable when Save is rejected or fails before reaching Tower.",
+        "Avoid duplicate documents when a create response times out after Tower has already accepted it."
+      ]
     }
   ]
 }

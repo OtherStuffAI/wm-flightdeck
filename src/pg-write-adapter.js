@@ -15,6 +15,7 @@ import {
   deleteTowerPgMessage,
   deleteTowerPgTask,
   deleteTowerPgThread,
+  getTowerPgChannelDocs,
   getTowerPgThread,
   moveTowerPgDoc,
   moveTowerPgTask,
@@ -96,6 +97,32 @@ function pgRequestOptions(context) {
     baseUrl: context.baseUrl,
     appNpub: context.appNpub,
   };
+}
+
+function isAmbiguousCreateFailure(error) {
+  const status = Number(error?.status || 0);
+  if (status >= 500) return true;
+  if (status > 0) return false;
+  const name = String(error?.name || '').toLowerCase();
+  const message = String(error?.message || '').toLowerCase();
+  return name === 'aborterror'
+    || name === 'timeouterror'
+    || message.includes('timeout')
+    || message.includes('timed out')
+    || message.includes('network')
+    || message.includes('failed to fetch')
+    || message.includes('load failed');
+}
+
+async function findAcceptedTowerPgDocByStorage(context, channelId, storageObjectId) {
+  const targetStorageObjectId = trimText(storageObjectId);
+  if (!targetStorageObjectId) return null;
+  const result = await getTowerPgChannelDocs(context.workspaceId, channelId, {
+    ...pgRequestOptions(context),
+    limit: 500,
+  });
+  return (Array.isArray(result?.docs) ? result.docs : [])
+    .find((doc) => trimText(doc?.storage_object_id) === targetStorageObjectId) || null;
 }
 
 function resolveTowerPgChannelForRecord(store, record = {}) {
@@ -230,7 +257,7 @@ export async function createTowerPgDocFromLocal(store, document) {
   if (!context.workspaceId || !context.workspaceOwnerNpub || !context.baseUrl) throw new Error('Tower PG workspace is not ready');
   const { recordContext, channel } = resolveTowerPgChannelForRecord(store, document);
   if (!channel?.record_id) throw new Error('Selected PG channel does not match the document scope');
-  const result = await createTowerPgChannelDoc(context.workspaceId, channel.record_id, {
+  const body = {
     title: document.title || 'Untitled document',
     storage_object_id: document.content_storage_object_id || document.storage_object_id,
     summary: document.content || null,
@@ -239,7 +266,37 @@ export async function createTowerPgDocFromLocal(store, document) {
       mentions: canonicalDocumentAgentMentions(document.content),
     },
     mentions: canonicalDocumentAgentMentions(document.content),
-  }, pgRequestOptions(context));
+  };
+  // A previous POST may have committed even when its response was lost. The
+  // uploaded storage object is unique to this logical create, so reconcile it
+  // before retrying and after ambiguous transport/server failures.
+  const alreadyAccepted = await findAcceptedTowerPgDocByStorage(
+    context,
+    channel.record_id,
+    body.storage_object_id,
+  );
+  let result;
+  if (alreadyAccepted) {
+    result = { doc: alreadyAccepted };
+  } else {
+    try {
+      result = await createTowerPgChannelDoc(
+        context.workspaceId,
+        channel.record_id,
+        body,
+        pgRequestOptions(context),
+      );
+    } catch (error) {
+      if (!isAmbiguousCreateFailure(error)) throw error;
+      const reconciled = await findAcceptedTowerPgDocByStorage(
+        context,
+        channel.record_id,
+        body.storage_object_id,
+      ).catch(() => null);
+      if (!reconciled) throw error;
+      result = { doc: reconciled };
+    }
+  }
   return mapPgDocToLocal(result.doc, { workspaceOwnerNpub: context.workspaceOwnerNpub });
 }
 

@@ -27,3 +27,21 @@ reopen, a native Tiptap/jsdom test compares rich structure and rendered marks,
 and document-manager tests exercise manual save and autosave. Truncated models
 still retain the draft and prevent upload/Tower writes. These tests do not
 replace an authenticated browser save/reload check against a local Tower.
+
+## Draft recovery lifecycle
+
+Document edits are stored in the workspace Dexie database under the exact
+workspace and document ids. Input schedules a short local checkpoint, and an
+explicit Save performs another awaited checkpoint before serialization,
+storage upload, signing, or transport begins. A rejected or thrown save leaves
+the editor and lease open, records the failure on the draft, and checkpoints
+the visible state again. Navigation also checkpoints dirty state. The draft is
+deleted only after Tower has acknowledged the canonical content (or the user
+explicitly discards a recovery), so ordinary success does not retain sensitive
+draft content indefinitely.
+
+Document creation uses the uploaded storage object as its retry identity. The
+client checks the destination channel before POST and reconciles again after an
+ambiguous timeout, network failure, or server error. If Tower already accepted
+that storage object, Flight Deck adopts the existing document instead of
+issuing a duplicate create.

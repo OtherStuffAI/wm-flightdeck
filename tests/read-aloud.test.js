@@ -31,11 +31,11 @@ function createSpeechHarness() {
 
 describe('read aloud text preparation', () => {
   it('turns message Markdown into useful spoken plain text without mutating the source', () => {
-    const source = '# Result\n\nUse **Flight Deck** and [`Tower`](https://example.com/tower).\n\n```js\nconst secret = true;\n```\nSee https://www.example.org/long/path?q=1 and @[Rick](mention:agent:npub1rick).';
+    const source = '# Result\n\nUse **Flight Deck** and [`Tower`](https://example.com/tower).\n\n```js\nconst secret = true;\n```\nSee https://www.example.org/long/path?q=1 and @[Agent](mention:agent:npub1agent).';
     const spoken = prepareSpokenText(source);
 
     expect(source).toContain('```js');
-    expect(spoken).toBe('Result\n\nUse Flight Deck and Tower.\n\nCode block omitted.\n\nSee link to example.org and Rick.');
+    expect(spoken).toBe('Result\n\nUse Flight Deck and Tower.\n\nCode block omitted.\n\nSee link to example.org and Agent.');
     expect(spoken).not.toContain('```');
     expect(spoken).not.toContain('https://');
   });

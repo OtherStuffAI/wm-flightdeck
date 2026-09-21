@@ -14,6 +14,7 @@ const {
   getTowerPgDocRecoveriesMock,
   getTowerPgDocRecoveryMock,
   getTowerPgDocRecoveryBodyMock,
+  getTowerPgChannelDocsMock,
   promoteTowerPgDocRecoveryMock,
   discardTowerPgDocRecoveryMock,
   getTowerPgEditLeaseMock,
@@ -38,6 +39,7 @@ const {
   getTowerPgDocRecoveriesMock: vi.fn(),
   getTowerPgDocRecoveryMock: vi.fn(),
   getTowerPgDocRecoveryBodyMock: vi.fn(),
+  getTowerPgChannelDocsMock: vi.fn(),
   promoteTowerPgDocRecoveryMock: vi.fn(),
   discardTowerPgDocRecoveryMock: vi.fn(),
   getTowerPgEditLeaseMock: vi.fn(),
@@ -65,7 +67,7 @@ vi.mock('../src/api.js', () => ({
   downloadStorageObject: downloadStorageObjectMock,
   fetchRecordHistory: vi.fn(),
   getTowerPgChannelAudioNotes: vi.fn(),
-  getTowerPgChannelDocs: vi.fn(),
+  getTowerPgChannelDocs: getTowerPgChannelDocsMock,
   getTowerPgChannelFiles: vi.fn(),
   getTowerPgChannelMessages: vi.fn(),
   getTowerPgChannelTasks: vi.fn(),
@@ -129,6 +131,7 @@ import {
 import { recordFamilyHash } from '../src/translators/chat.js';
 import { prepareTowerWorkspaceCommand } from '../src/tower-command-port.js';
 import { TowerSyncService } from '../src/tower-sync-service.js';
+import { createTowerPgDocFromLocal } from '../src/pg-write-adapter.js';
 
 function createStore(overrides = {}) {
   const store = {
@@ -211,6 +214,7 @@ function createStore(overrides = {}) {
 
 beforeEach(() => {
   isTowerPgBackendModeMock.mockReturnValue(false);
+  createTowerPgChannelDocMock.mockReset();
   createTowerPgDocCommentMock.mockReset();
   updateTowerPgDocCommentMock.mockReset();
   deleteTowerPgDocCommentMock.mockReset();
@@ -218,6 +222,8 @@ beforeEach(() => {
   getTowerPgDocRecoveriesMock.mockReset();
   getTowerPgDocRecoveryMock.mockReset();
   getTowerPgDocRecoveryBodyMock.mockReset();
+  getTowerPgChannelDocsMock.mockReset();
+  getTowerPgChannelDocsMock.mockResolvedValue({ docs: [] });
   promoteTowerPgDocRecoveryMock.mockReset();
   discardTowerPgDocRecoveryMock.mockReset();
   getTowerPgEditLeaseMock.mockReset();
@@ -1667,6 +1673,7 @@ describe('docsManagerMixin checkout orchestration', () => {
       docEditingBlockIndex: 1,
       commitDocBlockEdit: vi.fn(),
       saveSelectedDocItem: vi.fn(async () => record),
+      persistSelectedDocDraft: vi.fn(async () => ({})),
       setDocEditorMode: vi.fn(),
       releaseLockManagedCheckout: vi.fn(async () => true),
     });
@@ -1676,6 +1683,7 @@ describe('docsManagerMixin checkout orchestration', () => {
     expect(saved).toBe(true);
     expect(store.commitDocBlockEdit).toHaveBeenCalledTimes(1);
     expect(store.saveSelectedDocItem).toHaveBeenCalledWith({ autosave: false });
+    expect(store.persistSelectedDocDraft).toHaveBeenCalledWith({ immediate: true });
     expect(store.setDocEditorMode).toHaveBeenCalledWith('rich');
     expect(store.releaseLockManagedCheckout).toHaveBeenCalledWith(
       record,
@@ -1693,6 +1701,7 @@ describe('docsManagerMixin checkout orchestration', () => {
       docEditorMode: 'rich',
       docRichImageUploadCount: 1,
       saveSelectedDocItem: vi.fn(),
+      persistSelectedDocDraft: vi.fn(async () => ({})),
       setDocEditorMode: vi.fn(),
       releaseLockManagedCheckout: vi.fn(),
     });
@@ -1715,6 +1724,7 @@ describe('docsManagerMixin checkout orchestration', () => {
       selectedDocId: 'doc-unsaved',
       docEditorMode: 'rich',
       saveSelectedDocItem: vi.fn(async () => null),
+      persistSelectedDocDraft: vi.fn(async () => ({})),
       setDocEditorMode: vi.fn(),
       releaseLockManagedCheckout: vi.fn(),
     });
@@ -1722,6 +1732,33 @@ describe('docsManagerMixin checkout orchestration', () => {
     const saved = await store.saveAndExitSelectedDocEditMode();
 
     expect(saved).toBe(false);
+    expect(store.setDocEditorMode).not.toHaveBeenCalled();
+    expect(store.releaseLockManagedCheckout).not.toHaveBeenCalled();
+  });
+
+  it('checkpoints the visible draft again when save throws before transport', async () => {
+    const record = { record_id: 'doc-rejected', sync_status: 'synced', version: 1 };
+    const failure = Object.assign(new Error('serialization rejected'), { code: 'serialization_failed' });
+    const store = createStore({
+      documents: [record],
+      selectedDocType: 'document',
+      selectedDocId: 'doc-rejected',
+      docEditorMode: 'rich',
+      saveSelectedDocItem: vi.fn(async () => { throw failure; }),
+      persistSelectedDocDraft: vi.fn(async () => ({})),
+      setDocEditorMode: vi.fn(),
+      releaseLockManagedCheckout: vi.fn(),
+    });
+
+    await expect(store.saveAndExitSelectedDocEditMode()).resolves.toBe(false);
+
+    expect(store.persistSelectedDocDraft).toHaveBeenNthCalledWith(1, { immediate: true });
+    expect(store.persistSelectedDocDraft).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      immediate: true,
+      remoteOutcome: expect.objectContaining({ status: 'error', code: 'serialization_failed' }),
+    }));
+    expect(store.docAutosaveState).toBe('error');
+    expect(store.error).toContain('serialization rejected');
     expect(store.setDocEditorMode).not.toHaveBeenCalled();
     expect(store.releaseLockManagedCheckout).not.toHaveBeenCalled();
   });
@@ -1825,13 +1862,59 @@ describe('docsManagerMixin rich editor mount safety', () => {
       pgEditLeaseSessions: {
         [`document:${record.record_id}`]: { lease: { lease_token: 'lease-token' } },
       },
+      persistSelectedDocDraft: vi.fn(async () => ({})),
     });
 
     const saved = await store.saveSelectedPgDocItem(record, 'npub1owner', { autosave: false });
 
     expect(saved).toBeNull();
     expect(store.docAutosaveState).toBe('error');
-    expect(store.error).toContain('draft is still open');
+    expect(store.error).toContain('complete text is still open');
+    expect(store.docEditorContent).toContain('The complete visible draft');
+    expect(store.persistSelectedDocDraft).toHaveBeenCalledWith({
+      integrityError: 'visible_editor_content_exceeds_serialized_model',
+    });
+    expect(updateTowerPgDocMock).not.toHaveBeenCalled();
+  });
+
+  it('refuses a no-change PG save when the visible editor is longer than the stale adapter model', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    updateTowerPgDocMock.mockClear();
+    const staleModel = richDocContentModel('First accepted sentence.');
+    const record = {
+      record_id: 'doc-partial-adapter',
+      owner_npub: 'npub1owner',
+      title: 'Visible draft',
+      ...staleModel,
+      scope_id: 'scope-1',
+      pg_backend: true,
+      pg_record_type: 'doc',
+      sync_status: 'synced',
+      version: 2,
+    };
+    const store = createStore({
+      documents: [record],
+      selectedDocType: 'document',
+      selectedDocId: record.record_id,
+      docEditorTitle: record.title,
+      docEditorMode: 'rich',
+      docEditDraftDirty: true,
+      docRichEditorAdapter: { getContentModel: () => staleModel },
+      docRichEditorMountEl: {
+        querySelectorAll: () => [{ innerText: 'First accepted sentence. The rest of the complete visible draft.' }],
+      },
+      pgEditLeaseSessions: {
+        [`document:${record.record_id}`]: { lease: { lease_token: 'lease-token' } },
+      },
+      persistSelectedDocDraft: vi.fn(async () => ({})),
+    });
+
+    const saved = await store.saveSelectedPgDocItem(record, 'npub1owner', { autosave: false });
+
+    expect(saved).toBeNull();
+    expect(store.docEditDraftDirty).toBe(true);
+    expect(store.docEditorContent).toContain('The rest of the complete visible draft');
+    expect(store.error).toContain('did not match the save model');
     expect(updateTowerPgDocMock).not.toHaveBeenCalled();
   });
 });
@@ -2977,6 +3060,94 @@ describe('docsManagerMixin canonical row normalization', () => {
     }), { baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg' });
     expect(row).toMatchObject({ record_id: 'pg-doc-1', pg_channel_id: 'channel-1', pg_thread_id: 'thread-1' });
     expect(await getPendingWrites()).toEqual([]);
+  });
+
+  it('reconciles an accepted PG create when the POST response is lost', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    const accepted = {
+      id: 'pg-doc-accepted-after-timeout',
+      workspace_id: 'workspace-1',
+      scope_id: 'scope-1',
+      channel_id: 'channel-1',
+      storage_object_id: 'storage-ambiguous-create',
+      title: 'Recovered create',
+      summary: 'Preserved body',
+      metadata: {},
+      row_version: 1,
+    };
+    getTowerPgChannelDocsMock
+      .mockResolvedValueOnce({ docs: [] })
+      .mockResolvedValueOnce({ docs: [accepted] });
+    createTowerPgChannelDocMock.mockRejectedValueOnce(Object.assign(new Error('request timed out'), {
+      name: 'TimeoutError',
+    }));
+    const store = createStore({
+      backendUrl: 'https://tower.example',
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        workspaceOwnerNpub: 'npub1pgworkspace',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+      },
+      selectedChannelId: 'channel-1',
+      channels: [{ record_id: 'channel-1', scope_id: 'scope-1', scope_l1_id: 'scope-1', record_state: 'active' }],
+    });
+
+    const result = await createTowerPgDocFromLocal(store, {
+      record_id: 'local-create-id',
+      title: 'Recovered create',
+      content: 'Preserved body',
+      content_storage_object_id: 'storage-ambiguous-create',
+      scope_id: 'scope-1',
+      scope_l1_id: 'scope-1',
+      pg_channel_id: 'channel-1',
+    });
+
+    expect(result).toMatchObject({
+      record_id: 'pg-doc-accepted-after-timeout',
+      content_storage_object_id: 'storage-ambiguous-create',
+    });
+    expect(createTowerPgChannelDocMock).toHaveBeenCalledTimes(1);
+    expect(getTowerPgChannelDocsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not repeat a PG create already accepted for the same storage object', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    getTowerPgChannelDocsMock.mockResolvedValueOnce({ docs: [{
+      id: 'pg-doc-existing',
+      workspace_id: 'workspace-1',
+      scope_id: 'scope-1',
+      channel_id: 'channel-1',
+      storage_object_id: 'storage-create-retry',
+      title: 'Existing document',
+      summary: 'Existing body',
+      metadata: {},
+      row_version: 1,
+    }] });
+    const store = createStore({
+      backendUrl: 'https://tower.example',
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        workspaceOwnerNpub: 'npub1pgworkspace',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+      },
+      selectedChannelId: 'channel-1',
+      channels: [{ record_id: 'channel-1', scope_id: 'scope-1', scope_l1_id: 'scope-1', record_state: 'active' }],
+    });
+
+    const result = await createTowerPgDocFromLocal(store, {
+      record_id: 'local-retry-id',
+      title: 'Existing document',
+      content: 'Existing body',
+      content_storage_object_id: 'storage-create-retry',
+      scope_id: 'scope-1',
+      scope_l1_id: 'scope-1',
+      pg_channel_id: 'channel-1',
+    });
+
+    expect(result.record_id).toBe('pg-doc-existing');
+    expect(createTowerPgChannelDocMock).not.toHaveBeenCalled();
   });
 
   it('keeps offline-created PG documents local and editable until Tower accepts them', async () => {
