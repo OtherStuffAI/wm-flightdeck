@@ -43,6 +43,7 @@ import { storageImageManagerMixin } from './storage-image-manager.js';
 import { jobsManagerMixin } from './jobs-manager.js';
 import { workspaceManagerMixin, guessDefaultBackendUrl } from './workspace-manager.js';
 import { chatMessageManagerMixin } from './chat-message-manager.js';
+import { readAloudManagerMixin } from './read-aloud.js';
 import { reactionsManagerMixin } from './reactions-manager.js';
 import { syncManagerMixin } from './sync-manager.js';
 import { peopleProfilesManagerMixin } from './people-profiles-manager.js';
@@ -718,6 +719,12 @@ export function initApp() {
     recentNavigationTimings: [],
     chatPresentationCache: createChatPresentationCache(),
     messages: [],
+    readAloudSupported: false,
+    readAloudState: 'idle',
+    readAloudMessageId: '',
+    readAloudError: '',
+    readAloudController: null,
+    readAloudPageHideHandler: null,
     messageCollectionRevision: 0,
     reactionRows: [],
     channelResponseActivities: [],
@@ -2232,6 +2239,7 @@ export function initApp() {
     // --- lifecycle ---
 
     async init() {
+      this.initReadAloud();
       if (typeof window !== 'undefined' && !this.chatImagePreviewCleanupHandler) {
         this.chatImagePreviewCleanupHandler = () => this.cleanupChatImagePreviews();
         window.addEventListener('pagehide', this.chatImagePreviewCleanupHandler);
@@ -3208,6 +3216,7 @@ export function initApp() {
         section = enabledSection;
       }
       const previousSection = this.navSection;
+      if (previousSection !== section) this.stopReadAloud();
       const pgTaskBoardFromChat = section === 'tasks'
         && this.navSection === 'chat'
         && isTowerPgBackendMode()
@@ -9829,6 +9838,7 @@ export function initApp() {
     taskDetailManagerMixin,
     workspaceManagerMixin,
     chatMessageManagerMixin,
+    readAloudManagerMixin,
     reactionsManagerMixin,
     syncManagerMixin,
     driveManagerMixin,

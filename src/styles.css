@@ -8583,6 +8583,42 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   color: var(--muted);
 }
 
+.chat-read-aloud-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.chat-read-aloud-btn:hover,
+.chat-read-aloud-btn:focus-visible {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.chat-read-aloud-btn[aria-pressed="true"] {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+@media (max-width: 640px) {
+  .chat-read-aloud-btn {
+    min-height: 44px;
+    padding-inline: 0.85rem;
+  }
+}
+
 .chat-status-dot {
   position: absolute;
   top: 0.8rem;

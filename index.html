@@ -4140,6 +4140,16 @@
                         </template>
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      class="chat-read-aloud-btn"
+                      x-show="$store.chat.canReadMessageAloud(msg)"
+                      x-cloak
+                      @click.stop="$store.chat.toggleReadAloud(msg)"
+                      :aria-pressed="$store.chat.isReadingMessageAloud(msg.record_id).toString()"
+                      :aria-label="$store.chat.isReadingMessageAloud(msg.record_id) ? 'Stop reading message aloud' : 'Read message aloud'"
+                      x-text="$store.chat.isReadingMessageAloud(msg.record_id) ? 'Stop' : 'Read aloud'"
+                    ></button>
                     <template x-if="$store.chat.isChatMessageTruncated(msg.record_id)">
                       <button
                         type="button"
@@ -4457,6 +4467,16 @@
                         </template>
                         <div class="chat-post-markdown" x-show="!$store.chat.isHangCallInvitation($store.chat.getThreadParentMessage())" x-stable-html="$store.chat.renderMarkdown($store.chat.getThreadParentMessage()?.body || '')"></div>
                       </div>
+                      <button
+                        type="button"
+                        class="chat-read-aloud-btn"
+                        x-show="$store.chat.canReadMessageAloud($store.chat.getThreadParentMessage())"
+                        x-cloak
+                        @click.stop="$store.chat.toggleReadAloud($store.chat.getThreadParentMessage())"
+                        :aria-pressed="$store.chat.isReadingMessageAloud($store.chat.getThreadParentMessage()?.record_id).toString()"
+                        :aria-label="$store.chat.isReadingMessageAloud($store.chat.getThreadParentMessage()?.record_id) ? 'Stop reading message aloud' : 'Read message aloud'"
+                        x-text="$store.chat.isReadingMessageAloud($store.chat.getThreadParentMessage()?.record_id) ? 'Stop' : 'Read aloud'"
+                      ></button>
                       <div class="chat-file-attachment-list" x-show="$store.chat.standaloneChatFileAttachments($store.chat.getThreadParentMessage()).length > 0">
                         <template x-for="attachment in $store.chat.standaloneChatFileAttachments($store.chat.getThreadParentMessage())" :key="attachment.storage_object_id">
                           <div class="chat-file-attachment"><div x-stable-html="$store.chat.renderMarkdown($store.chat.chatAttachmentMarkdown(attachment))"></div><span x-text="[attachment.content_type, $store.chat.formatAttachmentSize(attachment.size_bytes)].filter(Boolean).join(' · ')"></span></div>
@@ -4548,6 +4568,16 @@
                         </template>
                         <div class="chat-post-markdown" x-show="!$store.chat.isHangCallInvitation(reply)" x-stable-html="$store.chat.renderMarkdown(reply.body)"></div>
                       </div>
+                      <button
+                        type="button"
+                        class="chat-read-aloud-btn"
+                        x-show="$store.chat.canReadMessageAloud(reply)"
+                        x-cloak
+                        @click.stop="$store.chat.toggleReadAloud(reply)"
+                        :aria-pressed="$store.chat.isReadingMessageAloud(reply.record_id).toString()"
+                        :aria-label="$store.chat.isReadingMessageAloud(reply.record_id) ? 'Stop reading message aloud' : 'Read message aloud'"
+                        x-text="$store.chat.isReadingMessageAloud(reply.record_id) ? 'Stop' : 'Read aloud'"
+                      ></button>
                       <div class="chat-file-attachment-list" x-show="$store.chat.standaloneChatFileAttachments(reply).length > 0">
                         <template x-for="attachment in $store.chat.standaloneChatFileAttachments(reply)" :key="attachment.storage_object_id">
                           <div class="chat-file-attachment"><div x-stable-html="$store.chat.renderMarkdown($store.chat.chatAttachmentMarkdown(attachment))"></div><span x-text="[attachment.content_type, $store.chat.formatAttachmentSize(attachment.size_bytes)].filter(Boolean).join(' · ')"></span></div>

@@ -8,6 +8,15 @@ const stylesPath = path.resolve(import.meta.dirname, '..', 'src', 'styles.css');
 const styles = fs.readFileSync(stylesPath, 'utf-8');
 
 describe('Chat channel rendering hooks', () => {
+  it('renders accessible Read aloud controls in the feed and thread messages', () => {
+    expect(html.match(/class="chat-read-aloud-btn"/g) || []).toHaveLength(3);
+    expect(html).toContain("x-show=\"$store.chat.canReadMessageAloud(msg)\"");
+    expect(html).toContain("@click.stop=\"$store.chat.toggleReadAloud(reply)\"");
+    expect(html).toContain("'Stop reading message aloud' : 'Read message aloud'");
+    expect(styles).toMatch(/\.chat-read-aloud-btn\s*\{[\s\S]*min-height:\s*32px;/);
+    expect(styles).toMatch(/@media \(max-width: 640px\)[\s\S]*\.chat-read-aloud-btn\s*\{[\s\S]*min-height:\s*44px;/);
+  });
+
   it('renders explicit unread-row and divider hooks for chat messages', () => {
     expect(html).toContain('chat-post-unread');
     expect(html).toContain('chat-post-divider');

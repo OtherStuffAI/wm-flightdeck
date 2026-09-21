@@ -1838,6 +1838,13 @@
       "notes": [
         "Wrap long task-detail titles while viewing and editing on laptop and mobile layouts, including URL-like text beside the activity panel."
       ]
+    },
+    {
+      "buildNumber": 2030,
+      "label": "Mobile message Read aloud",
+      "notes": [
+        "Read chat messages aloud with private, device-native speech controls on supported iPhone, Android, and desktop browsers."
+      ]
     }
   ]
 }

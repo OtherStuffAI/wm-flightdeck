@@ -1690,6 +1690,7 @@ export const chatMessageManagerMixin = {
 
   closeThread(options = {}) {
     if (this.messageEdit?.context === 'thread' && this.messageEdit.submitting) return false;
+    this.stopReadAloud?.();
     if (this.messageEdit?.context === 'thread') this.cancelMessageEdit();
     if (options.saveDraft !== false) this.saveChatComposerDraft?.('thread');
     this.threadHistoryGeneration = (this.threadHistoryGeneration || 0) + 1;
