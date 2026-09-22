@@ -26,6 +26,7 @@ const ALL_CHANNEL_ID = 'all';
 const OVERVIEW_PANEL_PAGE_SIZE = 5;
 export const DECK_INBOX_PAGE_SIZE = 50;
 const OPEN_COMMENT_STATUSES = new Set(['', 'open', 'unresolved', 'active']);
+const DECK_COMPLETED_TASK_STATES = new Set(['done', 'complete', 'completed']);
 const TASK_FAMILY = recordFamilyHash('task');
 const DOCUMENT_FAMILY = recordFamilyHash('document');
 const MAX_TIMEOUT_MS = 2_147_483_647;
@@ -53,7 +54,7 @@ function memoizedProjection(store, key, references, build) {
 
 function shouldIncludeInboxTask(row = {}) {
   const state = normalizeString(row.taskState || row.state).toLowerCase();
-  return state === 'done' || !isTerminalTaskState(state);
+  return !isTerminalTaskState(state);
 }
 
 export function normalizeInboxSearchText(value) {
@@ -445,6 +446,7 @@ export function buildAutopilotOverviewTasks({
 
   for (const task of Array.isArray(tasks) ? tasks : []) {
     if (!task?.record_id || task.record_state === 'deleted') continue;
+    if (DECK_COMPLETED_TASK_STATES.has(normalizeString(task.state).toLowerCase())) continue;
     const match = rowMatchesContext(task, context, scopesMap);
     if (!match.matches) {
       if (match.missing) hiddenMissingContext += 1;

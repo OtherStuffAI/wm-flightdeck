@@ -37,6 +37,23 @@ describe('autopilot overview manager', () => {
     expect(row).toMatchObject({ taskState: 'blocked', subtitle: 'Blocked' });
   });
 
+  it('excludes completed task cards from the Deck while preserving active task ordering', () => {
+    const tasks = [
+      { record_id: 'task-done', title: 'Done', state: 'done', updated_at: '2026-09-22T04:00:00.000Z' },
+      { record_id: 'task-review', title: 'Review', state: 'review', updated_at: '2026-09-22T03:00:00.000Z' },
+      { record_id: 'task-completed', title: 'Completed', state: 'completed', updated_at: '2026-09-22T02:00:00.000Z' },
+      { record_id: 'task-active', title: 'Active', state: 'in_progress', updated_at: '2026-09-22T01:00:00.000Z' },
+      { record_id: 'task-complete', title: 'Complete', state: 'complete', updated_at: '2026-09-22T00:00:00.000Z' },
+    ];
+
+    const rows = buildAutopilotOverviewTasks({ tasks });
+
+    expect(rows.map((row) => row.recordId)).toEqual(['task-review', 'task-active']);
+    expect(buildAutopilotOverviewInbox({ tasks: rows }).map((row) => row.recordId))
+      .toEqual(['task-review', 'task-active']);
+    expect(tasks.map((task) => task.state)).toEqual(['done', 'review', 'completed', 'in_progress', 'complete']);
+  });
+
   const channels = [
     { record_id: 'chan-a', title: 'Implementation', scope_id: 'scope-a' },
     { record_id: 'chan-b', title: 'Design', scope_id: 'scope-b' },
@@ -259,7 +276,7 @@ describe('autopilot overview manager', () => {
     expect(inboxFileCard).not.toContain('Open file');
   });
 
-  it('retains an accepted done task as read without resurfacing older task activity as unread', () => {
+  it('removes an accepted done task without resurfacing older task activity as unread', () => {
     const task = {
       record_id: 'task-review',
       title: 'Review the Inbox action',
@@ -310,21 +327,8 @@ describe('autopilot overview manager', () => {
       tasks: doneRows,
     });
 
-    expect(doneRows).toHaveLength(1);
-    expect(doneRows[0]).toEqual(expect.objectContaining({
-      recordId: 'task-review',
-      taskState: 'done',
-      isUnread: false,
-      activityAt: '2026-08-26T00:10:00.000Z',
-      reason: 'Task updated',
-    }));
-    expect(inbox[0]).toEqual(expect.objectContaining({
-      inboxKind: 'task',
-      recordId: 'task-review',
-      taskState: 'done',
-      isUnread: false,
-    }));
-    expect(inbox.filter((row) => row.inboxKind === 'task' && row.recordId === 'task-review')).toHaveLength(1);
+    expect(doneRows).toHaveLength(0);
+    expect(inbox.filter((row) => row.inboxKind === 'task' && row.recordId === 'task-review')).toHaveLength(0);
     expect(inbox.find((row) => row.object_id === 'older-attachment')).toEqual(expect.objectContaining({
       sourceDestinationType: 'task',
       sourceActionLabel: 'Open task',
@@ -349,7 +353,7 @@ describe('autopilot overview manager', () => {
       isUnread: true,
       activityAt: '2026-08-26T00:20:00.000Z',
     }));
-    expect(buildAutopilotOverviewInbox({ tasks: terminalRows }).map((row) => row.taskState)).toEqual(['done']);
+    expect(buildAutopilotOverviewInbox({ tasks: terminalRows })).toEqual([]);
 
     const doneColumn = computeBoardColumns([], [acceptedDoneTask], [])
       .find((column) => column.state === 'done');
@@ -358,29 +362,29 @@ describe('autopilot overview manager', () => {
 
   it('keeps self-authored task comments out of Inbox attention while preserving different-actor attention', () => {
     const task = {
-      record_id: 'task-done', title: 'Review actor attention', state: 'done',
+      record_id: 'task-review', title: 'Review actor attention', state: 'review',
       updated_at: '2026-08-26T00:10:00.000Z', pg_updated_by_actor_id: 'actor-viewer',
     };
     const selfComment = {
-      record_id: 'comment-self', target_record_id: 'task-done',
+      record_id: 'comment-self', target_record_id: 'task-review',
       target_record_family_hash: recordFamilyHash('task'),
       body: 'Status changed to done', updated_at: '2026-08-26T00:11:00.000Z',
       pg_created_by_actor_id: 'actor-viewer',
     };
     const options = {
-      tasks: [task], comments: [selfComment], unreadTaskMap: { 'task-done': true },
+      tasks: [task], comments: [selfComment], unreadTaskMap: { 'task-review': true },
       viewerNpub: 'npub1human',
       workspaceMembers: [{ actor_id: 'actor-viewer', npub: 'npub1human' }],
     };
 
     const [selfRow] = buildAutopilotOverviewTasks(options);
     expect(selfRow).toMatchObject({
-      recordId: 'task-done', taskState: 'done', reason: 'Task updated', count: 0,
+      recordId: 'task-review', taskState: 'review', reason: 'Task updated', count: 0,
       activityAt: '2026-08-26T00:10:00.000Z', isUnread: false,
     });
     expect(selfRow.hrefTarget.focusId).toBeNull();
     expect(buildAutopilotOverviewInbox({ tasks: [selfRow] })).toEqual([
-      expect.objectContaining({ inboxKind: 'task', recordId: 'task-done', isUnread: false }),
+      expect.objectContaining({ inboxKind: 'task', recordId: 'task-review', isUnread: false }),
     ]);
 
     const [otherRow] = buildAutopilotOverviewTasks({

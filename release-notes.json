@@ -1853,6 +1853,13 @@
         "Keep document drafts open and recoverable when Save is rejected or fails before reaching Tower.",
         "Avoid duplicate documents when a create response times out after Tower has already accepted it."
       ]
+    },
+    {
+      "buildNumber": 2032,
+      "label": "Focused Deck task cards",
+      "notes": [
+        "Hide done and completed task cards from the Deck while keeping active task ordering and other task views unchanged."
+      ]
     }
   ]
 }
