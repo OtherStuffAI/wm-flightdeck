@@ -186,6 +186,37 @@ describe('PG workspace manager mode', () => {
     });
   });
 
+  it('preserves a selected workspace and its Dexie partition when discovery omits it', async () => {
+    const api = await import('../src/api.js');
+    const db = await import('../src/db.js');
+    api.listTowerPgWorkspaces.mockResolvedValue({ workspaces: [] });
+    const remembered = {
+      workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceServiceNpub: 'npub1workspace',
+      workspaceId: 'workspace-1',
+      towerServiceNpub: 'npub1tower',
+      serviceNpub: 'npub1tower',
+      appNpub: 'flightdeck_pg',
+      pgSessionNpub: 'npub1user',
+      directHttpsUrl: 'https://tower.example',
+      pgBackendMode: true,
+    };
+    const store = await buildStore({
+      knownWorkspaces: [remembered],
+      selectedWorkspaceKey: remembered.workspaceKey,
+      currentWorkspaceOwnerNpub: remembered.workspaceOwnerNpub,
+    });
+
+    await store.loadRemoteWorkspaces();
+
+    expect(store.knownWorkspaces).toHaveLength(1);
+    expect(store.knownWorkspaces[0]).toMatchObject(remembered);
+    expect(store.selectedWorkspaceKey).toBe(remembered.workspaceKey);
+    expect(store.currentWorkspaceOwnerNpub).toBe(remembered.workspaceOwnerNpub);
+    expect(db.deleteWorkspaceDb).not.toHaveBeenCalled();
+  });
+
   it('keeps Tower-visible PG workspaces when the build app namespace discovery is empty', async () => {
     const api = await import('../src/api.js');
     api.listTowerPgWorkspaces
@@ -371,8 +402,9 @@ describe('PG workspace manager mode', () => {
     expect(store.knownWorkspaces[0].avatarUrl).toBe('storage://workspace-avatar-1');
   });
 
-  it('prunes saved PG workspaces that the active Tower no longer lists', async () => {
+  it('retains saved PG workspaces that the active Tower list omits', async () => {
     const api = await import('../src/api.js');
+    const db = await import('../src/db.js');
     const { mergeWorkspaceEntries } = await import('../src/workspaces.js');
     const stale = {
       workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1stale::app:flightdeck_pg',
@@ -398,7 +430,12 @@ describe('PG workspace manager mode', () => {
 
     await store.loadRemoteWorkspaces();
 
-    expect(store.knownWorkspaces).toEqual([]);
+    expect(store.knownWorkspaces).toHaveLength(1);
+    expect(store.knownWorkspaces[0]).toMatchObject({
+      ...stale,
+      workspaceKey: `${stale.workspaceKey}::id:${stale.workspaceId}`,
+    });
+    expect(db.deleteWorkspaceDb).not.toHaveBeenCalled();
     expect(persistWorkspaceSettings).toHaveBeenCalled();
   });
 

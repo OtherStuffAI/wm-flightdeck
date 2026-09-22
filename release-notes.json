@@ -1867,6 +1867,19 @@
       "notes": [
         "Open the saved workspace cache before access checks and live updates begin so navigation and workspace updates recover normally after a clean refresh."
       ]
+    },
+    {
+      "buildNumber": 2034,
+      "label": "Keep workspace data across refreshes",
+      "notes": [
+        "Keep the selected workspace and its device-local scopes, channels, and other cached records when a routine Tower workspace discovery response omits it; only a separately verified missing workspace can remove its local cache."
+      ]
+    },
+    {
+      "buildNumber": 2035,
+      "label": "Validated workspace cache retention",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }

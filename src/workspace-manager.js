@@ -2180,32 +2180,10 @@ export const workspaceManagerMixin = {
         for (const workspace of workspaces) {
           this.clearPgWorkspaceForgotten(workspace);
         }
-        const remoteKeys = new Set(workspaces
-          .map((workspace) => workspace.workspaceKey || workspace.workspaceOwnerNpub)
-          .filter(Boolean));
-        const removedWorkspaces = [];
-        this.knownWorkspaces = (this.knownWorkspaces || []).filter((workspace) => {
-          if (!workspace?.pgBackendMode) return true;
-          if (workspace.pgSessionNpub && workspace.pgSessionNpub !== this.session.npub) return true;
-          if (normalizeBackendUrl(workspace.directHttpsUrl || '') !== activeBackendUrl) return true;
-          const retained = remoteKeys.has(normalizeWorkspaceEntry(workspace)?.workspaceKey || workspace.workspaceOwnerNpub);
-          if (!retained) removedWorkspaces.push(workspace);
-          return retained;
-        });
-        for (const removed of removedWorkspaces) {
-          await Promise.resolve(deleteWorkspaceDb(removed.workspaceKey || removed.workspaceOwnerNpub)).catch(() => null);
-        }
-        this.mergeKnownWorkspaces(workspaces);
-        const selectedStillExists = this.selectedWorkspaceKey
-          ? Boolean(this.getWorkspaceByKey(this.selectedWorkspaceKey))
-          : (this.currentWorkspaceOwnerNpub
-            ? this.knownWorkspaces.some((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub)
-            : true);
-        if (!selectedStillExists) {
-          this.selectedWorkspaceKey = '';
-          this.currentWorkspaceOwnerNpub = '';
-          this.ownerNpub = '';
-        }
+        // Discovery is additive. A workspace omitted from one list response is
+        // not proof that its device-local cache should be destroyed. Definitive
+        // removal is handled by the verified descriptor-404/forget flow.
+        this.knownWorkspaces = mergeWorkspaceEntries(this.knownWorkspaces || [], workspaces);
         await this.persistWorkspaceSettings();
         const discovered = workspaces.filter((workspace) => !existingKeys.has(workspace.workspaceKey || workspace.workspaceOwnerNpub));
         if (!hadSelection && !this.showWorkspaceAccessGate) {
