@@ -29,7 +29,7 @@ describe('agent activity template', () => {
     expect(html).toContain('agent-activity-channel agent-activity-live');
     expect(html).toContain('agent-activity-thread agent-activity-live');
     expect(html).toContain('getAgentActivityRecoveryMessage(activity)');
-    expect(html).not.toContain("'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state");
+    expect(html).toContain("'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state");
     expect(html).toContain('loadEarlierAgentActivityHistory(activity)');
     expect(html).toContain('loadEarlierAgentActivityRuns($store.chat.agentActivityDetailsContext?.scope)');
   });

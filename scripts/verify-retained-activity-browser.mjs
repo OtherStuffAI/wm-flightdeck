@@ -55,7 +55,8 @@ for(const surface of ['chat','inbox','channel']) for(const width of [1120,390]) 
  if(phase==='after') {
   const visibleText=()=>page.locator('body').innerText();
   async function clean() {
-   if (/Earlier activity|Connection lost|status unconfirmed|No recent update|Reconnecting|Load earlier|completed/.test(await visibleText())) throw new Error('Timeline contains activity detail');
+   const text=await visibleText();
+   if (/Earlier activity|status unconfirmed|No recent update|Load earlier agent runs|completed/.test(text)) throw new Error('Timeline contains retained activity detail: '+text);
    if(await page.locator('.agent-activity-error:visible, .agent-activity-history-toggle:visible').count()) throw new Error('Inline diagnostic/history control');
   }
   await clean();
@@ -103,7 +104,7 @@ for(const surface of ['chat','inbox','channel']) for(const width of [1120,390]) 
    s.agentActivities[0] = {...s.agentActivities[0], sequence:999, updated_at:'2999-01-01'};
    s.sseStatus='reconnecting'; s.agentActivityRecoveryStartedAt=Date.now()-61000;
   });
-  await clean();
+  await page.locator('.agent-activity-title:visible').filter({hasText:'Connection lost—status unknown'}).waitFor();
   if(await page.locator('.current-working-history').innerText().then(t=>t.includes('Older run commentary'))) throw new Error('Old replay reclaimed current history');
   await page.getByRole('button',{name:'Menu',exact:true}).click();
   await page.getByRole('menuitem',{name:'Working history & diagnostics'}).click();

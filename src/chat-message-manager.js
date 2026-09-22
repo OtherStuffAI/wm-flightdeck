@@ -1150,6 +1150,9 @@ export const chatMessageManagerMixin = {
     this.revealPendingThreadAgentActivity(this.getVisibleAgentActivities());
     this.updateResponseActivityTimer();
   },
+  applyAgentSessionHealth(sessions = []) {
+    this.agentSessionHealth = Array.isArray(sessions) ? sessions : [];
+  },
   updateResponseActivityTimer() {
     const hasActiveActivities = this.activeThreadResponseActivities.length > 0
       || this.getVisibleChannelResponseActivities().length > 0
@@ -1217,6 +1220,35 @@ export const chatMessageManagerMixin = {
     const label = activity.label || RESPONSE_ACTIVITY_WORDS[Math.floor(tick / RESPONSE_ACTIVITY_SUFFIXES.length) % RESPONSE_ACTIVITY_WORDS.length];
     return `${senderName} is ${label}${RESPONSE_ACTIVITY_SUFFIXES[tick % RESPONSE_ACTIVITY_SUFFIXES.length]}`;
   },
+  getAgentActivityStatusLabel(activity = {}) {
+    const health = this.getAgentActivityHealth(activity);
+    if (health.state === 'stale' || health.state === 'degraded' || health.state === 'error') return health.message;
+    if (activity.state === 'queued') {
+      const agentName = this.getSenderName(activity.agent_npub) || 'the agent';
+      return activity.queue_position ? `Queued behind ${agentName}’s current turn · position ${activity.queue_position}`
+        : `Queued behind ${agentName}’s current turn`;
+    }
+    if (activity.state === 'accepted') return 'Message received';
+    if (activity.state === 'failed') return activity.body || activity.summary || 'Failed';
+    if (activity.state === 'cancelled') return activity.body || activity.summary || 'Cancelled';
+    if (activity.state === 'working' || activity.state === 'waiting') return 'Working';
+    return activity.label || activity.state || 'Activity';
+  },
+  getAgentSessionHealth(activity = {}) {
+    const candidates = (Array.isArray(this.agentSessionHealth) ? this.agentSessionHealth : [])
+      .filter((health) => health.session_id === activity.session_id
+        || (health.agent_npub === activity.agent_npub && health.channel_id === activity.channel_id
+          && (!activity.thread_id || health.thread_id === activity.thread_id)))
+      .sort((left, right) => Number(right.row_version) - Number(left.row_version));
+    return candidates[0] || null;
+  },
+  getAgentSessionStatusLabel(activity = {}) {
+    const health = this.getAgentSessionHealth(activity);
+    if (!health) return '';
+    if (health.status === 'errored') return health.error_summary ? `Session errored — ${health.error_summary}` : 'Session errored';
+    if (health.status === 'stopped') return 'Session stopped';
+    return `Session ${health.status}`;
+  },
   toggleAgentActivity(activityId) {
     const id = String(activityId || '').trim();
     if (!id) return;
@@ -1266,8 +1298,7 @@ export const chatMessageManagerMixin = {
   },
   isCurrentAgentActivityWorking(activity = {}) {
     void this.responseActivityTick;
-    const expiresAt = Date.parse(activity.expires_at || '');
-    return !isTerminalAgentActivity(activity) && Number.isFinite(expiresAt) && expiresAt > Date.now();
+    return String(activity.state || '').toLowerCase() !== 'completed';
   },
   getAgentActivityConnectionSummary() {
     const health = this.getAgentActivityHealth({ state: 'working', expires_at: '2999-01-01' });

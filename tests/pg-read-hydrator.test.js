@@ -6,6 +6,7 @@ import {
   selectPgFallbackThreads,
   hydrateTowerPgChannelResponseActivities,
   hydrateTowerPgChannelAgentActivities,
+  hydrateTowerPgAgentSessionHealth,
   hydrateTowerPgEventUpdates,
   hydrateTowerPgSyncBundle,
   hydrateTowerPgAudioNotes,
@@ -2736,6 +2737,20 @@ describe('PG read hydrator', () => {
     ]);
   });
 
+  it('hydrates retained session health independently from turn activity', async () => {
+    const getTowerPgAgentSessionHealth = vi.fn(async () => ({ agent_sessions: [{
+      id: 'health-1', workspace_id: 'workspace-1', channel_id: 'channel-1', thread_id: 'thread-1',
+      session_id: 'session-1', agent_npub: 'npub1agent', status: 'online', active_turn_id: 'turn-1',
+      generation: 4, sequence: 1, row_version: 12, lease_health: 'live', lease_expires_at: '2999-01-01T00:00:00Z',
+    }] }));
+    const replacePgAgentSessionHealthForChannel = vi.fn(async () => 1);
+    const sessions = await hydrateTowerPgAgentSessionHealth(store(), 'channel-1', {
+      threadId: 'thread-1', getTowerPgAgentSessionHealth, replacePgAgentSessionHealthForChannel,
+    });
+    expect(sessions).toEqual([expect.objectContaining({ session_id: 'session-1', status: 'online', row_version: 12 })]);
+    expect(replacePgAgentSessionHealthForChannel).toHaveBeenCalledWith('channel-1', sessions);
+  });
+
   it.each([
     ['malformed', {}, false],
     ['partial', { agent_activities: [], partial: true }, false],
@@ -2791,6 +2806,18 @@ describe('PG read hydrator', () => {
     expect(clearAgentActivity).not.toHaveBeenCalled();
     expect(getTowerPgAgentActivities).not.toHaveBeenCalled();
     expect(replacePgAgentActivitiesForChannel).not.toHaveBeenCalled();
+  });
+
+  it('materializes replayed session-health SSE by monotonic row version without touching activity state', async () => {
+    const upsertAgentSessionHealth = vi.fn(async () => true);
+    const health = (rowVersion, status) => ({ entity_type: 'agent_session_health', entity_id: 'health-1', payload: {
+      agent_session_health: { id: 'health-1', workspace_id: 'workspace-1', channel_id: 'channel-1', session_id: 'session-1',
+        agent_npub: 'npub1agent', status, generation: 2, sequence: rowVersion, row_version: rowVersion,
+        lease_health: 'live', lease_expires_at: '2999-01-01T00:00:00Z' },
+    } });
+    await hydrateTowerPgEventUpdates(store(), [health(8, 'errored'), health(8, 'errored')], { upsertAgentSessionHealth });
+    expect(upsertAgentSessionHealth).toHaveBeenCalledTimes(2);
+    expect(upsertAgentSessionHealth).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'errored', row_version: 8 }));
   });
 
   it('hydrates PG response activities for an open thread target', async () => {

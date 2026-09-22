@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { syncManagerMixin } from '../src/sync-manager.js';
 import { TowerSyncService } from '../src/tower-sync-service.js';
-import { hydrateTowerPgChannelAgentActivities, hydrateTowerPgThreadMessages } from '../src/pg-read-hydrator.js';
+import { hydrateTowerPgChannelAgentActivities, hydrateTowerPgAgentSessionHealth, hydrateTowerPgThreadMessages } from '../src/pg-read-hydrator.js';
 vi.mock('../src/api.js', () => ({
   downloadStorageObject: vi.fn(),
   fetchRecordHistory: vi.fn(),
@@ -65,6 +65,7 @@ vi.mock('../src/auth/nostr.js', () => ({
 vi.mock('../src/pg-read-hydrator.js', () => ({
   hydrateTowerPgThreadMessages: vi.fn(async () => ['materialized-message']),
   hydrateTowerPgChannelAgentActivities: vi.fn(async () => []),
+  hydrateTowerPgAgentSessionHealth: vi.fn(async () => []),
   hydrateTowerPgEventUpdates: vi.fn(async () => ({ appliedTargets: 0, fallbackEvents: 0, events: 0 })),
   syncTowerPgWorkspace: vi.fn(async () => ({ pages: 1, changed: 0 })),
   towerPgSyncCursorKey: vi.fn(() => 'tower_pg_sync_cursor:workspace-1:npub1viewer'),
@@ -121,6 +122,7 @@ function store() {
 beforeEach(() => {
   vi.clearAllMocks();
   hydrateTowerPgChannelAgentActivities.mockReset().mockResolvedValue([]);
+  hydrateTowerPgAgentSessionHealth.mockReset().mockResolvedValue([]);
 });
 
 describe('authoritative agent activity recovery through the sync owner', () => {
@@ -172,7 +174,7 @@ describe('authoritative agent activity recovery through the sync owner', () => {
     expect(hydrateTowerPgChannelAgentActivities).toHaveBeenCalledTimes(1);
     resolve([]);
     await Promise.all([first, duplicate]);
-    expect(target._towerSyncService.instrumentation.coalescedRequests).toBe(1);
+    expect(target._towerSyncService.instrumentation.coalescedRequests).toBe(2);
   });
 
   it('shows sanitized failures, limits fast retries and clears failure after recovery', async () => {

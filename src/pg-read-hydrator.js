@@ -24,6 +24,7 @@ import {
   getTowerPgReactions,
   getTowerPgResponseActivities,
   getTowerPgAgentActivities,
+  getTowerPgAgentSessionHealth,
   getTowerPgChannelTasks,
   getTowerPgTask,
   getTowerPgTaskComments,
@@ -63,6 +64,7 @@ import {
   replacePgResponseActivitiesForChannel,
   replacePgResponseActivitiesForTarget,
   replacePgAgentActivitiesForChannel,
+  replacePgAgentSessionHealthForChannel,
   getAgentActivitiesForChannel,
   mergeAgentActivityCommentary,
   replacePgTasksForChannel,
@@ -79,6 +81,7 @@ import {
   upsertScope,
   clearResponseActivity,
   upsertAgentActivity,
+  upsertAgentSessionHealth,
   upsertDocument,
   upsertTask,
   upsertComment,
@@ -95,7 +98,7 @@ import {
   reconcileTowerPgSnapshot,
 } from './db.js';
 import { mapTowerResourceViewState } from './resource-view-state.js';
-import { isTerminalAgentActivity, mapPgAgentActivity, mapPgAgentActivityCommentary } from './agent-activity.js';
+import { isTerminalAgentActivity, mapPgAgentActivity, mapPgAgentActivityCommentary, mapPgAgentSessionHealth } from './agent-activity.js';
 import { recordFamilyHash } from './translators/chat.js';
 import { recordFamilyHash as taskFamilyHash } from './translators/tasks.js';
 
@@ -2345,6 +2348,31 @@ export async function hydrateTowerPgChannelAgentActivities(store, channelId, dep
   return activities;
 }
 
+export async function hydrateTowerPgAgentSessionHealth(store, channelId, deps = {}) {
+  const context = resolveTowerPgWorkspaceContext(store);
+  const targetChannelId = trimText(channelId);
+  if (!context.workspaceId || !context.workspaceOwnerNpub || !context.baseUrl || !targetChannelId) return [];
+  const readHealth = deps.getTowerPgAgentSessionHealth || getTowerPgAgentSessionHealth;
+  const replaceHealth = deps.replacePgAgentSessionHealthForChannel || replacePgAgentSessionHealthForChannel;
+  const result = await readHealth(context.workspaceId, {
+    channelId: targetChannelId,
+    threadId: deps.threadId,
+    sessionId: deps.sessionId,
+    baseUrl: context.baseUrl,
+    appNpub: context.appNpub,
+  });
+  const sessions = (Array.isArray(result?.agent_sessions) ? result.agent_sessions : [])
+    .map(mapPgAgentSessionHealth)
+    .filter((health) => health?.record_id
+      && (!health.workspace_id || health.workspace_id === context.workspaceId)
+      && health.channel_id === targetChannelId
+      && (!deps.threadId || health.thread_id === deps.threadId)
+      && (!deps.sessionId || health.session_id === deps.sessionId));
+  assertTowerPgWorkspaceCurrent(store, context);
+  await replaceHealth(targetChannelId, sessions);
+  return sessions;
+}
+
 async function recoverTowerPgAgentCommentary(store, channelId, previous, received, deps) {
   const context = resolveTowerPgWorkspaceContext(store);
   const readState = deps.getSyncState || getSyncState;
@@ -2791,6 +2819,7 @@ export async function hydrateTowerPgWorkroom(store, workroomId, deps = {}) {
 export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) {
   const pgEvents = Array.isArray(events) ? events : [];
   const writeAgentActivity = deps.upsertAgentActivity || upsertAgentActivity;
+  const writeAgentSessionHealth = deps.upsertAgentSessionHealth || upsertAgentSessionHealth;
   const mergeCommentary = deps.mergeAgentActivityCommentary || mergeAgentActivityCommentary;
   const activityContext = resolveTowerPgWorkspaceContext(store);
   const commentaryUpdates = [];
@@ -2807,6 +2836,7 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
   const responseActivityWrites = [];
   const responseActivityDeletes = [];
   const agentActivityUpdates = [];
+  const agentSessionHealthUpdates = [];
   const workroomIds = new Set();
   const workroomChannels = new Set();
   const workroomEventIds = new Set();
@@ -2907,6 +2937,13 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
       } else {
         fallbackEvents += 1;
       }
+    } else if (entityType === 'agent_session_health') {
+      const health = mapPgAgentSessionHealth(payload.agent_session_health || payload.session_health || payload);
+      if (health && (!health.workspace_id || health.workspace_id === activityContext.workspaceId)) {
+        agentSessionHealthUpdates.push(health);
+      } else {
+        fallbackEvents += 1;
+      }
     } else if (entityType === 'workroom') {
       const workroomId = trimText(event?.entity_id || payload.workroom_id || payload.id);
       if (workroomId) workroomIds.add(workroomId);
@@ -2964,6 +3001,7 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
     )),
     ...responseActivityDeletes.map((recordId) => clearResponseActivity(recordId)),
     ...latestAgentActivityUpdates.map((update) => writeAgentActivity(update.activity)),
+    ...agentSessionHealthUpdates.map((health) => writeAgentSessionHealth(health)),
     ...[...workroomIds].map((workroomId) => hydrateTowerPgWorkroom(store, workroomId, deps)),
     ...[...workroomChannels].map((channelId) => hydrateTowerPgWorkrooms(store, { ...deps, channelId })),
     ...[...workroomEventIds].map((workroomId) => hydrateTowerPgWorkroomEvents(store, workroomId, deps)),

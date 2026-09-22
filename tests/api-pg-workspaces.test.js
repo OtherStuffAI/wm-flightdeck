@@ -81,6 +81,21 @@ describe('Tower PG API helpers', () => {
     expect(options.headers.Authorization).toBe(`NIP98 GET ${requestUrl}`);
   });
 
+  it('fetches session health with exact channel, thread and session filters', async () => {
+    const api = await import('../src/api.js');
+    await api.getTowerPgAgentSessionHealth('workspace-1', {
+      channelId: 'channel-1', threadId: 'thread-1', sessionId: 'session-1',
+      baseUrl: 'https://tower.example', appNpub: 'flightdeck_pg',
+    });
+    const [requestUrl, options] = globalThis.fetch.mock.calls[0];
+    const parsed = new URL(requestUrl);
+    expect(parsed.pathname).toBe('/api/v4/flightdeck-pg/workspaces/workspace-1/agent-session-health');
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({
+      channel_id: 'channel-1', thread_id: 'thread-1', session_id: 'session-1', limit: '100',
+    });
+    expect(options.headers.Authorization).toBe(`NIP98 GET ${requestUrl}`);
+  });
+
   it('upgrades an advertised http descriptor link to its configured https Tower', async () => {
     const api = await import('../src/api.js');
     api.setBaseUrl('https://tower.example');

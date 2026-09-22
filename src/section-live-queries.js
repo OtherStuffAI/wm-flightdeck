@@ -32,6 +32,7 @@ import {
   getResponseActivitiesForChannel,
   getResponseActivitiesForTarget,
   getAgentActivitiesForChannel,
+  getAgentSessionHealthForChannel,
   getWappPublishingGrants,
   getWappActivityProjection,
   getWappsByOwner,
@@ -697,6 +698,10 @@ function buildDetailSpecs(store) {
         ) return;
         return store.applyAgentActivities?.(activities);
       },
+    }, {
+      key: `deck:agent-session-health:${deckThreadChannelId}:${deckThreadId}:${openGeneration || 0}`,
+      query: () => getAgentSessionHealthForChannel(deckThreadChannelId),
+      onNext: (sessions) => { if (isCurrent()) return store.applyAgentSessionHealth?.(sessions); },
     }];
   }
 
@@ -817,6 +822,14 @@ function buildDetailSpecs(store) {
           onNext: (activities) => {
             if (!isSameWorkspace(store, workspaceKey, ownerNpub) || store.selectedChannelId !== channelId) return;
             return store.applyAgentActivities?.(activities);
+          },
+        },
+        {
+          key: `chat:agent-session-health:${channelId}`,
+          query: () => getAgentSessionHealthForChannel(channelId),
+          onNext: (sessions) => {
+            if (!isSameWorkspace(store, workspaceKey, ownerNpub) || store.selectedChannelId !== channelId) return;
+            return store.applyAgentSessionHealth?.(sessions);
           },
         },
       ];

@@ -620,7 +620,7 @@ describe('shell state default values', () => {
     const shell = createShellState();
     expect(shell.FAST_SYNC_MS).toBe(15000);
     expect(shell.IDLE_SYNC_MS).toBe(30000);
-    expect(shell.SSE_HEARTBEAT_CADENCE_MS).toBe(120000);
+    expect(shell.SSE_HEARTBEAT_CADENCE_MS).toBe(60000);
     expect(shell.BACKGROUND_GROUP_REFRESH_MS).toBe(300000);
     expect(shell.GROUP_KEY_REFRESH_MAX_AGE_MS).toBe(86400000);
   });

@@ -9,6 +9,8 @@ import {
   openWorkspaceDb,
   replacePgAgentActivitiesForChannel,
   upsertAgentActivity,
+  upsertAgentSessionHealth,
+  getAgentSessionHealthForChannel,
 } from '../src/db.js';
 
 const TEST_WORKSPACE = 'agent-activity-db-workspace';
@@ -119,6 +121,17 @@ describe('agent activity db', () => {
 
     expect(await getAgentActivitiesForChannel('channel-1')).toHaveLength(1);
     expect(await getAgentActivityCommentaryForChannel('channel-1')).toHaveLength(1);
+  });
+
+  it('keeps session health separate and orders generation resets by monotonic row version', async () => {
+    const base = { record_id: 'health-1', session_id: 'session-1', channel_id: 'channel-1', agent_npub: 'npub1agent',
+      status: 'busy', generation: 10, sequence: 5, row_version: 5 };
+    expect(await upsertAgentSessionHealth(base)).toBe(true);
+    expect(await upsertAgentSessionHealth({ ...base, generation: 11, sequence: 1, row_version: 6, status: 'online' })).toBe(true);
+    expect(await upsertAgentSessionHealth({ ...base, generation: 10, sequence: 99, row_version: 5, status: 'errored' })).toBe(false);
+    expect(await getAgentSessionHealthForChannel('channel-1')).toEqual([
+      expect.objectContaining({ generation: 11, sequence: 1, row_version: 6, status: 'online' }),
+    ]);
   });
 
   it('does not let a request-start absence snapshot delete a newer concurrent SSE turn', async () => {

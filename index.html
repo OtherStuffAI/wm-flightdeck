@@ -4194,12 +4194,13 @@
                       </div>
                     </template>
                     <template x-for="activity in $store.chat.getAgentActivitiesForMessage(msg)" :key="activity.record_id">
-                      <div class="agent-activity agent-activity-channel agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)">
+                      <div class="agent-activity agent-activity-channel agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)" role="status" aria-live="polite" aria-atomic="true" :class="'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state">
                         <div class="agent-activity-current" x-data="{ expanded: false, workingKey: '' }" x-id="['current-working-history']" x-effect="const key = $store.chat.getCurrentWorkingKey(activity, 'channel'); if (key !== workingKey || !$store.chat.isCurrentAgentActivityWorking(activity)) { expanded = false; workingKey = key; }">
-                          <button type="button" class="current-working-toggle" @click.stop="expanded = !expanded" :aria-expanded="expanded" :aria-controls="$id('current-working-history')">
-                            <span class="current-working-heading"><span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · Working'"></span><span class="current-working-symbol" aria-hidden="true" x-text="$store.chat.getCurrentWorkingSymbol()"></span><span class="current-working-chevron" aria-hidden="true" x-text="expanded ? '▾' : '▸'"></span></span>
+                          <button type="button" class="current-working-toggle" @click.stop="if (activity.state === 'working' || activity.state === 'waiting') expanded = !expanded" :aria-expanded="(activity.state === 'working' || activity.state === 'waiting') && expanded" :aria-controls="$id('current-working-history')">
+                            <span class="current-working-heading"><span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · ' + $store.chat.getAgentActivityStatusLabel(activity)"></span><span class="current-working-symbol" x-show="activity.state === 'working' || activity.state === 'waiting'" aria-hidden="true" x-text="$store.chat.getCurrentWorkingSymbol()"></span><span class="current-working-chevron" x-show="activity.state === 'working' || activity.state === 'waiting'" aria-hidden="true" x-text="expanded ? '▾' : '▸'"></span></span>
                             <span class="current-working-preview" x-show="!expanded" x-text="activity.body || activity.summary"></span>
-                            <span class="current-working-count" x-text="$store.chat.getCurrentWorkingCount(activity)"></span>
+                            <span class="current-working-count" x-show="activity.state === 'working' || activity.state === 'waiting'" x-text="$store.chat.getCurrentWorkingCount(activity)"></span>
+                            <span class="agent-session-status" x-show="$store.chat.getAgentSessionStatusLabel(activity)" x-text="$store.chat.getAgentSessionStatusLabel(activity)"></span>
                           </button>
                           <div x-show="expanded" x-cloak :id="$id('current-working-history')" class="current-working-history">
                             <ol class="agent-activity-history">
@@ -4635,12 +4636,13 @@
                   </div>
                 </template>
                 <template x-for="activity in $store.chat.activeThreadAgentActivities" :key="activity.record_id">
-                      <div class="thread-response-activity agent-activity-thread agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)">
+                      <div class="thread-response-activity agent-activity-thread agent-activity-live" x-show="$store.chat.isCurrentAgentActivityWorking(activity)" role="status" aria-live="polite" aria-atomic="true" :class="'agent-activity-' + $store.chat.getAgentActivityHealth(activity).state">
                         <div class="agent-activity-current" x-data="{ expanded: false, workingKey: '' }" x-id="['current-working-history']" x-effect="const key = $store.chat.getCurrentWorkingKey(activity, 'thread'); if (key !== workingKey || !$store.chat.isCurrentAgentActivityWorking(activity)) { expanded = false; workingKey = key; }">
-                          <button type="button" class="current-working-toggle" @click.stop="expanded = !expanded" :aria-expanded="expanded" :aria-controls="$id('current-working-history')">
-                            <span class="current-working-heading"><span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · Working'"></span><span class="current-working-symbol" aria-hidden="true" x-text="$store.chat.getCurrentWorkingSymbol()"></span><span class="current-working-chevron" aria-hidden="true" x-text="expanded ? '▾' : '▸'"></span></span>
+                          <button type="button" class="current-working-toggle" @click.stop="if (activity.state === 'working' || activity.state === 'waiting') expanded = !expanded" :aria-expanded="(activity.state === 'working' || activity.state === 'waiting') && expanded" :aria-controls="$id('current-working-history')">
+                            <span class="current-working-heading"><span class="agent-activity-title" x-text="$store.chat.getSenderName(activity.agent_npub) + ' · ' + $store.chat.getAgentActivityStatusLabel(activity)"></span><span class="current-working-symbol" x-show="activity.state === 'working' || activity.state === 'waiting'" aria-hidden="true" x-text="$store.chat.getCurrentWorkingSymbol()"></span><span class="current-working-chevron" x-show="activity.state === 'working' || activity.state === 'waiting'" aria-hidden="true" x-text="expanded ? '▾' : '▸'"></span></span>
                             <span class="current-working-preview" x-show="!expanded" x-text="activity.body || activity.summary"></span>
-                            <span class="current-working-count" x-text="$store.chat.getCurrentWorkingCount(activity)"></span>
+                            <span class="current-working-count" x-show="activity.state === 'working' || activity.state === 'waiting'" x-text="$store.chat.getCurrentWorkingCount(activity)"></span>
+                            <span class="agent-session-status" x-show="$store.chat.getAgentSessionStatusLabel(activity)" x-text="$store.chat.getAgentSessionStatusLabel(activity)"></span>
                           </button>
                           <div x-show="expanded" x-cloak :id="$id('current-working-history')" class="current-working-history">
                             <ol class="agent-activity-history">

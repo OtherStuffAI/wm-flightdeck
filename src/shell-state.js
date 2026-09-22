@@ -265,7 +265,7 @@ export function createShellState(options = {}) {
     // ── Constants ──────────────────────────────────────────────
     FAST_SYNC_MS: 15000,
     IDLE_SYNC_MS: 30000,
-    SSE_HEARTBEAT_CADENCE_MS: 120000,
+    SSE_HEARTBEAT_CADENCE_MS: 60000,
     BACKGROUND_GROUP_REFRESH_MS: 5 * 60 * 1000,
     GROUP_KEY_REFRESH_MAX_AGE_MS: 24 * 60 * 60 * 1000,
 

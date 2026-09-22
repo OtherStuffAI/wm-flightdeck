@@ -69,6 +69,7 @@ describe('section live query plan', () => {
       'chat:reactions:channel-1',
       'chat:channel-response-activities:channel-1',
       'chat:agent-activities:channel-1',
+      'chat:agent-session-health:channel-1',
     ]);
   });
 
@@ -225,6 +226,7 @@ describe('section live query plan', () => {
       'deck:reactions:channel-1:root-message-1:6:0',
       'deck:response-activities:root-message-1:0',
       'deck:agent-activities:channel-1:root-message-1:0',
+      'deck:agent-session-health:channel-1:root-message-1:0',
     ]);
   });
 

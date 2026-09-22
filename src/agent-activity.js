@@ -33,7 +33,13 @@ export function mapPgAgentActivity(activity = {}) {
     body: text(activity.body),
     visibility,
     sequence,
-    expires_at: text(activity.expires_at),
+    last_heartbeat_at: text(activity.last_heartbeat_at),
+    lease_expires_at: text(activity.lease_expires_at || activity.expires_at),
+    expires_at: text(activity.expires_at || activity.lease_expires_at),
+    lease_health: text(activity.lease_health).toLowerCase(),
+    blocked_by_turn_id: text(activity.blocked_by_turn_id) || null,
+    queue_position: Number.isSafeInteger(Number(activity.queue_position)) && Number(activity.queue_position) > 0
+      ? Number(activity.queue_position) : null,
     terminal_at: text(activity.terminal_at),
     created_at: text(activity.created_at),
     updated_at: text(activity.updated_at),
@@ -95,7 +101,7 @@ export function getAgentActivityHealth(activity = {}, sseStatus = 'connected', n
   if (isTerminalAgentActivity(activity)) return { state: 'finished', message: '' };
   const status = text(sseStatus).toLowerCase();
   const startedAt = Number(recovery.startedAt || 0);
-  const expiresAt = Date.parse(activity.expires_at || '');
+  const expiresAt = Date.parse(activity.lease_expires_at || activity.expires_at || '');
   const transportLost = !['connected', 'fallback-polling'].includes(status);
   const expired = !Number.isFinite(expiresAt) || expiresAt <= nowMs;
   if (startedAt > 0 || transportLost) {
@@ -106,7 +112,9 @@ export function getAgentActivityHealth(activity = {}, sseStatus = 'connected', n
       message: lost ? 'Connection lost—status unknown' : 'Reconnecting',
     };
   }
-  if (expired) return { state: 'quiet', message: 'No recent update' };
+  if (expired || text(activity.lease_health).toLowerCase() === 'stale') {
+    return { state: 'stale', message: 'Status unknown — reconnecting' };
+  }
   return { state: 'live', message: '' };
 }
 
@@ -135,7 +143,7 @@ export function selectCurrentAgentActivities(activities = []) {
   for (const activity of selectVisibleAgentActivities(activities)) {
     const key = JSON.stringify([
       activity.workspace_id || '', activity.backend_url || '',
-      activity.channel_id || '', activity.thread_id || '', activity.agent_npub || '',
+      activity.channel_id || '', activity.thread_id || '', activity.trigger_message_id || '', activity.agent_npub || '',
     ]);
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(activity);
@@ -144,4 +152,34 @@ export function selectCurrentAgentActivities(activities = []) {
     runs.sort((a, b) => compareAgentActivityLifecycle(b, a));
     return { ...runs[0], earlier_activities: runs.slice(1) };
   });
+}
+
+export function mapPgAgentSessionHealth(health = {}) {
+  const recordId = text(health.id || health.record_id);
+  const sessionId = text(health.session_id);
+  const generation = Number(health.generation);
+  const sequence = Number(health.sequence);
+  const rowVersion = Number(health.row_version);
+  if (!recordId || !sessionId || !Number.isSafeInteger(generation) || generation < 0
+    || !Number.isSafeInteger(sequence) || sequence < 0 || !Number.isSafeInteger(rowVersion) || rowVersion < 1) return null;
+  return {
+    record_id: recordId,
+    workspace_id: text(health.workspace_id),
+    scope_id: text(health.scope_id),
+    channel_id: text(health.channel_id),
+    thread_id: text(health.thread_id) || null,
+    session_id: sessionId,
+    agent_npub: text(health.agent_npub),
+    status: text(health.status).toLowerCase(),
+    active_turn_id: text(health.active_turn_id) || null,
+    generation,
+    sequence,
+    row_version: rowVersion,
+    last_seen_at: text(health.last_seen_at),
+    lease_expires_at: text(health.lease_expires_at),
+    lease_health: text(health.lease_health).toLowerCase(),
+    error_summary: text(health.error_summary),
+    created_at: text(health.created_at),
+    updated_at: text(health.updated_at),
+  };
 }

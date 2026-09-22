@@ -78,6 +78,7 @@ import {
   hydrateTowerPgChannelDocumentsAndFiles,
   hydrateTowerPgChannelMessages,
   hydrateTowerPgChannelAgentActivities,
+  hydrateTowerPgAgentSessionHealth,
   hydrateTowerPgChannelTasks,
   hydrateTowerPgChannels,
   hydrateTowerPgDailyNoteTarget,
@@ -123,6 +124,7 @@ const PG_SSE_TARGETED_EVENT_LIMIT = 25;
 const PG_SSE_MATERIALISATION_MAX_ATTEMPTS = 3;
 const PG_SSE_TARGETED_ONLY_ENTITY_TYPES = new Set([
   'agent_activity',
+  'agent_session_health',
   'response_activity',
   'reaction',
   'resource_view_state',
@@ -371,6 +373,9 @@ export const syncManagerMixin = {
         'channel-agent-activities': {
           load: (key, options) => this.loadTowerPgAgentActivities(options.channelId || key, options),
         },
+        'channel-agent-session-health': {
+          load: (key, options) => hydrateTowerPgAgentSessionHealth(this, options.channelId || key, options),
+        },
         'agent-activity-history': {
           load: (_key, options) => this.loadTowerPgAgentActivities(options.channelId, { ...options, recover: false }),
         },
@@ -542,6 +547,7 @@ export const syncManagerMixin = {
       case 'channel-documents': return hydrateTowerPgChannelDocumentsAndFiles(this, id, options);
       case 'channel-messages': return hydrateTowerPgChannelMessages(this, id, options);
       case 'channel-agent-activities': return this.loadTowerPgAgentActivities(options.channelId || id, options);
+      case 'channel-agent-session-health': return hydrateTowerPgAgentSessionHealth(this, options.channelId || id, options);
       case 'agent-activity-history': return this.loadTowerPgAgentActivities(options.channelId, { ...options, recover: false });
       case 'thread-history-page': return readTowerPgThreadHistoryPage(this, options.channelId, options.threadId, options)
         .then(async (bundle) => {
@@ -641,9 +647,14 @@ export const syncManagerMixin = {
   async recoverVisibleAgentActivities() {
     const target = this.visibleAgentActivityTarget();
     if (!target.channelId) return;
-    return this.requestTowerSyncFamily('channel-agent-activities', `${target.channelId}${target.threadId ? `:${target.threadId}` : ''}`, {
-      ...target, force: true, recover: true,
-    });
+    return Promise.all([
+      this.requestTowerSyncFamily('channel-agent-activities', `${target.channelId}${target.threadId ? `:${target.threadId}` : ''}`, {
+        ...target, force: true, recover: true,
+      }),
+      this.requestTowerSyncFamily('channel-agent-session-health', `${target.channelId}${target.threadId ? `:${target.threadId}` : ''}`, {
+        ...target, force: true,
+      }),
+    ]);
   },
 
   async ensureThreadAgentActivityCoverage(channelId, threadId) {
@@ -651,6 +662,9 @@ export const syncManagerMixin = {
     try {
       await this.requestTowerSyncFamily('channel-agent-activities', `${channelId}:${threadId}`, {
         channelId, threadId, recover: true,
+      });
+      await this.requestTowerSyncFamily('channel-agent-session-health', `${channelId}:${threadId}`, {
+        channelId, threadId,
       });
     } catch {
       // The activity loader exposes retry state without discarding messages.

@@ -4,6 +4,7 @@ import {
   isVisibleAgentActivity,
   getAgentActivityHealth,
   mapPgAgentActivity,
+  mapPgAgentSessionHealth,
   reconcileAgentActivity,
   selectVisibleAgentActivities,
 } from '../src/agent-activity.js';
@@ -77,7 +78,19 @@ describe('agent activity lifecycle', () => {
   it('clears uncertainty only when recovery succeeds and leaves expired rows unknown', () => {
     expect(getAgentActivityHealth(activity(), 'connected', Date.now(), { startedAt: 0 }).state).toBe('live');
     const expired = activity({ expires_at: '2000-01-01T00:00:00.000Z' });
-    expect(getAgentActivityHealth(expired, 'connected').message).toBe('No recent update');
+    expect(getAgentActivityHealth(expired, 'connected').message).toBe('Status unknown — reconnecting');
     expect(selectVisibleAgentActivities([expired])).toEqual([expired]);
+  });
+
+  it('maps lease, queue, heartbeat and separately ordered session health fields', () => {
+    expect(activity({ state: 'queued', lease_expires_at: '2999-02-01T00:00:00Z', lease_health: 'live',
+      last_heartbeat_at: '2026-09-22T00:00:00Z', blocked_by_turn_id: 'turn-before', queue_position: 2 })).toEqual(expect.objectContaining({
+      state: 'queued', lease_expires_at: '2999-02-01T00:00:00Z', lease_health: 'live',
+      blocked_by_turn_id: 'turn-before', queue_position: 2,
+    }));
+    expect(mapPgAgentSessionHealth({ id: 'health-1', session_id: 'session-1', channel_id: 'channel-1',
+      status: 'busy', generation: 2, sequence: 1, row_version: 9, lease_health: 'live' })).toEqual(expect.objectContaining({
+      record_id: 'health-1', status: 'busy', generation: 2, sequence: 1, row_version: 9,
+    }));
   });
 });

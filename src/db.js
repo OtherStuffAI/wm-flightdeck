@@ -184,6 +184,11 @@ const WORKSPACE_STORES_V26 = {
   ...Object.fromEntries(['documents', 'comments'].map(table => [table, WORKSPACE_STORES_V25[table]
     + ', [cache_scope+cache_active+cache_time+record_id], [cache_scope+cache_kind+cache_active+cache_time+record_id], [owner_npub+cache_kind+cache_active+cache_time+record_id], [cache_scope+cache_has_files+cache_active+cache_time+record_id], [owner_npub+cache_has_files+cache_active+cache_time+record_id]'])),
 };
+const WORKSPACE_STORES_V28 = {
+  ...WORKSPACE_STORES_V26,
+  agent_activities: 'record_id, activity_id, turn_id, channel_id, thread_id, trigger_message_id, session_id, agent_npub, state, sequence, lease_health, lease_expires_at, expires_at, created_at, updated_at',
+  agent_session_health: 'record_id, session_id, channel_id, thread_id, agent_npub, status, generation, sequence, row_version, lease_health, lease_expires_at, updated_at',
+};
 
 function createWorkspaceDb(workspaceDbKey) {
   const db = new Dexie(`wingman-fd-ws-${workspaceDbKey}`);
@@ -284,6 +289,7 @@ function createWorkspaceDb(workspaceDbKey) {
     }
   });
   db.version(27).stores({ ...WORKSPACE_STORES_V26, drive_shares: '&key, context, id', drive_listings: '&key, context, share_key, fetched_at' });
+  db.version(28).stores({ ...WORKSPACE_STORES_V28, drive_shares: '&key, context, id', drive_listings: '&key, context, share_key, fetched_at' });
   const commentFields = activityIndexFields;
   db.documents.hook('creating', (_key, row) => { Object.assign(row, commentFields(row)); });
   db.documents.hook('updating', (changes, _key, row) => commentFields({ ...row, ...changes }));
@@ -2463,6 +2469,34 @@ export async function getAgentActivitiesForChannel(channelId) {
   }));
 }
 
+export async function upsertAgentSessionHealth(health) {
+  const row = sanitizeForStorage(health);
+  if (!row?.record_id || !row?.session_id) return false;
+  const db = wsDb();
+  return db.transaction('rw', db.agent_session_health, async () => {
+    const current = await db.agent_session_health.get(row.record_id);
+    if (current && Number(current.row_version) >= Number(row.row_version)) return false;
+    await db.agent_session_health.put({ ...current, ...row, created_at: current?.created_at || row.created_at || null });
+    return true;
+  });
+}
+
+export async function replacePgAgentSessionHealthForChannel(channelId, sessions = []) {
+  const id = String(channelId || '').trim();
+  if (!id) return 0;
+  const rows = (Array.isArray(sessions) ? sessions : []).map(sanitizeForStorage).filter((row) => row?.record_id);
+  let changed = 0;
+  for (const row of rows) changed += await upsertAgentSessionHealth(row) ? 1 : 0;
+  // Absence and lease expiry are not proof that a runtime stopped.
+  return changed;
+}
+
+export async function getAgentSessionHealthForChannel(channelId) {
+  const id = String(channelId || '').trim();
+  if (!id) return [];
+  return wsDb().agent_session_health.where('channel_id').equals(id).toArray();
+}
+
 export async function pruneExpiredAgentActivities() {
   // expires_at describes live freshness, never history retention or completion.
   return 0;
@@ -2845,6 +2879,8 @@ export async function clearRuntimeData() {
     db.reactions.clear(),
     db.response_activities.clear(),
     db.agent_activities.clear(),
+    db.agent_activity_commentary.clear(),
+    db.agent_session_health.clear(),
     db.audio_notes.clear(),
     db.scopes.clear(),
     db.flows.clear(),

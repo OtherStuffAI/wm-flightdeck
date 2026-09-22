@@ -95,25 +95,18 @@ describe('retained run grouping', () => {
       workspace_id: 'workspace-a', backend_url: 'https://tower.example', thread_id: 'thread-a',
       trigger_message_id: id, created_at: `2026-09-08T0${id}:00:00Z`, ...overrides });
   }
-  it('shows only the newest healthy run above two expired retained runs in Chat and Inbox', () => {
+  it('keeps each turn attached to its trigger message while retaining expired runs', () => {
     const target = store();
     target.applyAgentActivities([run('1', { expires_at: '2000-01-01' }), run('2', { expires_at: '2000-01-01' }), run('3')]);
-    const [current] = target.activeThreadAgentActivities;
-    expect(target.activeThreadAgentActivities).toHaveLength(1);
-    expect(current.activity_id).toBe('3');
-    expect(target.getAgentActivityHealth(current).state).toBe('live');
-    expect(current.earlier_activities.map(row => row.activity_id)).toEqual(['2', '1']);
-    expect(target.getAgentActivitiesForMessage('1')).toEqual([]);
-    expect(target.getAgentActivitiesForMessage('3')).toEqual([current]);
-    expect(target.formatEarlierAgentActivityTitle(current.earlier_activities[0])).toBe('Earlier activity · status unconfirmed');
+    expect(target.activeThreadAgentActivities).toHaveLength(3);
+    expect(target.getAgentActivitiesForMessage('1')).toEqual([expect.objectContaining({ activity_id: '1' })]);
+    expect(target.getAgentActivitiesForMessage('3')).toEqual([expect.objectContaining({ activity_id: '3' })]);
     expect(target.agentActivities).toHaveLength(3);
   });
   it('keeps a late old replay out of the current slot and retains terminal history', () => {
     const target = store();
     target.applyAgentActivities([run('1', { sequence: 999, updated_at: '2999-01-01', state: 'completed' }), run('2')]);
-    const [current] = target.activeThreadAgentActivities;
-    expect(current.activity_id).toBe('2');
-    expect(target.formatEarlierAgentActivityTitle(current.earlier_activities[0])).toBe('Earlier activity · completed');
+    expect(target.activeThreadAgentActivities.map(row => row.activity_id)).toEqual(['1', '2']);
   });
   it('keeps distinct agents, workspaces, backends and conversations separate', () => {
     const target = store();
@@ -126,15 +119,38 @@ describe('retained run grouping', () => {
   it('shows quiet expiry neutrally and warns only the current panel after reconnect grace', () => {
     const target = store();
     target.applyAgentActivities([run('1'), run('2', { expires_at: '2000-01-01' })]);
-    const [current] = target.activeThreadAgentActivities;
-    expect(target.getAgentActivityHealth(current)).toEqual({ state: 'quiet', message: 'No recent update' });
+    const current = target.activeThreadAgentActivities.find(row => row.activity_id === '2');
+    expect(target.getAgentActivityHealth(current)).toEqual({ state: 'stale', message: 'Status unknown — reconnecting' });
     target.sseStatus = 'reconnecting';
     target.agentActivityRecoveryStartedAt = Date.now() - 59_000;
     expect(target.getAgentActivityHealth(current).message).toBe('Reconnecting');
     target.agentActivityRecoveryStartedAt -= 2_000;
     expect(target.getAgentActivityHealth(current).message).toBe('Connection lost—status unknown');
-    expect(target.activeThreadAgentActivities).toHaveLength(1);
-    expect(target.formatEarlierAgentActivityTitle(current.earlier_activities[0])).toContain('status unconfirmed');
+    expect(target.activeThreadAgentActivities).toHaveLength(2);
+  });
+
+  it('shows a queued message beneath the prior working message and promotes it in place', () => {
+    const target = store();
+    const prior = run('1', { state: 'working', body: 'Still handling the first request' });
+    const queued = run('2', { state: 'queued', queue_position: 1, blocked_by_turn_id: '1' });
+    target.applyAgentActivities([prior, queued]);
+    expect(target.getAgentActivitiesForMessage('1')[0]).toEqual(expect.objectContaining({ state: 'working' }));
+    expect(target.getAgentActivitiesForMessage('2')[0]).toEqual(expect.objectContaining({ state: 'queued' }));
+    expect(target.getAgentActivityStatusLabel(queued)).toContain('Queued behind');
+    target.applyAgentActivities([prior, { ...queued, state: 'working', sequence: 2, queue_position: null }]);
+    expect(target.getAgentActivitiesForMessage('2')[0]).toEqual(expect.objectContaining({ state: 'working' }));
+  });
+
+  it('distinguishes a stale turn lease from a live session and exposes session errors', () => {
+    const target = store();
+    const stale = run('1', { lease_health: 'stale', lease_expires_at: '2000-01-01' });
+    target.applyAgentSessionHealth([{ record_id: 'health-1', session_id: stale.session_id, channel_id: stale.channel_id,
+      agent_npub: stale.agent_npub, status: 'online', row_version: 1 }]);
+    expect(target.getAgentActivityStatusLabel(stale)).toBe('Status unknown — reconnecting');
+    expect(target.getAgentSessionStatusLabel(stale)).toBe('Session online');
+    target.applyAgentSessionHealth([{ record_id: 'health-1', session_id: stale.session_id, channel_id: stale.channel_id,
+      agent_npub: stale.agent_npub, status: 'errored', error_summary: 'Runtime exited', row_version: 2 }]);
+    expect(target.getAgentSessionStatusLabel(stale)).toBe('Session errored — Runtime exited');
   });
 });
 
@@ -144,7 +160,7 @@ describe('menu-only activity details', () => {
     const row = activity({ thread_id: 'thread-a', expires_at: '2000-01-01' });
     target.agentActivities = [row];
     target.sseStatus = 'reconnecting';
-    expect(target.isCurrentAgentActivityWorking(row)).toBe(false);
+    expect(target.isCurrentAgentActivityWorking(row)).toBe(true);
     target.openAgentActivityDetails();
     expect(target.agentActivityDetailsRows).toHaveLength(1);
     row.expires_at = '2999-01-01';

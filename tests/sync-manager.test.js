@@ -31,6 +31,7 @@ import { isTowerPgBackendMode } from '../src/backend-mode.js';
 import {
   hydrateTowerPgChannelMessages,
   hydrateTowerPgChannelAgentActivities,
+  hydrateTowerPgAgentSessionHealth,
   hydrateTowerPgDocComments,
   hydrateTowerPgEventUpdates,
   hydrateTowerPgTaskComments,
@@ -44,6 +45,7 @@ vi.mock('../src/backend-mode.js', () => ({
 vi.mock('../src/pg-read-hydrator.js', () => ({
   hydrateTowerPgChannelMessages: vi.fn(async () => []),
   hydrateTowerPgChannelAgentActivities: vi.fn(async () => []),
+  hydrateTowerPgAgentSessionHealth: vi.fn(async () => []),
   hydrateTowerPgDocComments: vi.fn(async () => []),
   hydrateTowerPgEventUpdates: vi.fn(async () => ({ appliedTargets: 0, fallbackEvents: 0, events: 0 })),
   hydrateTowerPgTaskComments: vi.fn(async () => []),
