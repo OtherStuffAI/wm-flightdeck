@@ -1888,6 +1888,12 @@
         "Keep each Agent Direct turn under its own message, including queued, working, stale, failed, and cancelled states with retained commentary.",
         "Reconcile visible agent activity and separate runtime health at least once a minute, even while live updates remain connected."
       ]
+    },
+    {
+      "buildNumber": 2037,
+      "label": "Durable Agent Direct activation checkpoint",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
