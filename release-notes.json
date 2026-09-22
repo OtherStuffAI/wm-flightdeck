@@ -1860,6 +1860,13 @@
       "notes": [
         "Hide done and completed task cards from the Deck while keeping active task ordering and other task views unchanged."
       ]
+    },
+    {
+      "buildNumber": 2033,
+      "label": "Reliable workspace startup",
+      "notes": [
+        "Open the saved workspace cache before access checks and live updates begin so navigation and workspace updates recover normally after a clean refresh."
+      ]
     }
   ]
 }

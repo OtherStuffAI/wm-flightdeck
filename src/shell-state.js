@@ -32,6 +32,7 @@ import { getShortNpub, getInitials } from './utils/naming.js';
 import {
   getSettings,
   hasWorkspaceDb,
+  openWorkspaceDb,
   clearRuntimeData,
 } from './db.js';
 import { registerWorkspaceKey, setBaseUrl } from './api.js';
@@ -534,6 +535,16 @@ export function createShellState(options = {}) {
         this.refreshKnownHostsMetadata().catch(() => {});
       }
       const towerPgMode = isTowerPgBackendMode();
+      if (towerPgMode) {
+        const savedWorkspace = findWorkspaceByKey(this.knownWorkspaces, this.selectedWorkspaceKey)
+          || (!this.selectedWorkspaceKey
+            ? this.knownWorkspaces.find((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub)
+            : null);
+        const savedWorkspaceDbKey = String(
+          savedWorkspace?.workspaceKey || savedWorkspace?.workspaceOwnerNpub || '',
+        ).trim();
+        if (savedWorkspaceDbKey) openWorkspaceDb(savedWorkspaceDbKey);
+      }
       if (!towerPgMode) {
         if (!this.selectedWorkspaceKey && this.currentWorkspaceOwnerNpub) {
           const legacyMatch = this.knownWorkspaces.find((workspace) => workspace.workspaceOwnerNpub === this.currentWorkspaceOwnerNpub) || null;

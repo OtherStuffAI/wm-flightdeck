@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getSettings = vi.fn();
+const openWorkspaceDb = vi.fn();
 const setBaseUrl = vi.fn();
 const tryAutoLoginFromStorage = vi.fn();
 const pubkeyToNpub = vi.fn();
@@ -18,6 +19,7 @@ vi.mock('../src/version-check.js', () => ({
 vi.mock('../src/db.js', () => ({
   getSettings,
   hasWorkspaceDb: vi.fn(() => false),
+  openWorkspaceDb,
   clearRuntimeData: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -135,6 +137,9 @@ describe('shell PG startup restore', () => {
       const selectSessions = [];
       const bootstrapSessions = [];
       shell.selectWorkspace = vi.fn(async function selectWorkspace() {
+        expect(openWorkspaceDb).toHaveBeenCalledWith(workspace.workspaceKey);
+        expect(openWorkspaceDb.mock.invocationCallOrder[0])
+          .toBeLessThan(shell.selectWorkspace.mock.invocationCallOrder[0]);
         selectSessions.push(this.session?.npub || '');
       });
       shell.bootstrapSelectedWorkspace = vi.fn(async function bootstrapSelectedWorkspace() {
@@ -145,6 +150,7 @@ describe('shell PG startup restore', () => {
       await flushStartupTail();
 
       expect(tryAutoLoginFromStorage).toHaveBeenCalled();
+      expect(openWorkspaceDb).toHaveBeenCalledTimes(1);
       expect(selectSessions).toEqual(['npub1user', 'npub1user']);
       expect(bootstrapSessions).toEqual(['npub1user', 'npub1user']);
       expect(selectSessions).not.toContain('');
@@ -186,6 +192,7 @@ describe('shell PG startup restore', () => {
 
       expect(shell.selectWorkspace).not.toHaveBeenCalled();
       expect(shell.bootstrapSelectedWorkspace).not.toHaveBeenCalled();
+      expect(openWorkspaceDb).toHaveBeenCalledWith(workspace.workspaceKey);
     } finally {
       restoreGlobals();
     }
