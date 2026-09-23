@@ -82,6 +82,7 @@ function attachStartupStubs(shell) {
   shell.initCommandPaletteShortcuts = vi.fn();
   shell.initDocCommentConnector = vi.fn();
   shell.startSharedLiveQueries = vi.fn();
+  shell.activateCachedWorkspace = vi.fn().mockResolvedValue(true);
   shell.loadTowerTransportSettings = vi.fn();
   shell.resolveChatProfile = vi.fn();
   shell.rememberPeople = vi.fn().mockResolvedValue(undefined);
@@ -151,6 +152,12 @@ describe('shell PG startup restore', () => {
 
       expect(tryAutoLoginFromStorage).toHaveBeenCalled();
       expect(openWorkspaceDb).toHaveBeenCalledTimes(1);
+      expect(shell.activateCachedWorkspace).toHaveBeenCalledWith({
+        workspace: expect.objectContaining(workspace),
+        workspaceKey: workspace.workspaceKey,
+      });
+      expect(shell.activateCachedWorkspace.mock.invocationCallOrder[0])
+        .toBeLessThan(tryAutoLoginFromStorage.mock.invocationCallOrder[0]);
       expect(selectSessions).toEqual(['npub1user', 'npub1user']);
       expect(bootstrapSessions).toEqual(['npub1user', 'npub1user']);
       expect(selectSessions).not.toContain('');
@@ -193,6 +200,64 @@ describe('shell PG startup restore', () => {
       expect(shell.selectWorkspace).not.toHaveBeenCalled();
       expect(shell.bootstrapSelectedWorkspace).not.toHaveBeenCalled();
       expect(openWorkspaceDb).toHaveBeenCalledWith(workspace.workspaceKey);
+      expect(shell.activateCachedWorkspace).toHaveBeenCalledWith({
+        workspace: expect.objectContaining(workspace),
+        workspaceKey: workspace.workspaceKey,
+      });
+    } finally {
+      restoreGlobals();
+    }
+  });
+
+  it('projects the saved cache while authentication is still pending', async () => {
+    const restoreGlobals = installWindow();
+    try {
+      const { createShellState } = await import('../src/shell-state.js');
+      const workspace = {
+        workspaceKey: 'pg:npub1user::tower:npub1tower::workspace:npub1workspace::app:flightdeck_pg::id:workspace-1',
+        workspaceOwnerNpub: 'npub1owner',
+        workspaceServiceNpub: 'npub1workspace',
+        towerServiceNpub: 'npub1tower',
+        workspaceId: 'workspace-1',
+        appNpub: 'flightdeck_pg',
+        pgSessionNpub: 'npub1user',
+        pgBackendMode: true,
+        directHttpsUrl: 'https://tower.example',
+      };
+      getSettings.mockResolvedValue({
+        backendUrl: 'https://tower.example',
+        currentWorkspaceKey: workspace.workspaceKey,
+        currentWorkspaceOwnerNpub: workspace.workspaceOwnerNpub,
+        knownWorkspaces: [workspace],
+      });
+      let finishAuthentication;
+      tryAutoLoginFromStorage.mockReturnValue(new Promise(resolve => { finishAuthentication = resolve; }));
+      const shell = createShellState();
+      attachStartupStubs(shell);
+      shell.scopes = [];
+      shell.channels = [];
+      shell.startWorkspaceLiveQueries = vi.fn();
+      shell.activateCachedWorkspace = vi.fn(async function activateCache() {
+        this.scopes = [{ record_id: 'cached-scope' }];
+        this.channels = [{ record_id: 'cached-channel' }];
+        this.startWorkspaceLiveQueries();
+        return true;
+      });
+      shell.selectWorkspace = vi.fn();
+      shell.bootstrapSelectedWorkspace = vi.fn();
+
+      const initializing = shell.init();
+      await vi.waitFor(() => expect(shell.activateCachedWorkspace).toHaveBeenCalled());
+      expect(shell.scopes.map(row => row.record_id)).toEqual(['cached-scope']);
+      expect(shell.channels.map(row => row.record_id)).toEqual(['cached-channel']);
+      expect(shell.startWorkspaceLiveQueries).toHaveBeenCalledTimes(1);
+      expect(shell.session).toBeNull();
+
+      finishAuthentication(null);
+      await initializing;
+      await flushStartupTail();
+      expect(shell.scopes).toHaveLength(1);
+      expect(shell.channels).toHaveLength(1);
     } finally {
       restoreGlobals();
     }

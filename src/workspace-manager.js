@@ -14,6 +14,7 @@ import {
   getWorkspaceSettings,
   upsertWorkspaceSettings,
   openWorkspaceDb,
+  isWorkspaceDbOpenForKey,
   deleteWorkspaceDb,
   clearRuntimeData,
   cacheStorageImage,
@@ -259,6 +260,35 @@ export const workspaceManagerMixin = {
 
   workspaceSelectionError: '',
   ...legacyWorkspaceRecoveryMixin,
+
+  async activateCachedWorkspace({ workspace = this.currentWorkspace, workspaceKey = '' } = {}) {
+    const expectedWorkspaceKey = String(
+      workspaceKey || workspace?.workspaceKey || workspace?.workspaceOwnerNpub || '',
+    ).trim();
+    const expectedOwnerNpub = String(workspace?.workspaceOwnerNpub || '').trim();
+    if (!expectedWorkspaceKey || !expectedOwnerNpub) return false;
+    if (String(this.currentWorkspaceKey || '').trim() !== expectedWorkspaceKey) return false;
+    if (String(this.workspaceOwnerNpub || '').trim() !== expectedOwnerNpub) return false;
+    if (!isWorkspaceDbOpenForKey(expectedWorkspaceKey)) return false;
+
+    // Cache activation is deliberately authority-free: the matching persisted
+    // partition can render before signer restoration, Tower verification, or
+    // workspace session-key setup. Live-query and local-load generation guards
+    // prevent a late emission from crossing a workspace switch.
+    this.startWorkspaceLiveQueries?.();
+    const generation = this._workspaceSelectionGeneration;
+    await Promise.all([
+      this.loadLocalScopes?.(),
+      this.loadLocalChannels?.({ syncRoute: false }),
+    ]);
+    if (
+      String(this.currentWorkspaceKey || '').trim() !== expectedWorkspaceKey
+      || String(this.workspaceOwnerNpub || '').trim() !== expectedOwnerNpub
+      || this._workspaceSelectionGeneration !== generation
+      || !isWorkspaceDbOpenForKey(expectedWorkspaceKey)
+    ) return false;
+    return true;
+  },
 
   // --- computed getters ---
 

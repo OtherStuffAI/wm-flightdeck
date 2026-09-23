@@ -543,7 +543,13 @@ export function createShellState(options = {}) {
         const savedWorkspaceDbKey = String(
           savedWorkspace?.workspaceKey || savedWorkspace?.workspaceOwnerNpub || '',
         ).trim();
-        if (savedWorkspaceDbKey) openWorkspaceDb(savedWorkspaceDbKey);
+        if (savedWorkspaceDbKey) {
+          openWorkspaceDb(savedWorkspaceDbKey);
+          await this.activateCachedWorkspace?.({
+            workspace: savedWorkspace,
+            workspaceKey: savedWorkspaceDbKey,
+          });
+        }
       }
       if (!towerPgMode) {
         if (!this.selectedWorkspaceKey && this.currentWorkspaceOwnerNpub) {

@@ -10,6 +10,7 @@ vi.mock('../src/db.js', () => ({
   getWorkspaceSettings: vi.fn(),
   upsertWorkspaceSettings: vi.fn(),
   openWorkspaceDb: vi.fn(),
+  isWorkspaceDbOpenForKey: vi.fn(() => true),
   deleteWorkspaceDb: vi.fn(),
   clearRuntimeData: vi.fn().mockResolvedValue(undefined),
   addPendingWrite: vi.fn(),
@@ -141,6 +142,57 @@ describe('PG workspace manager mode', () => {
     vi.resetModules();
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('activates cached scopes and channels without a signer or authority setup', async () => {
+    const workspace = {
+      workspaceKey: 'pg:cached', workspaceOwnerNpub: 'npub1owner',
+      workspaceServiceNpub: 'npub1workspace', workspaceId: 'workspace-1', pgBackendMode: true,
+    };
+    const store = await buildStore({
+      knownWorkspaces: [workspace], selectedWorkspaceKey: workspace.workspaceKey,
+      currentWorkspaceOwnerNpub: workspace.workspaceOwnerNpub, session: null,
+      loadLocalScopes: vi.fn().mockResolvedValue([{ record_id: 'scope-1' }]),
+      loadLocalChannels: vi.fn().mockResolvedValue([{ record_id: 'channel-1' }]),
+    });
+
+    await expect(store.activateCachedWorkspace({ workspace, workspaceKey: workspace.workspaceKey }))
+      .resolves.toBe(true);
+
+    expect(store.startWorkspaceLiveQueries).toHaveBeenCalledTimes(1);
+    expect(store.loadLocalScopes).toHaveBeenCalledTimes(1);
+    expect(store.loadLocalChannels).toHaveBeenCalledWith({ syncRoute: false });
+    expect(store.ensureWorkspaceSessionKey).not.toHaveBeenCalled();
+  });
+
+  it('refuses mismatched partitions and rejects a cache load superseded by a workspace switch', async () => {
+    const db = await import('../src/db.js');
+    const workspace = {
+      workspaceKey: 'pg:cached', workspaceOwnerNpub: 'npub1owner',
+      workspaceServiceNpub: 'npub1workspace', workspaceId: 'workspace-1', pgBackendMode: true,
+    };
+    const other = { ...workspace, workspaceKey: 'pg:other', workspaceOwnerNpub: 'npub1other' };
+    let finishChannels;
+    const store = await buildStore({
+      knownWorkspaces: [workspace, other], selectedWorkspaceKey: workspace.workspaceKey,
+      currentWorkspaceOwnerNpub: workspace.workspaceOwnerNpub,
+      _workspaceSelectionGeneration: 1,
+      loadLocalScopes: vi.fn().mockResolvedValue([]),
+      loadLocalChannels: vi.fn(() => new Promise(resolve => { finishChannels = resolve; })),
+    });
+
+    db.isWorkspaceDbOpenForKey.mockReturnValueOnce(false);
+    await expect(store.activateCachedWorkspace({ workspace, workspaceKey: workspace.workspaceKey }))
+      .resolves.toBe(false);
+    expect(store.startWorkspaceLiveQueries).not.toHaveBeenCalled();
+
+    const activation = store.activateCachedWorkspace({ workspace, workspaceKey: workspace.workspaceKey });
+    await vi.waitFor(() => expect(store.loadLocalChannels).toHaveBeenCalledTimes(1));
+    store.selectedWorkspaceKey = other.workspaceKey;
+    store.currentWorkspaceOwnerNpub = other.workspaceOwnerNpub;
+    store._workspaceSelectionGeneration += 1;
+    finishChannels([]);
+    await expect(activation).resolves.toBe(false);
   });
 
   it('loads remote workspaces from Tower PG discovery in PG mode', async () => {

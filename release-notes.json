@@ -1921,6 +1921,13 @@
       "notes": [
         "Show new chat activity as unread after sync-protocol fallback, until you explicitly open the thread or mark it read."
       ]
+    },
+    {
+      "buildNumber": 2043,
+      "label": "Instant cached workspace startup",
+      "notes": [
+        "Show saved scopes and channels immediately after refresh while sign-in, access checks, and current workspace updates continue in the background."
+      ]
     }
   ]
 }
