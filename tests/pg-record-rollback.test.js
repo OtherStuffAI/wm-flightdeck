@@ -36,6 +36,11 @@ async function retained() {
   return { state: await db.sync_state.get(recordDeltaCursorKey(store)), canonical: await db.pg_record_rows.toArray(),
     local: await db.chat_messages.toArray(), pending: await db.pending_writes.toArray() };
 }
+function withLegacyFallbackActive(snapshot) {
+  return { ...snapshot, state: { key: recordDeltaCursorKey(store), value: {
+    ...(snapshot.state?.value || {}), cursor: snapshot.state?.value?.cursor || null, legacyFallbackActive: true,
+  } } };
+}
 
 describe('record protocol rollback', () => {
   for (const mode of ['first snapshot', 'partial snapshot', 'delta']) {
@@ -47,7 +52,7 @@ describe('record protocol rollback', () => {
       await syncTowerPgWorkspace(store, { forceSnapshot: true, cursor: 'must-not-reach-legacy' }, deps);
       expect(read.mock.calls[0][1].cursor).toBe(before.state?.value.cursor || null);
       expect(deps.getTowerPgWorkspaceSync.mock.calls[0][1].cursor).toBe('legacy-old');
-      expect(await retained()).toEqual(before);
+      expect(await retained()).toEqual(withLegacyFallbackActive(before));
       const resumePage = mode === 'partial snapshot'
         ? { ...fixture.canonical_upserts, next_cursor: 'v1-restored', has_more: false }
         : delta('v1-restored');
@@ -71,7 +76,7 @@ describe('record protocol rollback', () => {
     });
     const deps = ports(read);
     await syncTowerPgWorkspace(store, {}, deps);
-    expect(await retained()).toEqual(before);
+    expect(await retained()).toEqual(withLegacyFallbackActive(before));
     expect(read.mock.calls.map(([, options]) => options.cursor)).toEqual([null, 'v1-partial']);
     expect(deps.getTowerPgWorkspaceSync.mock.calls[0][1].cursor).toBe('legacy-old');
     read.mockResolvedValue({ ...fixture.canonical_upserts, next_cursor: 'snapshot-end', has_more: false });
@@ -142,7 +147,7 @@ describe('record protocol rollback', () => {
     const deps = ports(vi.fn().mockRejectedValue(unsupported(404)));
     await syncTowerPgWorkspace(store, { cursor: 'v1-delta' }, deps);
     expect(deps.getTowerPgWorkspaceSync.mock.calls[0][1].cursor).toBeNull();
-    expect(await retained()).toEqual(before);
+    expect(await retained()).toEqual(withLegacyFallbackActive(before));
   });
 
   it.each(['reset', 'advance'])('rejects delayed legacy fallback after a concurrent v1 %s', async action => {

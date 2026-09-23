@@ -1914,6 +1914,13 @@
       "label": "Validated Inbox unread cards",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2042,
+      "label": "Restore unread Inbox messages",
+      "notes": [
+        "Show new chat activity as unread after sync-protocol fallback, until you explicitly open the thread or mark it read."
+      ]
     }
   ]
 }

@@ -111,7 +111,8 @@ async function updateResourceAttention(db, resourceType, id, store, members) {
 
 export async function getPgAttentionProjection(store) {
   const db = getWorkspaceDb();
-  if (!(await db.sync_state.get(recordDeltaCursorKey(store)))) return null;
+  const authority = (await db.sync_state.get(recordDeltaCursorKey(store)))?.value;
+  if (!authority || authority.legacyFallbackActive === true) return null;
   const ids = [...new Set([
     ...(store.tasks || []).map(r => `task:${r.record_id}`),
     ...(store.messages || []).map(r => `thread:${r.pg_thread_id || r.record_id}`),
@@ -347,7 +348,7 @@ export async function applyPgRecordChanges(store, page, options = {}) {
       await refreshChannelSummaries(db, [...affectedChannels]);
     }
     if (options.beforeCommit) await options.beforeCommit();
-    const nextState = { ...state, viewBaselineInitialized: options.viewBaselineInitialized || state.viewBaselineInitialized || false, resetting: false, cursor: page.next_cursor, generation, snapshotId: page.mode === 'snapshot' ? page.snapshot_id : state.snapshotId,
+    const nextState = { ...state, viewBaselineInitialized: options.viewBaselineInitialized || state.viewBaselineInitialized || false, legacyFallbackActive: false, resetting: false, cursor: page.next_cursor, generation, snapshotId: page.mode === 'snapshot' ? page.snapshot_id : state.snapshotId,
       snapshotComplete: page.snapshot_complete || state.snapshotComplete || false, converged: page.mode === 'delta' && !page.has_more };
     if (!options.reconcileOnly) await db.sync_state.put({ key: cursorKey, value: nextState });
     return { applied, cursor: page.next_cursor, hasMore: page.has_more, fullSnapshot: page.mode === 'snapshot', protocolVersion: 1, needsSummaryBackfill: Boolean(state.snapshotComplete && !state.summariesRebuilt && page.mode === 'delta' && !page.has_more) };

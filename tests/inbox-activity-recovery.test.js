@@ -2,7 +2,8 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { liveQuery } from 'dexie';
 import fixture from './fixtures/flightdeck-record-delta-v1.json';
 import { openWorkspaceDb, getOwnerActivityWindow, getRecentChannelActivity, getActivityThreadAttention, upsertResourceViewState } from '../src/db.js';
-import { applyPgRecordChanges } from '../src/pg-record-delta.js';
+import { applyPgRecordChanges, getPgAttentionProjection, recordDeltaCursorKey } from '../src/pg-record-delta.js';
+import { unreadStoreMixin } from '../src/unread-store.js';
 import { chatMessageManagerMixin } from '../src/chat-message-manager.js';
 import { queryInboxSource, sectionLiveQueryMixin } from '../src/section-live-queries.js';
 import { buildAutopilotOverviewThreads, autopilotOverviewManagerMixin } from '../src/autopilot-overview-manager.js';
@@ -34,6 +35,31 @@ it.each(['all', 'chat'])('shows canonical numeric thread attention in %s Inbox w
     fileMessages: page.rows, messages: [], inboxUnreadThreads: page.unreadThreads,
     _unreadThreadItems: { [thread.id]: true } });
   expect(store.autopilotOverviewThreads.find(row => row.id === thread.id)?.isUnread).toBe(true);
+});
+
+it('uses fresh Tower view-state authority after record-delta rollback instead of an empty stale attention map', async () => {
+  const thread = fixture.canonical_upserts.changes.find(change => change.family === 'thread');
+  await db.pg_resource_attention.clear();
+  const authorityKey = recordDeltaCursorKey(transport);
+  const authority = (await db.sync_state.get(authorityKey)).value;
+  await db.sync_state.put({ key: authorityKey, value: { ...authority, legacyFallbackActive: true } });
+  expect(await getPgAttentionProjection(transport)).toBeNull();
+
+  const towerStates = [{ resource_type: 'thread', resource_id: thread.id, channel_id: thread.row.channel_id,
+    activity_version: 2, viewed_activity_version: 1 }];
+  const store = { ...transport, isTowerPgMode: true, _recordDeltaAttentionActive: true,
+    _unreadThreadItems: {}, _unreadTaskItems: {}, _unreadDocItems: {}, _unreadChannels: {},
+    applyPgAttentionProjection: unreadStoreMixin.applyPgAttentionProjection,
+    applyTowerPgResourceViewStates: unreadStoreMixin.applyTowerPgResourceViewStates };
+  store.applyPgAttentionProjection(await getPgAttentionProjection(store));
+  expect(store._recordDeltaAttentionActive).toBe(false);
+  store.applyTowerPgResourceViewStates(towerStates);
+  expect(store._unreadThreadItems).toEqual({ [thread.id]: true });
+
+  const page = await queryInboxSource(input('chat'), owner, 'chat_messages');
+  const cards = buildAutopilotOverviewThreads({ channels: await db.channels.toArray(), messages: page.rows,
+    resourceViewStateMode: true, unreadThreadMap: store._unreadThreadItems });
+  expect(cards.find(row => row.id === thread.id)?.isUnread).toBe(true);
 });
 
 it('keeps root/reply attention live through reading, later activity, partial refresh, reload and scoped paging', async () => {

@@ -1680,6 +1680,14 @@ export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
         || (authority?.cursor || null) !== fallbackAuthority.expectedCursor) {
         throw new Error('Record-delta authority changed before legacy fallback commit');
       }
+      // Preserve the resumable v1 cursor, but do not let its now-stale
+      // pg_resource_attention rows suppress the resource-view-state authority
+      // while this Tower is serving the legacy workspace sync contract.
+      await (deps.setSyncState || setSyncState)(fallbackCursorKey, {
+        ...authority,
+        cursor: authority?.cursor || null,
+        legacyFallbackActive: true,
+      });
     }
     const previousManifest = pagedSnapshot
       ? (await (deps.getSyncState || getSyncState)(snapshotManifestKey) || {})
