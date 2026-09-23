@@ -272,13 +272,21 @@ describe('Thread mobile responsive behavior', () => {
       expect(html).toContain('class="chat-input-actions"');
     });
 
-    it('clips horizontal composer overflow without disabling vertical autosizing', async () => {
+    it('clips horizontal overflow and keeps desktop resizing separate from the mobile height cap', async () => {
       const css = await loadStylesheet();
       const composerDecl = css.match(/\.chat-input\s*\{([^}]*)\}/)?.[1] || '';
+      const mobileBlock = findMediaBlock(css, 768);
+      const mobileChatComposerDecl = extractDeclarations(mobileBlock, '.chat-input-bar .chat-input');
+      const mobileThreadComposerDecl = extractDeclarations(mobileBlock, '.thread-input-bar .chat-input');
 
       expect(composerDecl).toMatch(/overflow-x\s*:\s*hidden/);
       expect(composerDecl).toMatch(/overflow-y\s*:\s*hidden/);
-      expect(composerDecl).toMatch(/max-height\s*:\s*calc\(\(5 \* 1\.4em\) \+ 1\.2rem \+ 2px\)/);
+      expect(composerDecl).toMatch(/resize\s*:\s*vertical/);
+      expect(composerDecl).toMatch(/max-height\s*:\s*min\(50vh,\s*32rem\)/);
+      for (const declaration of [mobileChatComposerDecl, mobileThreadComposerDecl]) {
+        expect(declaration).toMatch(/resize\s*:\s*none/);
+        expect(declaration).toMatch(/max-height\s*:\s*calc\(\(5 \* 1\.4em\) \+ 1\.2rem \+ 2px\)/);
+      }
     });
 
     it('clips horizontal overflow on channel and thread message scrollports', async () => {

@@ -1238,7 +1238,7 @@ describe('scroll and composer methods', () => {
     }
   });
 
-  it.each(['task-comment', 'doc-comment', 'doc-reply'])(
+  it.each(['message', 'thread', 'task-comment', 'doc-comment', 'doc-reply'])(
     'autosizeComposer preserves a manually enlarged %s composer after input',
     (composer) => {
       const { fn } = bindMethod('autosizeComposer');
@@ -1267,6 +1267,38 @@ describe('scroll and composer methods', () => {
         expect(element.style.height).toBe('240px');
         expect(element.style.overflowY).toBe('hidden');
         expect(element.scrollTop).toBe(52);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
+  it.each(['message', 'thread'])(
+    'autosizeComposer resets a manually enlarged %s composer after send',
+    (composer) => {
+      const { fn } = bindMethod('autosizeComposer');
+      const element = {
+        dataset: { chatComposer: composer },
+        scrollHeight: 42,
+        style: { height: '240px', overflowY: 'auto' },
+      };
+
+      vi.stubGlobal('window', {
+        getComputedStyle: () => ({
+          height: '42px',
+          lineHeight: '20px',
+          paddingTop: '8px',
+          paddingBottom: '8px',
+          borderTopWidth: '1px',
+          borderBottomWidth: '1px',
+          minHeight: '38px',
+        }),
+      });
+
+      try {
+        fn(element, { resetManualSize: true });
+        expect(element.style.height).toBe('42px');
+        expect(element.style.overflowY).toBe('hidden');
       } finally {
         vi.unstubAllGlobals();
       }

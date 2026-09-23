@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 
 const appSource = readFileSync(resolve('src/app.js'), 'utf8');
 const indexSource = readFileSync(resolve('index.html'), 'utf8');
+const stylesSource = readFileSync(resolve('src/styles.css'), 'utf8');
 
 describe('chat file drop upload', () => {
   it('wires file drops on both chat composers', () => {
@@ -51,5 +52,12 @@ describe('chat file drop upload', () => {
     expect(indexSource).toContain('$store.chat.composerSendPending.thread ? \'Sending…\' : \'Reply\'');
     expect(indexSource).toContain(':aria-busy="$store.chat.composerSendPending.message.toString()"');
     expect(indexSource).toContain(':aria-busy="($store.chat.deckThreadComposerBusy || $store.chat.composerSendPending.thread).toString()"');
+  });
+
+  it('offers vertical-only desktop resizing while retaining the fixed mobile composer layout', () => {
+    expect(stylesSource).toMatch(/\.chat-input\s*\{[\s\S]*?resize:\s*vertical;/);
+    expect(stylesSource).not.toMatch(/\.chat-input\s*\{[\s\S]*?resize:\s*both;/);
+    expect(stylesSource).toMatch(/@media[^\{]*max-width:\s*768px[\s\S]*?\.chat-input-bar \.chat-input\s*\{[\s\S]*?resize:\s*none;/);
+    expect(stylesSource).toMatch(/@media[^\{]*max-width:\s*768px[\s\S]*?\.thread-input-bar \.chat-input\s*\{[\s\S]*?resize:\s*none;/);
   });
 });

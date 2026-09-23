@@ -9660,11 +9660,11 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 16px;
-  resize: none;
+  resize: vertical;
   outline: none;
   line-height: 1.4;
   min-height: calc((2 * 1.4em) + 1.2rem + 2px);
-  max-height: calc((5 * 1.4em) + 1.2rem + 2px);
+  max-height: min(50vh, 32rem);
   overflow-x: hidden;
   overflow-y: hidden;
   background: var(--surface);
@@ -16240,6 +16240,8 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     min-width: 0;
     min-height: calc((2 * 1.4em) + 1.2rem + 2px);
     width: auto;
+    max-height: calc((5 * 1.4em) + 1.2rem + 2px);
+    resize: none;
   }
 
   .thread-input-bar {
@@ -16268,6 +16270,8 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     min-width: 0;
     min-height: calc((2 * 1.4em) + 1.2rem + 2px);
     width: auto;
+    max-height: calc((5 * 1.4em) + 1.2rem + 2px);
+    resize: none;
   }
 
   .docs-layout,

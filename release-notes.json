@@ -1894,6 +1894,20 @@
       "label": "Durable Agent Direct activation checkpoint",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2038,
+      "label": "Resizable chat composers",
+      "notes": [
+        "Drag the bottom edge of desktop channel and thread composers to make longer messages easier to review before sending."
+      ]
+    },
+    {
+      "buildNumber": 2039,
+      "label": "Reliable Inbox unread cards",
+      "notes": [
+        "Keep new chat replies highlighted in Inbox until you open the thread or mark it read, even while an older local attention snapshot is refreshing."
+      ]
     }
   ]
 }

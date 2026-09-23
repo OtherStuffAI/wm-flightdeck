@@ -896,6 +896,10 @@ export const chatMessageManagerMixin = {
 
   autosizeComposer(textarea, options = {}) {
     if (!textarea || typeof window === 'undefined') return;
+    if (options.resetManualSize === true) {
+      textarea.style.height = 'auto';
+      textarea.style.overflowY = 'hidden';
+    }
     const viewportWidth = Number(window.innerWidth) || 0;
     let metrics = composerAutosizeMetrics.get(textarea);
     if (!metrics || metrics.viewportWidth !== viewportWidth || options.refreshMetrics === true) {
@@ -914,7 +918,8 @@ export const chatMessageManagerMixin = {
     const { minHeight, maxHeight } = metrics;
 
     const composer = String(textarea.dataset?.chatComposer || '').trim();
-    const preservesManualSize = ['task-comment', 'doc-comment', 'doc-reply'].includes(composer);
+    const preservesManualSize = ['message', 'thread', 'task-comment', 'doc-comment', 'doc-reply'].includes(composer)
+      && options.resetManualSize !== true;
     if (preservesManualSize) {
       const scrollTop = textarea.scrollTop;
       const renderedHeight = textarea.getBoundingClientRect?.().height
@@ -958,12 +963,12 @@ export const chatMessageManagerMixin = {
     composerAutosizeFrames.set(element, { frame, options: autosizeOptions });
   },
 
-  scheduleComposerAutosize(context) {
+  scheduleComposerAutosize(context, options = {}) {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
     scheduleUiNextTick(() => {
       const textarea = document.querySelector(`[data-chat-composer="${context}"]`);
       if (!textarea) return;
-      this.scheduleComposerElementAutosize(textarea);
+      this.scheduleComposerElementAutosize(textarea, options);
     });
   },
 
@@ -2348,7 +2353,7 @@ export const chatMessageManagerMixin = {
       if (typeof this.clearChatFileDrafts === 'function') this.clearChatFileDrafts(composer);
       else if (isThreadCreate) this.threadFileDrafts = [];
       else this.messageFileDrafts = [];
-      this.scheduleComposerAutosize(composer);
+      this.scheduleComposerAutosize(composer, { resetManualSize: true });
       this.clearCurrentChatComposerDraft(composer);
     };
     if (!isThreadCreate || !pgMode) clearComposer();
@@ -2602,7 +2607,7 @@ export const chatMessageManagerMixin = {
       this.threadAudioDrafts = [];
       if (typeof this.clearChatFileDrafts === 'function') this.clearChatFileDrafts('thread');
       else this.threadFileDrafts = [];
-      this.scheduleComposerAutosize('thread');
+      this.scheduleComposerAutosize('thread', { resetManualSize: true });
       this.clearCurrentChatComposerDraft('thread');
     }
 
