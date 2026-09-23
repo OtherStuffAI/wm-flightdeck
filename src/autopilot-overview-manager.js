@@ -36,6 +36,16 @@ function normalizeString(value) {
   return String(value || '').trim();
 }
 
+function mergeUnreadMaps(...maps) {
+  const unread = {};
+  for (const map of maps) {
+    for (const [recordId, value] of Object.entries(map || {})) {
+      if (value === true) unread[recordId] = true;
+    }
+  }
+  return unread;
+}
+
 function memoizedProjection(store, key, references, build) {
   let cache = overviewProjectionCache.get(store);
   if (!cache) {
@@ -1582,7 +1592,7 @@ export const autopilotOverviewManagerMixin = {
       getSenderName: this.getSenderName?.bind?.(this),
       sessionNpub,
       unreadChannelMap: this._unreadChannels || {},
-      unreadThreadMap: { ...this._unreadThreadItems, ...this.inboxUnreadThreads },
+      unreadThreadMap: mergeUnreadMaps(this._unreadThreadItems, this.inboxUnreadThreads),
       resourceViewStateMode: Boolean(this.isTowerPgMode),
     }));
   },
@@ -1607,7 +1617,7 @@ export const autopilotOverviewManagerMixin = {
       getSenderName: this.getSenderName?.bind?.(this),
       sessionNpub,
       unreadChannelMap: this._unreadChannels || {},
-      unreadThreadMap: { ...this._unreadThreadItems, ...this.recentChannelUnreadThreads },
+      unreadThreadMap: mergeUnreadMaps(this._unreadThreadItems, this.recentChannelUnreadThreads),
       resourceViewStateMode: Boolean(this.isTowerPgMode),
     })));
   },

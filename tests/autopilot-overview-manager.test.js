@@ -571,6 +571,34 @@ describe('autopilot overview manager', () => {
     expect(getter('autopilotOverviewInbox').filter((item) => item.isUnread)).toEqual([]);
   });
 
+  it('keeps fresh external thread cards unread when page attention is stale until an explicit read clears them', () => {
+    const store = {
+      channels: [{ record_id: 'lvlup', title: 'LvlUp', scope_id: 'scope-1' }],
+      messages: [
+        { record_id: 'message-review', pg_thread_id: 'thread-review', channel_id: 'lvlup',
+          body: 'We should be reviewing all screens', updated_at: '2026-09-23T01:13:52.434Z' },
+        { record_id: 'message-group', pg_thread_id: 'thread-group', channel_id: 'lvlup',
+          body: 'Coordinating a Group', updated_at: '2026-09-23T01:11:50.701Z' },
+        { record_id: 'message-own', pg_thread_id: 'thread-own', channel_id: 'lvlup',
+          body: 'Viewer-authored activity', updated_at: '2026-09-23T01:10:00.000Z' },
+      ],
+      fileMessages: [], scopesMap: null, session: {}, signingNpub: '', isTowerPgMode: true,
+      autopilotOverviewContext: { scopeId: 'all', channelId: 'all' },
+      _unreadChannels: {},
+      _unreadThreadItems: { 'thread-review': true, 'thread-group': true },
+      // The Inbox page query can observe an older pg_resource_attention row.
+      // A false page value must not erase the authoritative unread watermark.
+      inboxUnreadThreads: { 'thread-review': false, 'thread-group': false, 'thread-own': false },
+    };
+    const getter = () => Object.getOwnPropertyDescriptor(autopilotOverviewManagerMixin, 'autopilotOverviewThreads').get.call(store);
+
+    expect(getter().filter((thread) => thread.isUnread).map((thread) => thread.id).sort())
+      .toEqual(['thread-group', 'thread-review']);
+
+    store._unreadThreadItems = {};
+    expect(getter().filter((thread) => thread.isUnread)).toEqual([]);
+  });
+
   it('does not colour Inbox cards from aggregate-only unread state', () => {
     const store = {
       channels: [{ record_id: 'chan-1', title: 'Inbox', scope_id: 'scope-1' }],
