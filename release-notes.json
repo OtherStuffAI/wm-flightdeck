@@ -1908,6 +1908,12 @@
       "notes": [
         "Keep new chat replies highlighted in Inbox until you open the thread or mark it read, even while an older local attention snapshot is refreshing."
       ]
+    },
+    {
+      "buildNumber": 2041,
+      "label": "Validated Inbox unread cards",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
