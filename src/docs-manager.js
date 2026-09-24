@@ -92,6 +92,7 @@ import { mapPgDocToLocal, resolveTowerPgWorkspaceContext } from './pg-read-hydra
 import { getPgChannelScopeId } from './pg-record-context.js';
 import {
   acquirePgEditLeaseForRecord,
+  clearPgEditLeaseSession,
   getPgEditLeaseSession,
   inspectPgEditLeaseForRecord,
   isOnlineForPgEdit,
@@ -1720,20 +1721,38 @@ export const docsManagerMixin = {
   async discardSelectedDocDraft() {
     const item = this.selectedDocument;
     if (!item) return false;
-    const editorState = createDocumentEditorState(item);
-    this.docRichEditorAdapter?.setContent?.(editorState.editorState, { emitUpdate: false });
-    this.docEditorContent = item.content || '';
-    this.docEditorBlocks = normalizeDocumentBlocks(item.content_blocks, item.content);
-    this.docEditorProseMirrorState = editorState.editorState;
-    this.docEditorContentModel = editorState.contentModel;
-    this.docEditDraftDirty = false;
-    this.docEditConflict = null;
-    this.setSelectedDocBaseIdentity(documentEditorBaseIdentity(item));
+    this.cancelDocAutosave();
+    this.cancelDocLocalDraftPersistence();
+    try {
+      const deleted = await this.clearSelectedDocDraft(item);
+      if (!deleted) throw new Error('local recovery storage is unavailable');
+    } catch (error) {
+      this.docEditAccessMessage = `Local draft could not be discarded: ${error?.message || error}`;
+      return false;
+    }
+    if (this.selectedDocId !== item.record_id) return false;
+
+    let authoritative = item;
+    if (isTowerPgBackendMode() && isSyncedPgRecord(item)) {
+      authoritative = await this.hydrateSelectedDocWithRetry(item.record_id, { delays: [0] }) || this.selectedDocument || item;
+    }
+    if (this.selectedDocId !== item.record_id) return false;
+
+    this.applySelectedDocAuthoritativeContent(authoritative, { preserveSelection: false });
+    this.docLocalDraft = null;
     this.docEditAccessState = 'ready';
     this.docEditAccessMessage = '';
-    this.docRecovery = null;
-    await this.clearSelectedDocDraft(item);
-    this.cancelDocAutosave();
+
+    if (isTowerPgBackendMode() && isSyncedPgRecord(authoritative)) {
+      clearPgEditLeaseSession(this, 'document', item.record_id);
+      const session = await this.inspectSelectedDocEditLease(authoritative);
+      if (this.selectedDocId !== item.record_id) return false;
+      if (session?.inspectedLease) {
+        this.docEditAccessState = 'blocked';
+        // Let the derived status render the freshly inspected owner and expiry.
+        this.docEditAccessMessage = '';
+      }
+    }
     this.docRichEditorAdapter?.setEditable?.(this.isSelectedDocRichEditorEditable());
     return true;
   },

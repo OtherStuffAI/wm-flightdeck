@@ -2104,6 +2104,87 @@ describe('docsManagerMixin durable recovery drafts', () => {
     updateTowerPgDocMock.mockReset();
   });
 
+  it('deletes a blocked local draft before refreshing the canonical document and current lease', async () => {
+    const draftModel = richDocContentModel('Unsaved local words');
+    const { adapter, record, store } = createSyncedPgDocSaveStore({ currentModel: draftModel });
+    store.docEditAccessState = 'blocked';
+    store.docEditAccessMessage = 'Draft preserved — the edit lease expired.';
+    store.docEditConflict = { baseVersion: 42, currentVersion: 43 };
+    store.docRecovery = { id: 'stale-local-recovery' };
+    store.docLocalDraft = await upsertDocumentDraft({
+      workspace_id: 'workspace-1',
+      document_id: record.record_id,
+      content: draftModel.content,
+      draft_status: 'dirty',
+    });
+    const authoritative = { ...record, content: 'Fresh Tower body', version: 44 };
+    store.hydrateSelectedDocWithRetry = vi.fn(async () => authoritative);
+    getTowerPgEditLeaseMock.mockResolvedValueOnce({
+      lease: {
+        id: 'lease-other',
+        holder_actor_npub: 'npub1other',
+        holder_display_name: 'Other editor',
+        expires_at: '2026-09-24T02:00:00.000Z',
+      },
+    });
+
+    await expect(store.discardSelectedDocDraft()).resolves.toBe(true);
+
+    expect(await getDocumentDraft('workspace-1', record.record_id)).toBeUndefined();
+    expect(store.hydrateSelectedDocWithRetry).toHaveBeenCalledWith(record.record_id, { delays: [0] });
+    expect(adapter.setContent).toHaveBeenCalledWith(expect.objectContaining({ type: 'doc' }), {
+      emitUpdate: false,
+      preserveSelection: false,
+    });
+    expect(store.docEditDraftDirty).toBe(false);
+    expect(store.docEditConflict).toBeNull();
+    expect(store.docRecovery).toBeNull();
+    expect(store.docLocalDraft).toBeNull();
+    expect(store.docEditAccessState).toBe('blocked');
+    expect(store.docEditAccessMessage).toBe('');
+    expect(store.docEditLeaseInfo).toMatchObject({
+      holder_actor_npub: 'npub1other',
+      expires_at: '2026-09-24T02:00:00.000Z',
+    });
+    expect(acquireTowerPgEditLeaseMock).not.toHaveBeenCalled();
+  });
+
+  it('keeps the recovery warning and dirty state when local draft deletion cannot be confirmed', async () => {
+    const { record, store } = createSyncedPgDocSaveStore();
+    store.getSelectedDocWorkspaceId = vi.fn(() => '');
+    store.docEditAccessState = 'blocked';
+    store.docEditAccessMessage = 'Draft preserved — edit access unavailable';
+
+    await expect(store.discardSelectedDocDraft()).resolves.toBe(false);
+
+    expect(store.docEditDraftDirty).toBe(true);
+    expect(store.docEditAccessState).toBe('blocked');
+    expect(store.docEditAccessMessage).toContain('Local draft could not be discarded');
+    expect(record.content).toBe('Original body');
+  });
+
+  it('returns a discarded draft to explicit edit-ready state when the refreshed lease is free', async () => {
+    const { record, store } = createSyncedPgDocSaveStore();
+    store.docEditAccessState = 'blocked';
+    store.docEditAccessMessage = 'Draft preserved — edit access unavailable';
+    await upsertDocumentDraft({
+      workspace_id: 'workspace-1',
+      document_id: record.record_id,
+      content: 'Discard me',
+      draft_status: 'dirty',
+    });
+    store.hydrateSelectedDocWithRetry = vi.fn(async () => record);
+    getTowerPgEditLeaseMock.mockResolvedValueOnce({ lease: null });
+
+    await expect(store.discardSelectedDocDraft()).resolves.toBe(true);
+
+    expect(store.docEditAccessState).toBe('ready');
+    expect(store.docEditAccessMessage).toBe('');
+    expect(store.docEditLeaseInfo).toBeNull();
+    expect(store.docRichEditorAdapter.setEditable).toHaveBeenLastCalledWith(true);
+    expect(acquireTowerPgEditLeaseMock).not.toHaveBeenCalled();
+  });
+
   it('persists a one-word edit locally first and remotely autosaves only after fifteen seconds', async () => {
     const edited = richDocContentModel('Original body changed');
     const { store } = createSyncedPgDocSaveStore({ currentModel: edited });

@@ -10,6 +10,7 @@ async function seedSelectedDocument(page, options = {}) {
 
     const store = window.Alpine?.store?.('chat');
     if (!store) throw new Error('Alpine chat store did not initialize.');
+    store.showConnectModal = false;
 
     const now = new Date().toISOString();
     const document = {
@@ -158,6 +159,83 @@ test('page lifecycle cleanup checkpoints a dirty document and schedules lease re
     ['draft', { immediate: true }],
     ['release', 'doc-rich-default'],
   ]);
+});
+
+test('discarding an expired-lease draft clears recovery UI and refreshes current read-only ownership', async ({ page }) => {
+  await page.goto('/');
+  await page.keyboard.press('Escape');
+  await seedSelectedDocument(page, { enterEdit: false });
+  await expect(page.locator('.doc-rich-editor .ProseMirror')).toBeVisible();
+
+  await page.evaluate(async () => {
+    const store = window.Alpine.store('chat');
+    const authoritative = {
+      ...store.selectedDocument,
+      pg_backend: true,
+      pg_workspace_id: 'workspace-doc-discard',
+      content: 'Authoritative Tower body',
+      version: 2,
+    };
+    store.documents = [authoritative];
+    store.docRichEditorAdapter.setContent({
+      type: 'doc',
+      content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Unsent local draft' }] }],
+    }, { emitUpdate: false });
+    store.docEditDraftDirty = true;
+    store.docEditAccessState = 'blocked';
+    store.docEditAccessMessage = 'Another actor is editing this Tower PG record. View mode until the lease is available.';
+    store.docEditConflict = { baseVersion: 1, currentVersion: 2 };
+    await store.persistSelectedDocDraft({ immediate: true });
+    store.hydrateSelectedDocWithRetry = async () => authoritative;
+    store.inspectSelectedDocEditLease = async () => {
+      const lease = {
+        id: 'lease-other',
+        holder_actor_npub: 'npub1othereditor',
+        holder_display_name: 'Other editor',
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      };
+      store.docEditLeaseInfo = lease;
+      return { inspectionState: 'ready', inspectedLease: lease };
+    };
+    store.__retryCalls = 0;
+    store.beginSelectedDocLeaseAcquisition = async () => {
+      store.__retryCalls += 1;
+      return false;
+    };
+  });
+
+  await expect(page.locator('.doc-edit-status')).toContainText('Draft preserved');
+  await expect(page.getByRole('button', { name: 'Discard local draft' })).toBeVisible();
+  await page.getByRole('button', { name: 'Discard local draft' }).click();
+
+  await expect(page.getByRole('button', { name: 'Discard local draft' })).toBeHidden();
+  await expect(page.locator('.doc-edit-status')).toContainText('Being edited by Other editor');
+  await expect(page.locator('.doc-edit-status')).not.toContainText('Draft preserved');
+  await expect(page.locator('.doc-edit-access-banner')).toContainText('Being edited by Other editor');
+  await expect(page.locator('.doc-rich-editor .ProseMirror')).toContainText('Authoritative Tower body');
+  await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
+
+  const state = await page.evaluate(async () => {
+    const store = window.Alpine.store('chat');
+    const { getDocumentDraft } = await import('/src/db.js');
+    return {
+      draft: await getDocumentDraft('workspace-doc-discard', store.selectedDocId),
+      dirty: store.docEditDraftDirty,
+      conflict: store.docEditConflict,
+      recovery: store.docRecovery,
+      accessState: store.docEditAccessState,
+    };
+  });
+  expect(state).toEqual({
+    draft: undefined,
+    dirty: false,
+    conflict: null,
+    recovery: null,
+    accessState: 'blocked',
+  });
+
+  await page.getByRole('button', { name: 'Retry' }).click();
+  await expect.poll(() => page.evaluate(() => window.Alpine.store('chat').__retryCalls)).toBe(1);
 });
 
 test('short rich timeline preserves whitespace and list structure through browser reopen', async ({ page }) => {
