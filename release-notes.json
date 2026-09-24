@@ -2036,6 +2036,13 @@
       "notes": [
         "Use clear icons for the mobile bottom navigation and keep every section on one horizontal row, with scrolling available on especially narrow screens."
       ]
+    },
+    {
+      "buildNumber": 2072,
+      "label": "Reliable reconnect indicator",
+      "notes": [
+        "Keep the active space online after successful sync when a previously failed message retry or background operation still needs attention."
+      ]
     }
   ]
 }

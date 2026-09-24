@@ -248,6 +248,18 @@ export const syncManagerMixin = {
     return true;
   },
 
+  markTowerReachabilityOperationFailed(reason = 'tower-operation-failed') {
+    if (!isTowerPgBackendMode()) return false;
+    if (isBrowserOffline()) {
+      return this.markTowerReachabilityDegraded('browser-offline', 'offline');
+    }
+    // A rejected command, failed materialisation, or local retry error is not
+    // evidence that the live transport is reconnecting. The SSE lifecycle is
+    // authoritative while its current stream is connected.
+    if (this.sseStatus === 'connected') return false;
+    return this.markTowerReachabilityDegraded(reason, 'reconnecting');
+  },
+
   markTowerReachabilityRecovered(reason = 'transport-recovered', options = {}) {
     if (!isTowerPgBackendMode()) return false;
     if (isBrowserOffline()) {
@@ -309,7 +321,7 @@ export const syncManagerMixin = {
             failed: 0,
             error: error?.message || String(error),
           };
-          this.markTowerReachabilityDegraded('offline-message-resync-failed', 'reconnecting');
+          this.markTowerReachabilityOperationFailed('offline-message-resync-failed');
         }
       });
     }, delayMs);
@@ -3298,7 +3310,7 @@ export const syncManagerMixin = {
         error: error?.message || String(error),
         nextRetryMs: this.syncBackoffMs,
       });
-      this.markTowerReachabilityDegraded?.('background-sync-failed', 'reconnecting');
+      this.markTowerReachabilityOperationFailed?.('background-sync-failed');
     } finally {
       if (this.sseStatus === 'fallback-polling') {
         flightDeckTrace('message-timing', 'fallback tick completed', {

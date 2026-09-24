@@ -2031,7 +2031,7 @@ describe('sendMessage', () => {
     await clearRuntimeData();
     isTowerPgBackendMode.mockReturnValue(true);
     createTowerPgMessageFromLocal.mockRejectedValue(new Error('Tower rejected message'));
-    const markTowerReachabilityDegraded = vi.fn();
+    const markTowerReachabilityOperationFailed = vi.fn();
 
     try {
       const { fn, store } = bindMethod('sendMessage', {
@@ -2039,12 +2039,12 @@ describe('sendMessage', () => {
         selectedChannelId: 'ch1',
         channels: [{ record_id: 'ch1', owner_npub: 'npub1owner', group_ids: [] }],
         messageInput: 'will fail',
-        markTowerReachabilityDegraded,
+        markTowerReachabilityOperationFailed,
       });
 
       expect(await fn()).toBe(false);
       expect(store.error).toBe('Tower rejected message');
-      expect(markTowerReachabilityDegraded).toHaveBeenCalledWith('chat-message-send-failed', 'reconnecting');
+      expect(markTowerReachabilityOperationFailed).toHaveBeenCalledWith('chat-message-send-failed');
       expect(await getMessagesByChannel('ch1')).toEqual([
         expect.objectContaining({ body: 'will fail', sync_status: 'failed' }),
       ]);

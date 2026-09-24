@@ -663,6 +663,55 @@ describe('handleSSEStatus', () => {
     }
   });
 
+  it('keeps the recovered current connection online when its delayed failed-message retry errors', async () => {
+    vi.useFakeTimers();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const retryUnsyncedOutgoingMessages = vi.fn(function retryFailedMessage() {
+      this.markTowerReachabilityOperationFailed('chat-message-send-failed');
+      return Promise.resolve({ attempted: 1, sent: 0, failed: 1 });
+    });
+    const store = createStore({
+      session: { npub: 'npub1viewer' },
+      backendUrl: 'https://tower.example.com',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceDbKey: 'workspace-current',
+      currentWorkspace: { workspaceId: 'current-space' },
+      isEncryptedRecordSyncDisabled: true,
+      isLoggedIn: true,
+      sseStatus: 'connected',
+      retryUnsyncedOutgoingMessages,
+    });
+
+    try {
+      store.markTowerReachabilityDegraded('sse-reconnecting', 'reconnecting');
+      expect(store.markTowerReachabilityRecovered('full-sync-success', { delayMs: 25 })).toBe(true);
+      expect(store.towerConnectionIndicatorLabel).toBe('');
+
+      await vi.advanceTimersByTimeAsync(25);
+      await vi.runOnlyPendingTimersAsync();
+      await flushMicrotasks();
+
+      expect(retryUnsyncedOutgoingMessages).toHaveBeenCalledTimes(1);
+      expect(store.offlineMessageLastResult).toEqual({ attempted: 1, sent: 0, failed: 1 });
+      expect(store.sseStatus).toBe('connected');
+      expect(store.towerReachabilityState).toBe('online');
+      expect(store.towerReachabilityReason).toBe('full-sync-success');
+      expect(store.towerConnectionIndicatorLabel).toBe('');
+    } finally {
+      store.cancelScheduledOfflineMessageResync();
+      vi.useRealTimers();
+    }
+  });
+
+  it('still marks command failure as reconnecting when the current stream is disconnected', () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    const store = createStore({ sseStatus: 'disconnected' });
+
+    expect(store.markTowerReachabilityOperationFailed('chat-message-send-failed')).toBe(true);
+    expect(store.towerReachabilityState).toBe('reconnecting');
+    expect(store.towerReachabilityReason).toBe('chat-message-send-failed');
+  });
+
   it('signs the exact legacy semantic URL requested by the worker', async () => {
     const store = createStore({
       session: { npub: 'npub1viewer' },
