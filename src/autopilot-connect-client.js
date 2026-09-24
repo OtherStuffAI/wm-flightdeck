@@ -17,6 +17,7 @@ export class AutopilotConnectError extends Error {
     this.name = 'AutopilotConnectError';
     this.code = code;
     if (options.status != null) this.status = options.status;
+    if (options.correlationId) this.correlationId = options.correlationId;
   }
 }
 
@@ -26,6 +27,20 @@ function fail(code, message, options) {
 
 function text(value) {
   return String(value ?? '').trim();
+}
+
+function correlationId() {
+  return globalThis.crypto?.randomUUID?.() || `connect-${Date.now().toString(36)}`;
+}
+
+function diagnose(stage, id, fields = {}) {
+  console.info('[agent-connect]', JSON.stringify({ component: 'flightdeck_agent_connect', stage, correlationId: id, ...fields }));
+}
+
+function nativePublicError(error) {
+  const message = text(error?.message);
+  const match = /^([a-z][a-z0-9_]{2,48}): ([^\r\n]{1,280})$/.exec(message);
+  return match ? { code: match[1], message: match[2] } : null;
 }
 
 function plainObject(value) {
@@ -76,7 +91,7 @@ function exactFipsOrigin(value) {
   try { endpoint = new URL(text(value)); } catch { fail('endpoint_invalid', 'The package FIPS endpoint is not a valid URL.'); }
   if (endpoint.protocol !== 'http:' || !endpoint.hostname.endsWith('.fips') || !endpoint.port
     || endpoint.username || endpoint.password || endpoint.pathname !== '/' || endpoint.search || endpoint.hash) {
-    fail('endpoint_invalid', 'The package must advertise one exact http://<installation-npub>.fips:<port> endpoint.');
+    fail('endpoint_invalid', 'The package must advertise one exact http://<transport-npub>.fips:<port> endpoint.');
   }
   const endpointNpub = endpoint.hostname.slice(0, -'.fips'.length);
   decodeNpub(endpointNpub, 'FIPS endpoint identity');
@@ -129,6 +144,8 @@ export function autopilotConnectManifestContent(manifest) {
 }
 
 export function verifyAutopilotConnectPackage(input, { now = new Date(), maxAgeSeconds = AUTOPILOT_CONNECT_MAX_AGE_SECONDS } = {}) {
+  const requestId = correlationId();
+  diagnose('package_validation_started', requestId);
   const envelope = parseInput(input);
   assertNoSecrets(envelope);
   const manifest = envelope.manifest;
@@ -180,7 +197,8 @@ export function verifyAutopilotConnectPackage(input, { now = new Date(), maxAgeS
     fail('api_version_unsupported', `Autopilot discovery API version ${String(manifest.api?.version)} is not supported; expected version 1.`);
   }
 
-  return Object.freeze({
+  const verified = Object.freeze({
+    correlationId: requestId,
     kind: manifest.kind,
     version: manifest.version,
     generatedAt: text(manifest.generated_at) || null,
@@ -194,6 +212,12 @@ export function verifyAutopilotConnectPackage(input, { now = new Date(), maxAgeS
     healthPath: exactPath(manifest.api.health_path, 'Health route'),
     agentsPath: exactPath(manifest.api.agents_path, 'Agent discovery route'),
   });
+  diagnose('package_validation_succeeded', requestId, {
+    version: verified.version,
+    endpointHost: new URL(verified.fipsEndpoint).hostname,
+    endpointPort: new URL(verified.fipsEndpoint).port,
+  });
+  return verified;
 }
 
 function mapResponseFailure(response, operation) {
@@ -240,22 +264,36 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
     fail('fips_unavailable', 'Native FIPS transport is unavailable. Open Flight Deck in a supported, unlocked Wingman app.');
   }
   let connected = false;
+  const requestId = verifiedPackage.correlationId || correlationId();
   const advertisedPaths = new Set([verifiedPackage.healthPath, verifiedPackage.agentsPath]);
 
   async function connect() {
     let descriptor;
+    diagnose('native_connect_invoked', requestId);
     try {
       descriptor = await bridge.connect({
         endpoint: verifiedPackage.fipsEndpoint,
-        serviceNpub: verifiedPackage.installationNpub,
+        serviceNpub: verifiedPackage.transportNpub,
+        installationNpub: verifiedPackage.installationNpub,
+        correlationId: requestId,
       });
     }
-    catch (error) { fail('fips_connection_failed', 'Could not connect to the signed Autopilot FIPS endpoint.', { cause: error }); }
+    catch (error) {
+      const nativeError = nativePublicError(error);
+      diagnose('native_connect_failed', requestId, {
+        publicCode: nativeError?.code || 'fips_connection_failed',
+      });
+      if (nativeError) {
+        fail(nativeError.code, nativeError.message, { cause: error, correlationId: requestId });
+      }
+      fail('fips_connection_failed', 'Could not connect to the signed Autopilot FIPS endpoint. Open WMapp Setup and check FIPS diagnostics.', { cause: error, correlationId: requestId });
+    }
     if (descriptor?.version !== 2 || descriptor.endpoint !== verifiedPackage.fipsEndpoint
-      || descriptor.serviceNpub !== verifiedPackage.installationNpub || descriptor.transport !== 'native') {
+      || descriptor.serviceNpub !== verifiedPackage.transportNpub || descriptor.transport !== 'native') {
       await bridge.disconnect?.();
       fail('endpoint_mismatch', 'Native FIPS bridge connected to a different endpoint than the signed package.');
     }
+    diagnose('native_connect_succeeded', requestId);
     connected = true;
   }
 
@@ -313,12 +351,14 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
       });
     },
     async discoverAgents() {
+      diagnose('agent_discovery_started', requestId);
       const payload = await request(verifiedPackage.agentsPath, 'agent discovery');
       if (payload?.installation_id !== verifiedPackage.installationId || !Array.isArray(payload?.agents)) {
         fail('response_invalid', 'Autopilot agent discovery response does not match the signed installation.');
       }
       const agents = payload.agents.map(normalizeAgent).filter(Boolean);
       agents.flatMap((agent) => Object.values(agent.paths)).forEach((path) => advertisedPaths.add(path));
+      diagnose('agent_discovery_succeeded', requestId, { agentCount: agents.length });
       return Object.freeze(agents);
     },
     async readAgent(agent, view) {

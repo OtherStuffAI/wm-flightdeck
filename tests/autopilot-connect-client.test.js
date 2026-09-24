@@ -45,6 +45,7 @@ function response(payload, status = 200) {
 }
 
 describe('Autopilot Connect Package verification', () => {
+  beforeEach(() => vi.spyOn(console, 'info').mockImplementation(() => {}));
   it('verifies a signed versioned package and binds its identity to the exact endpoint', () => {
     const { envelope, manifest } = fixture();
     expect(verifyAutopilotConnectPackage(JSON.stringify(envelope), { now: NOW })).toMatchObject({
@@ -150,6 +151,7 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
   let verified;
 
   beforeEach(() => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
     verified = verifyAutopilotConnectPackage(fixture().envelope, { now: NOW });
   });
 
@@ -207,7 +209,9 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
     await client.requestJson(verified.agentsPath, { method: 'POST', body });
     expect(bridge.connect).toHaveBeenCalledWith({
       endpoint: verified.fipsEndpoint,
-      serviceNpub: verified.installationNpub,
+      serviceNpub: verified.transportNpub,
+      installationNpub: verified.installationNpub,
+      correlationId: verified.correlationId,
     });
     const exactUrl = `${verified.fipsEndpoint}${verified.agentsPath}`;
     const exactBody = JSON.stringify(body);
@@ -222,6 +226,67 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
     expect(event.tags).toContainEqual(['u', exactUrl]);
     expect(event.tags).toContainEqual(['method', 'POST']);
     expect(event.tags).toContainEqual(['payload', expectedHash]);
+  });
+
+  it('preserves stage-specific native connection errors', async () => {
+    const bridge = {
+      version: 2,
+      pairingIdentity: 'service-npub',
+      connect: vi.fn(async () => { throw new Error('health_identity_mismatch: Regenerate the connect package.'); }),
+      fetch: vi.fn(),
+    };
+    await expect(createAutopilotDiscoveryClient(verified, { bridge }).health()).rejects.toMatchObject({
+      code: 'health_identity_mismatch',
+      message: 'Regenerate the connect package.',
+      correlationId: verified.correlationId,
+    });
+  });
+
+  it('does not expose malformed native error details', async () => {
+    const bridge = {
+      version: 2,
+      pairingIdentity: 'service-npub',
+      connect: vi.fn(async () => { throw new Error('native failure\nAuthorization: secret'); }),
+      fetch: vi.fn(),
+    };
+    await expect(createAutopilotDiscoveryClient(verified, { bridge }).health()).rejects.toMatchObject({
+      code: 'fips_connection_failed',
+      message: 'Could not connect to the signed Autopilot FIPS endpoint. Open WMapp Setup and check FIPS diagnostics.',
+    });
+  });
+
+  it('passes distinct v2 transport and installation identities and preserves v1 identity compatibility', async () => {
+    const transportNpub = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    const v2Package = verifyAutopilotConnectPackage(fixture({
+      version: AUTOPILOT_CONNECT_TRANSPORT_VERSION,
+      transport: { fips: { npub: transportNpub } },
+      endpoints: { fips: `http://${transportNpub}.fips:43101`, https: 'https://autopilot.example' },
+    }).envelope, { now: NOW });
+    const connect = vi.fn(async ({ endpoint, serviceNpub }) => ({ version: 2, endpoint, serviceNpub, transport: 'native' }));
+    const bridge = {
+      version: 2,
+      pairingIdentity: 'service-npub',
+      connect,
+      fetch: vi.fn(async () => response({ ok: true, installation_id: v2Package.installationId, installation_npub: v2Package.installationNpub, api_version: 1 })),
+    };
+
+    await createAutopilotDiscoveryClient(v2Package, { bridge, authHeader: vi.fn(async () => 'Nostr signed') }).health();
+    expect(connect).toHaveBeenCalledWith({
+      endpoint: v2Package.fipsEndpoint,
+      serviceNpub: transportNpub,
+      installationNpub: v2Package.installationNpub,
+      correlationId: v2Package.correlationId,
+    });
+
+    const legacyConnect = vi.fn(async ({ endpoint, serviceNpub }) => ({ version: 2, endpoint, serviceNpub, transport: 'native' }));
+    const legacyBridge = {
+      ...bridge,
+      connect: legacyConnect,
+      fetch: vi.fn(async () => response({ ok: true, installation_id: verified.installationId, installation_npub: verified.installationNpub, api_version: 1 })),
+    };
+    await createAutopilotDiscoveryClient(verified, { bridge: legacyBridge, authHeader: vi.fn(async () => 'Nostr signed') }).health();
+    expect(legacyConnect.mock.calls[0][0].serviceNpub).toBe(verified.installationNpub);
+    expect(legacyConnect.mock.calls[0][0].installationNpub).toBe(verified.installationNpub);
   });
 
   it('validates mocked health and returns only normalized, authorized discovery fields', async () => {

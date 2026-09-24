@@ -1993,6 +1993,13 @@
       "label": "Activate read-only Agent Space",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2060,
+      "label": "Actionable native FIPS connection failures",
+      "notes": [
+        "Connect signed Autopilot packages using their exact FIPS transport identity, and show the specific failed connection stage with a useful recovery action."
+      ]
     }
   ]
 }

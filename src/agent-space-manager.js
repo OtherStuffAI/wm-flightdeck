@@ -54,9 +54,15 @@ function storedPackage(connection) {
   });
 }
 
-function managerError(error, fallback) {
-  return text(error?.message || error?.reason) || fallback;
+export function formatAgentConnectError(error, fallback) {
+  const message = text(error?.message || error?.reason) || fallback;
+  const code = /^[a-z][a-z0-9_]{2,48}$/.test(text(error?.code)) ? text(error.code) : '';
+  const requestId = /^[A-Za-z0-9._-]{1,64}$/.test(text(error?.correlationId)) ? text(error.correlationId) : '';
+  if (!code) return message;
+  return `${message} [${code}${requestId ? `; request ${requestId}` : ''}]`;
 }
+
+const managerError = formatAgentConnectError;
 
 export const agentSpaceManagerMixin = {
   agentConnections: [], workspaceAgents: [], agentConnectInput: '', agentConnectError: '', agentConnectBusy: false,

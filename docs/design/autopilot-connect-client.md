@@ -11,7 +11,8 @@ FIPS host identity are the same. Version 2 separates the stable installation
 signer from `transport.fips.npub`; the event is still verified against
 `installation.npub`, while the endpoint must be exactly
 `http://<transport.fips.npub>.fips:<port>`. Native pairing pins that endpoint
-while using `installation.npub` as the HTTP service identity. Generation time
+and its `transport.fips.npub`; the later authenticated control health request
+independently verifies `installation.npub`. Generation time
 is signature-bound and valid for five minutes, with a
 15-second future clock allowance.
 
@@ -19,7 +20,7 @@ The signed manifest advertises `api.version` (currently `1`), `health_path`,
 `agents_path`, and read capabilities. Its optional HTTPS endpoint is descriptive
 metadata only. The client always connects and fetches through WMapp's approved
 `window.wingmanTowerTransport` v2 service-identity bridge. It pairs with
-`connect({ endpoint, serviceNpub: installationNpub })`, verifies the returned
+`connect({ endpoint, serviceNpub: transportNpub, installationNpub, correlationId })`, verifies the returned
 native descriptor, signs and sends the same exact mesh URL and method with
 NIP-98, rejects redirects, and never retries through HTTPS. Drive's GRASP-only
 `window.fipsTransport` is not used for arbitrary control API requests.

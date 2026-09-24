@@ -1,5 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeAgentBoundRows, normalizeAgentPipelineView } from '../src/agent-space-manager.js';
+import { formatAgentConnectError, normalizeAgentBoundRows, normalizeAgentPipelineView } from '../src/agent-space-manager.js';
+
+describe('Agent Connect public errors', () => {
+  it('shows safe native stage codes and correlation identifiers', () => {
+    expect(formatAgentConnectError({
+      code: 'health_identity_mismatch',
+      message: 'The health identity did not match.',
+      correlationId: 'connect-123',
+    }, 'Fallback')).toBe('The health identity did not match. [health_identity_mismatch; request connect-123]');
+  });
+
+  it('does not render malformed diagnostic metadata', () => {
+    expect(formatAgentConnectError({
+      code: 'bad code: secret',
+      message: 'Connection failed.',
+      correlationId: 'bad correlation value',
+    }, 'Fallback')).toBe('Connection failed.');
+  });
+});
 
 describe('Agent Space read projections', () => {
   it('keeps available, assigned, default, override and missing semantics distinct', () => {
