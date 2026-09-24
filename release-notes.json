@@ -2053,9 +2053,15 @@
     },
     {
       "buildNumber": 2077,
-      "label": "Verified Autopilot capabilities",
+      "label": "Visible verified restart control",
       "notes": [
-        "Use controlled restart from the top-level Agents screen, with an explicit Autopilot target and a verified current capability check before the action is enabled.",
+        "Use controlled restart from the top-level Agents screen, with an explicit Autopilot target and a verified current capability check before the action is enabled."
+      ]
+    },
+    {
+      "buildNumber": 2078,
+      "label": "Restore paired live activity",
+      "notes": [
         "Refresh signed capabilities for existing paired Autopilots so compatible live thread activity starts without reinstalling agents, while Tower remains the fallback."
       ]
     }
