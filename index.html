@@ -7420,6 +7420,13 @@
                   <section x-show="!$store.chat.agentSpaceLoading && !$store.chat.agentSpaceError && $store.chat.agentSpaceView === 'overview'" class="agent-space-panel">
                     <dl><div><dt>Access</dt><dd x-text="$store.chat.selectedAgentCanInstructLabel"></dd></div><div><dt>Agent ID</dt><dd x-text="$store.chat.selectedWorkspaceAgent.agent_id"></dd></div><div><dt>Status</dt><dd x-text="$store.chat.agentSpaceData?.archived ? 'Archived' : ($store.chat.agentSpaceData?.enabled === false ? 'Disabled' : 'Enabled')"></dd></div></dl>
                     <div class="agent-space-chips"><template x-for="capability in ($store.chat.agentSpaceData?.capabilities || [])" :key="capability"><span x-text="capability"></span></template></div>
+                    <div class="controlled-restart-panel" x-show="$store.chat.selectedAgentCanControlledRestart">
+                      <h2>Autopilot lifecycle</h2>
+                      <p>Drain current sessions, save a recovery checkpoint, restart Autopilot through its external lifecycle owner, then recover eligible sessions.</p>
+                      <button type="button" class="btn-danger" @click="$store.chat.openControlledRestartConfirm()" :disabled="$store.chat.controlledRestartBusy" aria-label="Controlled restart of Autopilot" data-testid="controlled-restart-open">Controlled restart</button>
+                      <p aria-live="polite" data-testid="controlled-restart-progress" x-show="$store.chat.controlledRestartStatus" x-text="$store.chat.controlledRestartStatus?.outcome ? ('Recovered ' + ($store.chat.controlledRestartStatus.outcome.restored || 0) + ' session(s); ' + ($store.chat.controlledRestartStatus.outcome.failed || []).length + ' failed.') : ($store.chat.controlledRestartStatus?.marker?.status || $store.chat.controlledRestartStatus?.status || '')"></p>
+                      <p class="agent-space-error" role="alert" x-show="$store.chat.controlledRestartError" x-text="$store.chat.controlledRestartError"></p>
+                    </div>
                   </section>
                   <section x-show="!$store.chat.agentSpaceLoading && !$store.chat.agentSpaceError && $store.chat.agentSpaceView === 'pipelines'" class="agent-space-panel">
                     <p x-text="$store.chat.agentSpaceData?.availabilityMode === 'implicit_all' ? 'All library definitions are available implicitly.' : 'Availability is explicitly assigned.'"></p>
@@ -7435,6 +7442,18 @@
             </article>
           </section>
         </template>
+
+        <div class="modal-backdrop" x-show="$store.chat.controlledRestartConfirmOpen" x-cloak @keydown.escape.window="$store.chat.closeControlledRestartConfirm()" data-testid="controlled-restart-confirm">
+          <section class="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="controlled-restart-title">
+            <h2 id="controlled-restart-title">Restart Autopilot?</h2>
+            <p>Autopilot will stop accepting new work, drain active sessions for a bounded period, save a durable checkpoint, disconnect while its external lifecycle owner restarts it, and then recover eligible sessions. Forced stops or recovery failures will be reported as partial failures.</p>
+            <p>Your active admin browser signer must approve the exact request. No agent or fallback key can authorize it.</p>
+            <div class="flow-start-confirm-actions">
+              <button type="button" class="btn-danger" @click="$store.chat.requestControlledRestart()" :disabled="$store.chat.controlledRestartBusy" aria-label="Confirm controlled restart" data-testid="controlled-restart-confirm-submit" x-text="$store.chat.controlledRestartBusy ? 'Requesting…' : 'Restart Autopilot'"></button>
+              <button type="button" class="btn-secondary" @click="$store.chat.closeControlledRestartConfirm()" :disabled="$store.chat.controlledRestartBusy">Cancel</button>
+            </div>
+          </section>
+        </div>
 
         <template x-if="$store.chat.navSection === 'settings'">
           <div class="settings-section">

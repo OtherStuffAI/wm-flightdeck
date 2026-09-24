@@ -2043,6 +2043,13 @@
       "notes": [
         "Keep the active space online after successful sync when a previously failed message retry or background operation still needs attention."
       ]
+    },
+    {
+      "buildNumber": 2073,
+      "label": "Controlled Autopilot restart",
+      "notes": [
+        "Request an explicitly confirmed, admin-signed Autopilot restart directly over the verified FIPS connection and follow its recovery status across reconnect."
+      ]
     }
   ]
 }

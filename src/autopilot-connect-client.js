@@ -211,6 +211,10 @@ export function verifyAutopilotConnectPackage(input, { now = new Date(), maxAgeS
     capabilities: Object.freeze([...new Set((manifest.api.capabilities || []).map(text).filter(Boolean))]),
     healthPath: exactPath(manifest.api.health_path, 'Health route'),
     agentsPath: exactPath(manifest.api.agents_path, 'Agent discovery route'),
+    controlledRestartPath: manifest.api.capabilities?.includes('system.controlled-restart.v1')
+      ? exactPath(manifest.api.controlled_restart_path, 'Controlled restart route') : null,
+    controlledRestartStatusPath: manifest.api.capabilities?.includes('system.controlled-restart.v1')
+      ? exactPath(manifest.api.controlled_restart_status_path, 'Controlled restart status route') : null,
   });
   diagnose('package_validation_succeeded', requestId, {
     version: verified.version,
@@ -266,6 +270,8 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
   let connected = false;
   const requestId = verifiedPackage.correlationId || correlationId();
   const advertisedPaths = new Set([verifiedPackage.healthPath, verifiedPackage.agentsPath]);
+  if (verifiedPackage.controlledRestartPath) advertisedPaths.add(verifiedPackage.controlledRestartPath);
+  if (verifiedPackage.controlledRestartStatusPath) advertisedPaths.add(verifiedPackage.controlledRestartStatusPath);
 
   function liveThreadPath(context, kind, after = '') {
     const query = new URLSearchParams({
@@ -377,6 +383,20 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
       agents.flatMap((agent) => Object.values(agent.paths)).forEach((path) => advertisedPaths.add(path));
       diagnose('agent_discovery_succeeded', requestId, { agentCount: agents.length });
       return Object.freeze(agents);
+    },
+    controlledRestart() {
+      if (!verifiedPackage.capabilities?.includes('system.controlled-restart.v1') || !verifiedPackage.controlledRestartPath) {
+        fail('route_unavailable', 'Autopilot does not advertise controlled restart. Reconnect it with a current package.');
+      }
+      return request(verifiedPackage.controlledRestartPath, 'controlled restart', {
+        method: 'POST', body: { confirm: 'controlled-restart' },
+      });
+    },
+    controlledRestartStatus() {
+      if (!verifiedPackage.capabilities?.includes('system.controlled-restart.v1') || !verifiedPackage.controlledRestartStatusPath) {
+        fail('route_unavailable', 'Autopilot does not advertise controlled restart status. Reconnect it with a current package.');
+      }
+      return request(verifiedPackage.controlledRestartStatusPath, 'controlled restart status');
     },
     async readAgent(agent, view) {
       const normalizedView = text(view);
