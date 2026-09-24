@@ -7424,7 +7424,7 @@
                       <h2>Autopilot lifecycle</h2>
                       <p>Drain current sessions, save a recovery checkpoint, restart Autopilot through its external lifecycle owner, then recover eligible sessions.</p>
                       <button type="button" class="btn-danger" @click="$store.chat.openControlledRestartConfirm()" :disabled="$store.chat.controlledRestartBusy" aria-label="Controlled restart of Autopilot" data-testid="controlled-restart-open">Controlled restart</button>
-                      <p aria-live="polite" data-testid="controlled-restart-progress" x-show="$store.chat.controlledRestartStatus" x-text="$store.chat.controlledRestartStatus?.outcome ? ('Recovered ' + ($store.chat.controlledRestartStatus.outcome.restored || 0) + ' session(s); ' + ($store.chat.controlledRestartStatus.outcome.failed || []).length + ' failed.') : ($store.chat.controlledRestartStatus?.marker?.status || $store.chat.controlledRestartStatus?.status || '')"></p>
+                      <p aria-live="polite" data-testid="controlled-restart-progress" x-show="$store.chat.controlledRestartStatus" x-text="$store.chat.controlledRestartStatusLabel"></p>
                       <p class="agent-space-error" role="alert" x-show="$store.chat.controlledRestartError" x-text="$store.chat.controlledRestartError"></p>
                     </div>
                   </section>

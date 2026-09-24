@@ -138,6 +138,7 @@ export const agentSpaceManagerMixin = {
   async openAgentSpace(workspaceAgentId, view = 'overview') {
     this.selectedWorkspaceAgentId = text(workspaceAgentId); this.navSection = 'agents'; this.mobileNavOpen = false;
     await this.selectAgentSpaceView(view, { syncRoute: true });
+    if (this.selectedAgentCanControlledRestart) void this.resumeControlledRestartStatus();
   },
   async selectAgentSpaceView(view, { syncRoute = false } = {}) {
     const nextView = VIEWS.has(view) ? view : 'overview'; this.agentSpaceView = nextView;
@@ -178,6 +179,12 @@ export const agentSpaceManagerMixin = {
       this.controlledRestartConfirmOpen = false;
       await this.pollControlledRestartStatus();
     } catch (error) {
+      const code = text(error?.code);
+      if (['fips_request_failed', 'fips_connection_failed', 'request_failed'].includes(code)) {
+        this.controlledRestartConfirmOpen = false;
+        const resumed = await this.resumeControlledRestartStatus();
+        if (resumed) return;
+      }
       this.controlledRestartError = managerError(error, 'Could not request the controlled restart. Check that the configured admin browser signer is available and authorized.');
     } finally { this.controlledRestartBusy = false; }
   },
@@ -191,17 +198,44 @@ export const agentSpaceManagerMixin = {
         const status = await client.controlledRestartStatus();
         this.controlledRestartStatus = status;
         this.controlledRestartError = '';
-        if (!status?.inProgress && (status?.outcome || status?.marker?.status === 'failed')) return;
+        const finalStatus = status?.operation?.status;
+        if (!status?.inProgress && (['complete', 'partial', 'failed'].includes(finalStatus) || status?.outcome || status?.marker?.status === 'failed')) return status;
       } catch {
         this.controlledRestartStatus = { inProgress: true, marker: { status: 'restarting-disconnected' } };
       }
       await new Promise((resolve) => setTimeout(resolve, 2000));
     }
     this.controlledRestartError = 'Autopilot did not report a final restart result within two minutes. Reopen Agents to resume the status check.';
+    return null;
+  },
+  async resumeControlledRestartStatus() {
+    const connection = this.selectedAgentConnection;
+    if (!connection) return false;
+    try {
+      const status = await createAutopilotDiscoveryClient(storedPackage(connection)).controlledRestartStatus();
+      this.controlledRestartStatus = status;
+      this.controlledRestartError = '';
+      if (status?.inProgress) void this.pollControlledRestartStatus();
+      return Boolean(status?.operation || status?.marker || status?.outcome);
+    } catch {
+      return false;
+    }
   },
   get selectedWorkspaceAgent() { return (this.workspaceAgents || []).find((row) => row.id === this.selectedWorkspaceAgentId) || null; },
   get selectedAgentConnection() { return (this.agentConnections || []).find((row) => row.id === this.selectedWorkspaceAgent?.connection_id) || null; },
   get selectedAgentAutopilotUrl() { return text(this.selectedWorkspaceAgent?.metadata?.launch_url || this.selectedAgentConnection?.https_endpoint); },
   get selectedAgentCanInstructLabel() { return this.selectedWorkspaceAgent?.metadata?.can_instruct === true ? 'Can receive instructions' : 'Read-only'; },
   get selectedAgentCanControlledRestart() { return (this.selectedAgentConnection?.capabilities || []).includes('system.controlled-restart.v1'); },
+  get controlledRestartStatusLabel() {
+    const operation = this.controlledRestartStatus?.operation;
+    if (operation) {
+      const forced = Number(operation.counts?.forced || 0);
+      const failed = (operation.sessions || []).filter((session) => session.recoveryStatus === 'failed').length;
+      if (operation.status === 'partial') return `Restart partially recovered: ${failed} recovery failure(s), ${forced} forced stop(s).`;
+      if (operation.status === 'failed') return `Restart failed during ${operation.failure?.phase || 'an unknown phase'}: ${operation.failure?.message || 'No detail reported.'}`;
+      if (operation.status === 'complete') return `Restart complete: ${operation.counts?.eligible || 0} eligible session(s) recovered.`;
+      return `Restart ${operation.status}.`;
+    }
+    return this.controlledRestartStatus?.marker?.status || this.controlledRestartStatus?.status || '';
+  },
 };
