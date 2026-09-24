@@ -57,6 +57,36 @@ describe('Autopilot PG translators', () => {
     const connection = fixture.canonical_upserts.changes.find(change => change.family === 'autopilot_connection').row;
     expect(() => inboundAutopilotConnection({ ...connection, metadata: { bearer_token: 'nope' } })).toThrow('not public capability metadata');
     expect(() => outboundAutopilotConnection({ ...connection, metadata: { nested: { bunker_uri: 'bunker://secret' } } })).toThrow('not public capability metadata');
+    for (const key of [
+      'connect_package', 'connect_package_payload', 'connect_package_signature', 'raw_connect_package',
+      'discovery_response', 'raw_discovery', 'nip98_event', 'nip_98_authorization', 'access_token', 'private_key',
+    ]) {
+      expect(() => inboundAutopilotConnection({ ...connection, metadata: { [key]: 'sensitive' } }))
+        .toThrow('not public capability metadata');
+    }
+    expect(() => inboundAutopilotConnection({ ...connection, metadata: { connect_package_version: { package: 'sensitive' } } }))
+      .toThrow('must be a non-negative integer');
+  });
+
+  it('round-trips the public connect package version through create response materialization', async () => {
+    const change = fixture.canonical_upserts.changes.find(item => item.family === 'autopilot_connection');
+    const metadata = {
+      connect_package_version: 2,
+      installation_npub: 'npub1installation',
+      health_path: '/api/owners/owner/control-plane/v1/health',
+      agents_path: '/api/owners/owner/control-plane/v1/agents',
+    };
+    const createPayload = outboundAutopilotConnection({ ...change.row, metadata });
+    const responseChange = { ...change, row: { ...change.row, ...createPayload } };
+
+    await applyPgRecordChanges(store, page([responseChange]), { expectedCursor: null });
+
+    expect(await db.autopilot_connections.get(change.id)).toMatchObject({
+      metadata,
+      sync_status: 'synced',
+      pg_backend: true,
+    });
+    expect(inboundAutopilotConnection(responseChange.row).metadata.connect_package_version).toBe(2);
   });
 
   it('preserves v2 signer, transport identity and the exact signed HTTP FIPS origin', () => {

@@ -1,5 +1,6 @@
 const SECRET_KEY = /(token|secret|private|nsec|bunker|nwc|connect_package|nip_?98|discovery_response|raw_discovery)/i;
 const SECRET_VALUE = /^(?:nsec1|bunker:|nostr\+walletconnect:)/i;
+const PUBLIC_SCALAR_METADATA_KEYS = new Set(['connect_package_version']);
 
 function string(value, field, { nullable = false } = {}) {
   if (value == null && nullable) return null;
@@ -62,6 +63,10 @@ function publicMetadata(value, path = 'metadata') {
     if (Array.isArray(input)) return input.map((item, index) => visit(item, `${currentPath}[${index}]`));
     if (!input || typeof input !== 'object') throw new Error(`${currentPath} contains an unsupported value`);
     return Object.fromEntries(Object.entries(input).map(([key, item]) => {
+      if (PUBLIC_SCALAR_METADATA_KEYS.has(key)) {
+        if (!Number.isInteger(item) || item < 0) throw new Error(`${currentPath}.${key} must be a non-negative integer`);
+        return [key, item];
+      }
       if (SECRET_KEY.test(key)) throw new Error(`${currentPath}.${key} is not public capability metadata`);
       return [key, visit(item, `${currentPath}.${key}`)];
     }));

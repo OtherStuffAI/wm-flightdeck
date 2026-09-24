@@ -2008,6 +2008,13 @@
         "Browse channel conversations as spacious cards with prominent titles, opening and latest messages, activity, and message counts.",
         "Start new threads and edit messages in the established conversation modal instead of an inline channel composer."
       ]
+    },
+    {
+      "buildNumber": 2065,
+      "label": "Save connected agents",
+      "notes": [
+        "Save selected agents after signed Autopilot discovery and retain the verified connection package version across reloads."
+      ]
     }
   ]
 }
