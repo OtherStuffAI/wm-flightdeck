@@ -1,0 +1,216 @@
+import { storedPackage } from './agent-space-manager.js';
+import { createAutopilotDiscoveryClient } from './autopilot-connect-client.js';
+
+export const LIVE_THREAD_ACTIVITY_CAPABILITY = 'flightdeck.live-thread-activity.v1';
+export const LIVE_THREAD_RECONNECT_GRACE_MS = 8_000;
+const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'stopped']);
+
+const text = (value) => String(value ?? '').trim();
+
+export function reconcileLiveThreadActivity(current, incoming, expected = {}) {
+  if (!incoming || text(incoming.routing_key) !== text(expected.routingKey || incoming.routing_key))
+    return current;
+  const generation = Number(incoming.session_generation);
+  const sequence = Number(incoming.sequence);
+  if (
+    !Number.isSafeInteger(generation) ||
+    generation < 1 ||
+    !Number.isSafeInteger(sequence) ||
+    sequence < 0 ||
+    !text(incoming.turn_id) ||
+    !text(incoming.cursor)
+  )
+    return current;
+  if (!current) return { ...incoming, session_generation: generation, sequence };
+  const currentGeneration = Number(current.session_generation);
+  if (generation < currentGeneration) return current;
+  if (generation > currentGeneration)
+    return { ...incoming, session_generation: generation, sequence };
+  if (text(incoming.turn_id) !== text(current.turn_id)) return current;
+  return sequence > Number(current.sequence)
+    ? { ...incoming, session_generation: generation, sequence }
+    : current;
+}
+
+async function consumeSse(response, onActivity, signal) {
+  if (!response.body) throw new Error('Autopilot live activity stream has no body.');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) throw new Error('Autopilot live activity stream ended.');
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+      let boundary;
+      while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        const event = block
+          .split('\n')
+          .find((line) => line.startsWith('event:'))
+          ?.slice(6)
+          .trim();
+        const data = block
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trim())
+          .join('\n');
+        if (event === 'activity' && data) onActivity(JSON.parse(data));
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+export class ThreadLiveActivityController {
+  constructor({
+    createClient = createAutopilotDiscoveryClient,
+    graceMs = LIVE_THREAD_RECONNECT_GRACE_MS,
+    onChange = () => {},
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
+  } = {}) {
+    this.createClient = createClient;
+    this.graceMs = graceMs;
+    this.onChange = onChange;
+    this.setTimer = setTimer;
+    this.clearTimer = clearTimer;
+    this.abort = null;
+    this.client = null;
+    this.context = null;
+    this.overlay = null;
+    this.graceTimer = null;
+    this.run = 0;
+  }
+
+  clear() {
+    this.run += 1;
+    this.abort?.abort();
+    this.abort = null;
+    if (this.graceTimer) this.clearTimer(this.graceTimer);
+    this.graceTimer = null;
+    this.client?.disconnect?.();
+    this.client = null;
+    this.context = null;
+    this.setOverlay(null);
+  }
+
+  async open({ connection, context }) {
+    this.clear();
+    if (!connection?.capabilities?.includes(LIVE_THREAD_ACTIVITY_CAPABILITY)) return;
+    const run = this.run;
+    this.context = context;
+    try {
+      this.client = this.createClient(storedPackage(connection));
+      await this.loadSnapshot(run);
+      if (run !== this.run) return;
+      await this.stream(run);
+    } catch (error) {
+      if (run === this.run && error?.name !== 'AbortError') this.reconnecting(run);
+    }
+  }
+
+  async loadSnapshot(run) {
+    const snapshot = await this.client.liveThreadSnapshot(this.context);
+    if (run !== this.run) return;
+    if (!snapshot?.activity) this.setOverlay(null);
+    else this.accept(snapshot.activity, { replace: true });
+    this.cursor = text(snapshot?.cursor || snapshot?.activity?.cursor || '0');
+  }
+
+  async stream(run) {
+    while (run === this.run) {
+      this.abort = new AbortController();
+      try {
+        const response = await this.client.liveThreadEvents(
+          this.context,
+          this.cursor,
+          this.abort.signal,
+        );
+        if (this.graceTimer) this.clearTimer(this.graceTimer);
+        this.graceTimer = null;
+        if (this.overlay?.reconnecting) this.setOverlay({ ...this.overlay, reconnecting: false });
+        await consumeSse(response, (activity) => this.accept(activity), this.abort.signal);
+      } catch (error) {
+        if (run !== this.run || this.abort.signal.aborted) return;
+        this.reconnecting(run);
+        if (error?.status === 409) await this.loadSnapshot(run);
+        await new Promise((resolve) => this.setTimer(resolve, 500));
+      }
+    }
+  }
+
+  reconnecting(run) {
+    if (this.overlay) this.setOverlay({ ...this.overlay, reconnecting: true });
+    if (this.graceTimer) this.clearTimer(this.graceTimer);
+    this.graceTimer = this.setTimer(() => {
+      if (run === this.run) this.setOverlay(null);
+    }, this.graceMs);
+  }
+
+  accept(activity, { replace = false } = {}) {
+    const next = replace
+      ? reconcileLiveThreadActivity(null, activity)
+      : reconcileLiveThreadActivity(this.overlay, activity);
+    if (next === this.overlay) return;
+    this.cursor = text(next.cursor || this.cursor || '0');
+    if (this.graceTimer) this.clearTimer(this.graceTimer);
+    this.graceTimer = null;
+    this.setOverlay({ ...next, reconnecting: false });
+  }
+
+  setOverlay(value) {
+    this.overlay = value;
+    this.onChange(value);
+  }
+}
+
+export function liveOverlayAsAgentActivity(overlay, context) {
+  if (!overlay) return null;
+  return {
+    record_id: `live:${overlay.routing_key}:${overlay.turn_id}`,
+    activity_id: `live:${overlay.routing_key}:${overlay.turn_id}`,
+    workspace_id: context.workspaceId,
+    channel_id: context.channelId,
+    thread_id: context.threadId,
+    agent_npub: context.agentNpub,
+    turn_id: overlay.turn_id,
+    state: overlay.lifecycle,
+    visibility: 'user_visible',
+    sequence: overlay.sequence,
+    body: overlay.commentary || overlay.activity_status,
+    summary: overlay.commentary || overlay.activity_status,
+    label: overlay.reconnecting ? 'Reconnecting…' : overlay.activity_status,
+    updated_at: overlay.timestamp,
+    created_at: overlay.timestamp,
+    live_overlay: true,
+    reconnecting: overlay.reconnecting,
+    commentary_history: overlay.commentary
+      ? [
+          {
+            activity_id: `live:${overlay.routing_key}:${overlay.turn_id}`,
+            turn_id: overlay.turn_id,
+            sequence: overlay.sequence,
+            body: overlay.commentary,
+            created_at: overlay.timestamp,
+            workspace_id: context.workspaceId,
+            visibility: 'user_visible',
+          },
+        ]
+      : [],
+  };
+}
+
+export function terminalLiveActivityHasDurableFinal(overlay, messages = []) {
+  return Boolean(
+    overlay &&
+      TERMINAL.has(text(overlay.lifecycle).toLowerCase()) &&
+      messages.some(
+        (message) =>
+          text(message?.metadata?.source) === 'autopilot_session' &&
+          text(message?.metadata?.turn_id) === text(overlay.turn_id),
+      ),
+  );
+}

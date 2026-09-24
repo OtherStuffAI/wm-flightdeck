@@ -39,7 +39,7 @@ export function normalizeAgentBoundRows(payload, key, agent) {
   ));
 }
 
-function storedPackage(connection) {
+export function storedPackage(connection) {
   const endpoint = new URL(text(connection?.fips_endpoint));
   const transportNpub = text(connection?.fips_transport_npub || connection?.metadata?.installation_npub);
   if (endpoint.protocol !== 'http:' || !endpoint.port || endpoint.origin !== `http://${transportNpub}.fips:${endpoint.port}`) {

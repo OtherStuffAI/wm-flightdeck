@@ -407,6 +407,7 @@ function buildWorkspaceSpecs(store) {
       onNext: (connections) => {
         if (!isSameWorkspace(store, workspaceKey, ownerNpub)) return;
         store.agentConnections = connections;
+        void store.startThreadLiveActivity?.();
         if (store.navSection === 'agents' && store.selectedWorkspaceAgentId && !store.agentSpaceLoading && !store.agentSpaceData) {
           void store.loadSelectedAgentSpaceView?.();
         }
@@ -417,6 +418,7 @@ function buildWorkspaceSpecs(store) {
       onNext: (agents) => {
         if (!isSameWorkspace(store, workspaceKey, ownerNpub)) return;
         store.workspaceAgents = agents;
+        void store.startThreadLiveActivity?.();
         if (store.navSection === 'agents' && !store.selectedWorkspaceAgentId && agents[0]) store.selectedWorkspaceAgentId = agents[0].id;
         if (store.navSection === 'agents' && store.selectedWorkspaceAgentId && !store.agentSpaceLoading && !store.agentSpaceData) {
           void store.loadSelectedAgentSpaceView?.();
@@ -699,7 +701,9 @@ function buildDetailSpecs(store) {
       query,
       onNext: messages => {
         if (!isCurrent() || (store.threadVisibleReplyCount || store.THREAD_REPLY_PAGE_SIZE || 6) !== replyLimit) return;
-        return store.applyMessages(messages, { isCurrent, threadDetail: true });
+        const result = store.applyMessages(messages, { isCurrent, threadDetail: true });
+        void store.startThreadLiveActivity?.();
+        return result;
       },
     }, {
       key: `deck:reactions:${deckThreadChannelId}:${deckThreadId}:${replyLimit}:${openGeneration || 0}`,

@@ -228,6 +228,30 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
     expect(event.tags).toContainEqual(['payload', expectedHash]);
   });
 
+  it('signs the exact live-thread snapshot URL and requires advertised capability', async () => {
+    const authHeader = vi.fn(async () => 'Nostr exact');
+    const bridge = {
+      version: 2,
+      pairingIdentity: 'service-npub',
+      connect: vi.fn(async ({ endpoint, serviceNpub }) => ({ version: 2, endpoint, serviceNpub, transport: 'native' })),
+      fetch: vi.fn(async () => response({ version: 1, activity: null, cursor: '0' })),
+    };
+    const context = {
+      ownerNpub: 'npub1owner', workspaceId: 'workspace 1', towerServiceNpub: 'npub1tower',
+      appNpub: 'npub1app', channelId: 'channel/1', threadId: 'thread/1', agentNpub: 'npub1agent',
+    };
+    const unsupported = createAutopilotDiscoveryClient(verified, { bridge, authHeader });
+    await expect(unsupported.liveThreadSnapshot(context)).rejects.toMatchObject({ code: 'route_unavailable' });
+    const capable = createAutopilotDiscoveryClient({
+      ...verified,
+      capabilities: [...verified.capabilities, 'flightdeck.live-thread-activity.v1'],
+    }, { bridge, authHeader });
+    await capable.liveThreadSnapshot(context);
+    const exactUrl = `${verified.fipsEndpoint}/api/owners/npub1owner/control-plane/v1/live-threads/thread%2F1/snapshot?workspace_id=workspace+1&tower_service_npub=npub1tower&app_npub=npub1app&channel_id=channel%2F1&agent_npub=npub1agent`;
+    expect(authHeader).toHaveBeenLastCalledWith(exactUrl, 'GET', null);
+    expect(bridge.fetch).toHaveBeenLastCalledWith(exactUrl, expect.objectContaining({ method: 'GET', redirect: 'error' }));
+  });
+
   it('preserves stage-specific native connection errors', async () => {
     const bridge = {
       version: 2,

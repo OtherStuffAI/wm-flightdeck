@@ -1184,11 +1184,12 @@ export const chatMessageManagerMixin = {
   },
   getVisibleAgentActivities() {
     void this.responseActivityTick;
-    return selectCurrentAgentActivities((this.agentActivities || []).filter((activity) =>
+    const towerActivities = selectCurrentAgentActivities((this.agentActivities || []).filter((activity) =>
       (!activity.workspace_id || !this.currentWorkspace?.workspaceId || activity.workspace_id === this.currentWorkspace.workspaceId)
       && (!activity.backend_url || !this.backendUrl || activity.backend_url.replace(/\/$/, '') === this.backendUrl.replace(/\/$/, ''))))
       .sort((left, right) => String(left.created_at || '').localeCompare(String(right.created_at || ''))
         || String(left.activity_id || '').localeCompare(String(right.activity_id || '')));
+    return this.mergeThreadLiveActivity?.(towerActivities) || towerActivities;
   },
   getAgentActivityHealth(activity = {}) {
     void this.responseActivityTick;
@@ -1689,6 +1690,7 @@ export const chatMessageManagerMixin = {
     this.threadVisibleReplyCount = this.THREAD_REPLY_PAGE_SIZE;
     this.pendingThreadScrollToLatest = options.scrollToLatest !== false;
     if (typeof this.startWorkspaceLiveQueries === 'function') this.startWorkspaceLiveQueries();
+    void this.startThreadLiveActivity?.();
     if (this.navSection === 'status' && this.deckThreadChannelId) {
       this.threadHistoryCursor = null;
       this.threadHistoryError = '';
@@ -1746,6 +1748,7 @@ export const chatMessageManagerMixin = {
   closeThread(options = {}) {
     if (this.messageEdit?.context === 'thread' && this.messageEdit.submitting) return false;
     this.stopReadAloud?.();
+    this.stopThreadLiveActivity?.();
     if (this.messageEdit?.context === 'thread') this.cancelMessageEdit();
     if (options.saveDraft !== false) this.saveChatComposerDraft?.('thread');
     this.threadHistoryGeneration = (this.threadHistoryGeneration || 0) + 1;

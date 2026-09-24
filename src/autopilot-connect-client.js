@@ -267,6 +267,18 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
   const requestId = verifiedPackage.correlationId || correlationId();
   const advertisedPaths = new Set([verifiedPackage.healthPath, verifiedPackage.agentsPath]);
 
+  function liveThreadPath(context, kind, after = '') {
+    const query = new URLSearchParams({
+      workspace_id: text(context?.workspaceId),
+      tower_service_npub: text(context?.towerServiceNpub),
+      app_npub: text(context?.appNpub),
+      channel_id: text(context?.channelId),
+      agent_npub: text(context?.agentNpub),
+    });
+    if (kind === 'events') query.set('after', text(after || '0'));
+    return `/api/owners/${encodeURIComponent(text(context?.ownerNpub))}/control-plane/v1/live-threads/${encodeURIComponent(text(context?.threadId))}/${kind}?${query}`;
+  }
+
   async function connect() {
     let descriptor;
     diagnose('native_connect_invoked', requestId);
@@ -297,7 +309,7 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
     connected = true;
   }
 
-  async function request(path, operation, { method = 'GET', body } = {}) {
+  async function requestResponse(path, operation, { method = 'GET', body, accept = 'application/json', signal } = {}) {
     if (!connected) await connect();
     const requestUrl = `${verifiedPackage.fipsEndpoint}${path}`;
     const normalizedMethod = text(method).toUpperCase();
@@ -312,19 +324,24 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
       response = await bridge.fetch(requestUrl, {
         method: normalizedMethod,
         headers: {
-          Accept: 'application/json',
+          Accept: accept,
           Authorization: authorization,
           ...(serializedBody === undefined ? {} : { 'Content-Type': 'application/json' }),
         },
         body: serializedBody,
         credentials: 'omit',
         redirect: 'error',
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: signal || AbortSignal.timeout(timeoutMs),
       });
     } catch (error) {
       fail('connection_failed', `Could not reach Autopilot ${operation} through FIPS.`, { cause: error });
     }
     if (!response.ok) throw mapResponseFailure(response, operation);
+    return response;
+  }
+
+  async function request(path, operation, options = {}) {
+    const response = await requestResponse(path, operation, options);
     try { return await response.json(); }
     catch (error) { fail('response_invalid', `Autopilot returned invalid JSON for ${operation}.`, { cause: error }); }
   }
@@ -379,6 +396,20 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
         fail('response_invalid', `Autopilot ${normalizedView} response does not match the selected agent.`);
       }
       return payload;
+    },
+    async liveThreadSnapshot(context) {
+      if (!verifiedPackage.capabilities?.includes('flightdeck.live-thread-activity.v1')) {
+        fail('route_unavailable', 'Autopilot does not advertise live thread activity.');
+      }
+      return request(liveThreadPath(context, 'snapshot'), 'live thread activity snapshot');
+    },
+    async liveThreadEvents(context, after = '0', signal) {
+      if (!verifiedPackage.capabilities?.includes('flightdeck.live-thread-activity.v1')) {
+        fail('route_unavailable', 'Autopilot does not advertise live thread activity.');
+      }
+      return requestResponse(liveThreadPath(context, 'events', after), 'live thread activity stream', {
+        accept: 'text/event-stream', signal,
+      });
     },
     disconnect() {
       connected = false;
