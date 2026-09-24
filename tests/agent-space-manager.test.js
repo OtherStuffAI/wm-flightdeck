@@ -17,6 +17,15 @@ describe('Agent Connect public errors', () => {
       correlationId: 'bad correlation value',
     }, 'Fallback')).toBe('Connection failed.');
   });
+
+  it('normalizes Dexie premature commits without exposing its opaque documentation URL', () => {
+    const message = formatAgentConnectError({
+      name: 'PrematureCommitError',
+      message: 'Transaction committed too early. See http://bit.ly/2kdckMn',
+    }, 'Could not save the selected agents.');
+    expect(message).toBe('Flight Deck could not finish saving agents locally. Retry Add selected agents; Tower will safely reuse completed requests. [local_storage_transaction]');
+    expect(message).not.toContain('bit.ly');
+  });
 });
 
 describe('Agent Space read projections', () => {

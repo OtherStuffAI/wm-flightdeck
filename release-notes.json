@@ -2015,6 +2015,13 @@
       "notes": [
         "Save selected agents after signed Autopilot discovery and retain the verified connection package version across reloads."
       ]
+    },
+    {
+      "buildNumber": 2066,
+      "label": "Finish connected-agent saves",
+      "notes": [
+        "Finish saving selected Autopilot agents without leaking browser storage transaction errors, and offer a safe retry if local persistence is interrupted."
+      ]
     }
   ]
 }

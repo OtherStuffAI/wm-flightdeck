@@ -55,7 +55,12 @@ function storedPackage(connection) {
 }
 
 export function formatAgentConnectError(error, fallback) {
-  const message = text(error?.message || error?.reason) || fallback;
+  const rawMessage = text(error?.message || error?.reason);
+  const prematureCommit = error?.name === 'PrematureCommitError' || /transaction committed too early/i.test(rawMessage);
+  const message = prematureCommit
+    ? 'Flight Deck could not finish saving agents locally. Retry Add selected agents; Tower will safely reuse completed requests.'
+    : rawMessage.replace(/\s*See\s+https?:\/\/bit\.ly\/2kdckMn\.?\s*$/i, '').trim() || fallback;
+  if (prematureCommit) return `${message} [local_storage_transaction]`;
   const code = /^[a-z][a-z0-9_]{2,48}$/.test(text(error?.code)) ? text(error.code) : '';
   const requestId = /^[A-Za-z0-9._-]{1,64}$/.test(text(error?.correlationId)) ? text(error.correlationId) : '';
   if (!code) return message;

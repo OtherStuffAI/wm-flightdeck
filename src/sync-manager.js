@@ -1,5 +1,6 @@
 import { hydrateDriveShares } from './drive.js';
 import { resolveTowerSigningUrl } from './tower-transport.js';
+import Dexie from 'dexie';
 /**
  * Sync lifecycle, repair, and quarantine methods extracted from app.js.
  *
@@ -581,9 +582,13 @@ export const syncManagerMixin = {
   },
 
   requestTowerSyncFamily(family, id = '', options = {}) {
-    const service = this._towerSyncService || null;
-    return service?.ensureLoaded(family, id, options)
-      ?? this.loadTowerSyncTarget(family === 'workspace-bootstrap' ? 'workspace' : family, id, options);
+    // Network reads and worker round-trips must never inherit a live Dexie
+    // transaction zone from the UI write that requested the refresh.
+    return Dexie.ignoreTransaction(() => {
+      const service = this._towerSyncService || null;
+      return service?.ensureLoaded(family, id, options)
+        ?? this.loadTowerSyncTarget(family === 'workspace-bootstrap' ? 'workspace' : family, id, options);
+    });
   },
 
   async ensureTowerPgControlPlaneHydrated(options = {}) {
@@ -811,7 +816,11 @@ export const syncManagerMixin = {
   commandTowerWorkspace(name, input = {}, options = {}) {
     const service = this.getTowerSyncService();
     if (!service) throw new Error('TowerSyncService is unavailable for the active workspace');
-    return service.command(name, input, options).then(async (result) => {
+    // A command owns its transport, acknowledgement writes, and forced
+    // materialisation lifecycle. Detach it from any ambient Dexie zone so the
+    // foreign Tower/worker promises cannot outlive and prematurely commit the
+    // caller's transaction.
+    return Dexie.ignoreTransaction(() => service.command(name, input, options).then(async (result) => {
       if (this._recordDeltaAttentionActive && !result?.stale && name !== 'record-conflict.accept-remote') {
         try {
           await service.materialize('workspace-bundle', { protocol_version: 1, reconcile_commands: true }, {
@@ -820,7 +829,7 @@ export const syncManagerMixin = {
         } catch (error) { flightDeckLog('warn', 'sync', 'Acknowledgement reconciliation remains pending', { error: error.message }); }
       }
       return result;
-    });
+    }));
   },
 
   get workspaceDbKey() {

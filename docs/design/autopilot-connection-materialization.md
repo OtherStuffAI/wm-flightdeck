@@ -50,3 +50,14 @@ rendering a duplicate or resurrecting an archived canonical launcher while
 retaining the legacy row for compatibility and recovery. Connect packages,
 NIP-98 events, tokens, private keys, bunker/NWC material, and raw discovery
 responses are rejected rather than stored.
+
+## Command and transaction ownership
+
+Agent Connect creates the connection and each selected workspace agent through
+`TowerSyncService.command`. Tower transport and materialization-worker promises
+are explicitly detached from any ambient Dexie transaction. Each typed
+acknowledgement may then perform its own local write, and each authoritative
+record-delta bundle retains one atomic worker-side Dexie transaction. This
+prevents a live-query or UI write transaction from auto-committing while the
+command waits on Tower or the worker, without changing command coalescing,
+stale-acknowledgement suppression, or record-delta authority.
