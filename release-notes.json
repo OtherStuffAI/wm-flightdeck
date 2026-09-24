@@ -1973,6 +1973,12 @@
       "label": "Materialize Autopilot agent authority",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2055,
+      "label": "Converge Autopilot snapshot authority",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }

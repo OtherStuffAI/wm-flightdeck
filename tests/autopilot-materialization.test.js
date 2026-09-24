@@ -7,8 +7,10 @@ import {
   getWorkspaceAgentsByWorkspace,
   migrateLegacyAutopilotLaunchers,
   openWorkspaceDb,
+  reconcileTowerPgSnapshot,
+  runWorkspaceSyncTransaction,
 } from '../src/db.js';
-import { applyPgRecordChanges } from '../src/pg-record-delta.js';
+import { applyPgRecordChanges, PG_RECORD_DELTA_FAMILIES, resetPgRecordAuthority } from '../src/pg-record-delta.js';
 import {
   inboundAutopilotConnection,
   inboundWorkspaceAgent,
@@ -62,6 +64,33 @@ describe('Autopilot materialization and compatibility migration', () => {
   it('registers the singular delta families and plural list envelopes', () => {
     expect(PG_SYNC_FAMILY_MAP.autopilot_connection).toMatchObject({ envelope: 'autopilot_connections', table: 'autopilot_connections' });
     expect(PG_SYNC_FAMILY_MAP.workspace_agent).toMatchObject({ envelope: 'workspace_agents', table: 'workspace_agents' });
+    expect(PG_RECORD_DELTA_FAMILIES).toEqual(expect.arrayContaining(['autopilot_connection', 'workspace_agent']));
+    expect(runWorkspaceSyncTransaction.toString()).toContain('db.autopilot_connections');
+    expect(runWorkspaceSyncTransaction.toString()).toContain('db.workspace_agents');
+  });
+
+  it('reconciles omitted canonical snapshot rows while preserving present and compatibility rows', async () => {
+    const connection = fixture.canonical_upserts.changes.find(change => change.family === 'autopilot_connection');
+    const agent = fixture.canonical_upserts.changes.find(change => change.family === 'workspace_agent');
+    const presentConnection = { ...connection, id: '50000000-0000-4000-8000-000000000019', row: {
+      ...connection.row, id: '50000000-0000-4000-8000-000000000019', installation_id: 'present-installation', display_name: 'Present',
+    } };
+    const presentAgent = { ...agent, id: '50000000-0000-4000-8000-000000000020', row: {
+      ...agent.row, id: '50000000-0000-4000-8000-000000000020', connection_id: presentConnection.id,
+      agent_id: 'present-agent', agent_npub: 'npub1present', sort_order: 7,
+    } };
+    await applyPgRecordChanges(store, page([connection, agent, presentConnection, presentAgent]), { expectedCursor: null });
+    await migrateLegacyAutopilotLaunchers(workspaceId, [{ agent_npub: 'npub1legacy', url: 'https://legacy.example' }]);
+
+    await reconcileTowerPgSnapshot({ autopilot_connections: [presentConnection.id], workspace_agents: [presentAgent.id] });
+
+    expect(await db.autopilot_connections.get(connection.id)).toBeUndefined();
+    expect(await db.workspace_agents.get(agent.id)).toBeUndefined();
+    expect(await db.autopilot_connections.get(presentConnection.id)).toMatchObject({ installation_id: 'present-installation' });
+    expect(await db.workspace_agents.get(presentAgent.id)).toMatchObject({ connection_id: presentConnection.id, sort_order: 7 });
+    expect((await db.autopilot_connections.toArray()).filter(row => row.pg_backend === false)).toHaveLength(1);
+    expect((await db.workspace_agents.toArray()).filter(row => row.pg_backend === false)).toHaveLength(1);
+    expect((await getWorkspaceAgentsByConnection(presentConnection.id)).map(row => row.agent_npub)).toEqual(['npub1present']);
   });
 
   it('materializes one connection with ordered, visible workspace agents and converges archive tombstones', async () => {
@@ -96,6 +125,32 @@ describe('Autopilot materialization and compatibility migration', () => {
     expect(connections[0].metadata.installation_identity_verified).toBe(false);
     expect(agents.map(row => row.sort_order)).toEqual([0, 1]);
     expect(JSON.stringify({ connections, agents })).not.toContain('bunker://secret');
+  });
+
+  it('keeps repeated migration raw rows idempotent but hides an exact canonical launcher match, including after archive', async () => {
+    const connection = fixture.canonical_upserts.changes.find(change => change.family === 'autopilot_connection');
+    const agent = fixture.canonical_upserts.changes.find(change => change.family === 'workspace_agent');
+    const legacy = [{ agent_npub: agent.row.agent_npub, url: connection.row.https_endpoint }];
+    expect(await migrateLegacyAutopilotLaunchers(workspaceId, legacy)).toEqual({ connections: 1, agents: 1 });
+    await applyPgRecordChanges(store, page([connection, agent]), { expectedCursor: null });
+    expect(await migrateLegacyAutopilotLaunchers(workspaceId, legacy)).toEqual({ connections: 0, agents: 0 });
+    expect(await getWorkspaceAgentsByWorkspace(workspaceId)).toHaveLength(1);
+    expect((await db.workspace_agents.toArray()).filter(row => row.pg_backend === false)).toHaveLength(1);
+
+    await applyPgRecordChanges(store, page([{ ...agent, version: '17', row: {
+      ...agent.row, row_version: 2, archived_at: '2026-09-06T00:00:00+00:00',
+    } }], 'archived'), { expectedCursor: 'next' });
+    expect(await migrateLegacyAutopilotLaunchers(workspaceId, legacy)).toEqual({ connections: 0, agents: 0 });
+    expect(await getWorkspaceAgentsByWorkspace(workspaceId)).toEqual([]);
+    expect((await db.workspace_agents.toArray()).filter(row => row.pg_backend === false)).toHaveLength(1);
+  });
+
+  it('clears both normalized families on record-delta authority reset', async () => {
+    await applyPgRecordChanges(store, page(fixture.canonical_upserts.changes.filter(change =>
+      ['autopilot_connection', 'workspace_agent'].includes(change.family))), { expectedCursor: null });
+    await resetPgRecordAuthority(store);
+    expect(await db.autopilot_connections.count()).toBe(0);
+    expect(await db.workspace_agents.count()).toBe(0);
   });
 
   it('clears both normalized families with workspace runtime teardown', async () => {

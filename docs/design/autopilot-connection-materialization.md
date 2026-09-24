@@ -28,7 +28,12 @@ rows. Migration is deterministic and idempotent:
 - no migration write is sent to Tower.
 
 This deliberately does not infer a verified Autopilot installation from a
-launcher URL. Canonical Tower rows supersede compatibility data only after a
-later command proves and persists that identity. Connect packages, NIP-98
-events, tokens, private keys, bunker/NWC material, and raw discovery responses
-are rejected rather than stored.
+launcher URL. The raw compatibility rows remain local and distinct from Tower
+installation identity. The workspace-agent query suppresses a compatibility
+launcher only when the canonical journal has an active or archived agent with
+the exact same npub and normalized public endpoint. This is presentation
+precedence, not an identity merge: it prevents repeated bundle migration from
+rendering a duplicate or resurrecting an archived canonical launcher while
+retaining the legacy row for compatibility and recovery. Connect packages,
+NIP-98 events, tokens, private keys, bunker/NWC material, and raw discovery
+responses are rejected rather than stored.

@@ -1707,10 +1707,43 @@ export async function getAutopilotConnectionsByWorkspace(workspaceId, { includeA
 }
 
 export async function getWorkspaceAgentsByWorkspace(workspaceId, { includeArchived = false, visibleOnly = false } = {}) {
-  const rows = await wsDb().workspace_agents.where('workspace_id').equals(String(workspaceId || '')).toArray();
-  return rows.filter(row => (includeArchived || !row.archived_at) && (!visibleOnly || row.is_visible === true))
+  const db = wsDb();
+  const normalizedWorkspaceId = String(workspaceId || '');
+  const rows = await db.workspace_agents.where('workspace_id').equals(normalizedWorkspaceId).toArray();
+  const shadowedCompatibilityIds = await getShadowedLegacyAgentIds(db, normalizedWorkspaceId, rows);
+  return rows.filter(row => !shadowedCompatibilityIds.has(row.id)
+      && (includeArchived || !row.archived_at) && (!visibleOnly || row.is_visible === true))
     .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0)
       || String(left.display_name || '').localeCompare(String(right.display_name || '')) || String(left.id).localeCompare(String(right.id)));
+}
+
+function normalizedPublicEndpoint(value) {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return '';
+    return parsed.toString().replace(/\/+$/, '');
+  } catch { return ''; }
+}
+
+async function getShadowedLegacyAgentIds(db, workspaceId, materializedAgents) {
+  const compatibilityAgents = materializedAgents.filter((row) => row?.pg_backend === false);
+  if (compatibilityAgents.length === 0) return new Set();
+  const rawRows = await db.pg_record_rows.where('family').anyOf('autopilot_connection', 'workspace_agent').toArray();
+  const canonicalConnections = new Map(rawRows
+    .filter((raw) => raw.family === 'autopilot_connection' && raw.operation === 'upsert'
+      && raw.row?.workspace_id === workspaceId)
+    .map((raw) => [raw.id, new Set([
+      normalizedPublicEndpoint(raw.row?.fips_endpoint),
+      normalizedPublicEndpoint(raw.row?.https_endpoint),
+    ].filter(Boolean))]));
+  const canonicalLauncherKeys = new Set(rawRows
+    .filter((raw) => raw.family === 'workspace_agent' && raw.operation === 'upsert'
+      && raw.row?.workspace_id === workspaceId && canonicalConnections.has(raw.row?.connection_id))
+    .flatMap((raw) => [...canonicalConnections.get(raw.row.connection_id)]
+      .map((endpoint) => `${String(raw.row?.agent_npub || '').trim()}\n${endpoint}`)));
+  return new Set(compatibilityAgents
+    .filter((row) => canonicalLauncherKeys.has(`${String(row.agent_npub || '').trim()}\n${normalizedPublicEndpoint(row.metadata?.launcher_url)}`))
+    .map((row) => row.id));
 }
 
 export async function getWorkspaceAgentsByConnection(connectionId, options = {}) {
@@ -1742,10 +1775,7 @@ export async function migrateLegacyAutopilotLaunchers(workspaceId, entries = [])
     const agentNpub = String(entry?.agent_npub || '').trim();
     const rawUrl = String(entry?.url || '').trim();
     let endpoint = '';
-    try {
-      const parsed = new URL(rawUrl);
-      if (['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password) endpoint = parsed.toString().replace(/\/+$/, '');
-    } catch { /* incompatible launchers remain in their original settings */ }
+    endpoint = normalizedPublicEndpoint(rawUrl);
     if (agentNpub && endpoint) normalized.push({ agentNpub, endpoint, index });
   }
   const db = wsDb();
@@ -1806,6 +1836,8 @@ export async function reconcileTowerPgSnapshot(manifest = {}) {
   await deleteOmitted(db.audio_notes, 'audio_notes');
   await deleteOmitted(db.daily_notes, 'daily_notes');
   await deleteOmitted(db.wapps, 'personal_wapps', (row) => row?.pg_backend === true || Boolean(row?.pg_personal_wapp_id));
+  await deleteOmitted(db.autopilot_connections, 'autopilot_connections');
+  await deleteOmitted(db.workspace_agents, 'workspace_agents');
 }
 
 export async function deleteSyncState(key) {
