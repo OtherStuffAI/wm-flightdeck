@@ -1948,6 +1948,18 @@
       "label": "Autopilot connection safety seam",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2049,
+      "label": "Validate Autopilot native pairing",
+      "notes": [],
+      "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2050,
+      "label": "Revoke incompatible native pairing",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
