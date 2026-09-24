@@ -35,7 +35,7 @@ describe('workspace workrooms feature flag', () => {
   it('gates workroom Deck and create UI while retaining workroom chat announcements', () => {
     expect(html).toContain('data-testid="workspace-workrooms-enabled"');
     expect(html).toContain('x-show="$store.chat.isTowerPgMode && $store.chat.workroomsEnabled"');
-    expect(html.match(/role="menuitem" x-show="\$store\.chat\.workroomsEnabled[^"]*"[^>]*>Start Workroom<\/button>/g)?.length).toBe(3);
+    expect(html.match(/role="menuitem" x-show="\$store\.chat\.workroomsEnabled[^"]*"[^>]*>Start Workroom<\/button>/g)?.length).toBe(2);
     expect(html).toContain('x-show="$store.chat.workroomsEnabled && !$store.chat.deckThreadComposerOpen"');
     expect(html).toContain('<template x-if="$store.chat.isWorkroomAnnouncement(msg)">');
     expect(html).toContain('x-show="$store.chat.workroomsEnabled && card.roomId"');

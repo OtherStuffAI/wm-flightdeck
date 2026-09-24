@@ -332,10 +332,10 @@ describe('chat composer image previews', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
   });
 
-  it('renders aligned channel/thread thumbnail strips, removal controls, and the shared lightbox', () => {
+  it('renders the modal thumbnail strip, removal controls, and shared lightbox', () => {
     const html = readFileSync(`${process.cwd()}/index.html`, 'utf8');
-    expect(html.match(/class="chat-image-draft-list"/g)).toHaveLength(2);
-    expect(html).toContain("removeChatFileDraft(draft.draft_id, 'message')");
+    expect(html.match(/class="chat-image-draft-list"/g)).toHaveLength(1);
+    expect(html).not.toContain("removeChatFileDraft(draft.draft_id, 'message')");
     expect(html).toContain("removeChatFileDraft(draft.draft_id, 'thread')");
     expect(html).toContain('data-chat-image-preview-close');
     expect(html).toContain('@keydown.escape.window="$store.chat.chatImagePreviewModal.open');

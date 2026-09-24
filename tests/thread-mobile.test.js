@@ -259,17 +259,17 @@ describe('Thread mobile responsive behavior', () => {
   });
 
   describe('HTML: thread layout class binding', () => {
-    it('chat and thread composers use multiline tokenized textboxes', async () => {
+    it('keeps only the modal thread composer as a multiline tokenized textbox', async () => {
       const fs = await import('node:fs');
       const path = await import('node:path');
       const htmlPath = path.resolve(import.meta.dirname, '..', 'index.html');
       const html = fs.readFileSync(htmlPath, 'utf-8');
 
-      expect(html).toContain('data-chat-composer="message"');
+      expect(html).not.toContain('data-chat-composer="message"');
       expect(html).toContain('data-chat-composer="thread"');
       expect(html).toContain('contenteditable="true"');
       expect(html).toContain('aria-multiline="true"');
-      expect(html).toContain('class="chat-input-actions"');
+      expect(html).toContain('class="thread-input-actions"');
     });
 
     it('clips horizontal overflow and keeps desktop resizing separate from the mobile height cap', async () => {

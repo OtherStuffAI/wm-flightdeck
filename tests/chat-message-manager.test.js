@@ -4013,7 +4013,7 @@ describe('chat message actions menu', () => {
     }
   });
 
-  it('loads a root message and its structured mentions into the main composer', () => {
+  it('opens a root message edit in the thread modal composer', () => {
     isTowerPgBackendMode.mockReturnValue(true);
     const message = {
       record_id: 'msg-1', channel_id: 'channel-1', parent_message_id: null,
@@ -4023,15 +4023,16 @@ describe('chat message actions menu', () => {
     };
     const { fn, store } = bindMethod('startMessageEdit', {
       session: { npub: 'npub1operator-a' }, messages: [message], selectedChannelId: 'channel-1',
-      messageInput: 'preserved draft',
+      threadInput: 'preserved draft',
       selectedAgentMentionsByComposer: { message: [{ type: 'agent', npub: 'npub1sam', label: 'Sam' }], thread: [] },
     });
 
     fn('msg-1');
 
-    expect(store.messageInput).toBe(message.body);
-    expect(store.messageEdit).toMatchObject({ recordId: 'msg-1', context: 'message', draftBeforeEdit: 'preserved draft' });
-    expect(store.selectedAgentMentionsByComposer.message).toEqual([{ type: 'agent', npub: 'npub1testagent', label: 'Test Agent' }]);
+    expect(store.activeThreadId).toBe('msg-1');
+    expect(store.threadInput).toBe(message.body);
+    expect(store.messageEdit).toMatchObject({ recordId: 'msg-1', context: 'thread', threadRootId: 'msg-1', draftBeforeEdit: 'preserved draft' });
+    expect(store.selectedAgentMentionsByComposer.thread).toEqual([{ type: 'agent', npub: 'npub1testagent', label: 'Test Agent' }]);
   });
 
   it('restores the prior composer draft and mention selection when editing is cancelled', () => {

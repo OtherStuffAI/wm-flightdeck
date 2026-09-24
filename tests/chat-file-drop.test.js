@@ -7,8 +7,8 @@ const indexSource = readFileSync(resolve('index.html'), 'utf8');
 const stylesSource = readFileSync(resolve('src/styles.css'), 'utf8');
 
 describe('chat file drop upload', () => {
-  it('wires file drops on both chat composers', () => {
-    expect(indexSource).toContain('@drop.prevent="$store.chat.handleChatFileDrop($event, \'message\')"');
+  it('wires file drops on the modal thread composer only', () => {
+    expect(indexSource).not.toContain('@drop.prevent="$store.chat.handleChatFileDrop($event, \'message\')"');
     expect(indexSource).toContain('@drop.prevent="$store.chat.handleChatFileDrop($event, \'thread\')"');
   });
 
@@ -22,12 +22,12 @@ describe('chat file drop upload', () => {
     expect(appSource).toContain('this.addChatFileDraft(file, context)');
   });
 
-  it('wires accessible attachment pickers, draft controls, and persisted rendering for both composers', () => {
-    expect(indexSource.match(/Attach photo or file/g)).toHaveLength(2);
-    expect(indexSource.match(/type="file"[^>]* multiple aria-label=/g)).toHaveLength(2);
-    expect(indexSource).toContain("handleChatAttachmentSelection($event, 'message')");
+  it('wires accessible attachment pickers, draft controls, and persisted rendering in the modal composer', () => {
+    expect(indexSource.match(/Attach photo or file/g)).toHaveLength(1);
+    expect(indexSource.match(/type="file"[^>]* multiple aria-label=/g)).toHaveLength(1);
+    expect(indexSource).not.toContain("handleChatAttachmentSelection($event, 'message')");
     expect(indexSource).toContain("handleChatAttachmentSelection($event, 'thread')");
-    expect(indexSource).toContain("uploadChatFileDraft(draft.draft_id, 'message')");
+    expect(indexSource).not.toContain("uploadChatFileDraft(draft.draft_id, 'message')");
     expect(indexSource).toContain("removeChatFileDraft(draft.draft_id, 'thread')");
     expect(indexSource).toContain('chatAttachmentMarkdown(attachment)');
     expect(appSource).toContain("status: 'uploading'");
@@ -47,10 +47,10 @@ describe('chat file drop upload', () => {
     expect(indexSource.match(/data-chat-composer="thread"/g)).toHaveLength(2);
   });
 
-  it('disables only the pending composer and exposes immediate sending labels', () => {
-    expect(indexSource).toContain('$store.chat.composerSendPending.message ? \'Sending…\' : \'Send\'');
+  it('disables the pending modal composer and exposes immediate sending labels', () => {
+    expect(indexSource).not.toContain('$store.chat.composerSendPending.message ? \'Sending…\' : \'Send\'');
     expect(indexSource).toContain('$store.chat.composerSendPending.thread ? \'Sending…\' : \'Reply\'');
-    expect(indexSource).toContain(':aria-busy="$store.chat.composerSendPending.message.toString()"');
+    expect(indexSource).not.toContain(':aria-busy="$store.chat.composerSendPending.message.toString()"');
     expect(indexSource).toContain(':aria-busy="($store.chat.deckThreadComposerBusy || $store.chat.composerSendPending.thread).toString()"');
   });
 

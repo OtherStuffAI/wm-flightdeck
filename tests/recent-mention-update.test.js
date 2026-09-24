@@ -35,11 +35,11 @@ beforeEach(() => {
 });
 
 describe('recent agent update composer action', () => {
-  it('offers an accessible agent-only update pill in both composer rows', () => {
+  it('offers an accessible agent-only update pill in the modal composer', () => {
     const html = readFileSync(`${process.cwd()}/index.html`, 'utf8');
     const updatePills = html.match(/<button[^>]+recent-mention-update-chip[^>]+>/g) || [];
 
-    expect(updatePills).toHaveLength(2);
+    expect(updatePills).toHaveLength(1);
     for (const pill of updatePills) {
       expect(pill).toContain(`x-show="person.type === 'agent'"`);
       expect(pill).toContain(`' update please?'`);

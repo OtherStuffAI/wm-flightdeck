@@ -2000,6 +2000,14 @@
       "notes": [
         "Connect signed Autopilot packages using their exact FIPS transport identity, and show the specific failed connection stage with a useful recovery action."
       ]
+    },
+    {
+      "buildNumber": 2063,
+      "label": "Conversation card index",
+      "notes": [
+        "Browse channel conversations as spacious cards with prominent titles, opening and latest messages, activity, and message counts.",
+        "Start new threads and edit messages in the established conversation modal instead of an inline channel composer."
+      ]
     }
   ]
 }

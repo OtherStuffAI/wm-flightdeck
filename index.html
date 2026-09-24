@@ -4041,16 +4041,26 @@
                 <span x-show="$store.chat.workroomCreationAnnouncement?.body" x-text="$store.chat.workroomCreationAnnouncement?.body"></span>
                 <a x-show="$store.chat.workroomCreationAnnouncementHref" :href="$store.chat.workroomCreationAnnouncementHref" target="_blank" rel="noreferrer" x-text="$store.chat.workroomCreationAnnouncementHref"></a>
               </div>
-              <div class="chat-feed" data-chat-feed @scroll.passive="$store.chat.updateChatFeedLoadMoreVisibility($event.target)">
+              <header class="channel-thread-index-header">
+                <div class="channel-thread-index-heading">
+                  <span class="channel-thread-index-eyebrow">Conversations</span>
+                  <h2 x-text="$store.chat.selectedChannel ? $store.chat.getChannelLabel($store.chat.selectedChannel) : 'Channel chats'"></h2>
+                  <p>Open a conversation to read and reply, or start a new thread.</p>
+                </div>
+                <button type="button" class="deck-new-thread-button channel-thread-index-new" @click="$store.chat.openDeckThreadComposer()" :disabled="!$store.chat.selectedChannelId" aria-label="New thread">
+                  <span aria-hidden="true">+</span><span>New thread</span>
+                </button>
+              </header>
+              <div class="chat-feed channel-thread-index" data-chat-feed @scroll.passive="$store.chat.updateChatFeedLoadMoreVisibility($event.target)">
                 <div class="chat-channel-switch-overlay" x-show="$store.chat.pendingChannelSelectionId" x-cloak aria-live="polite">
                   Loading channel…
                 </div>
                 <template x-if="!$store.chat.selectedChannelId">
-                  <div class="chat-empty">Select or create a channel to start chatting.</div>
+                  <div class="chat-empty channel-thread-index-empty"><strong>Choose a channel</strong><span>Select or create a channel to browse its conversations.</span></div>
                 </template>
 
                 <template x-if="$store.chat.selectedChannelId && !$store.chat.pendingChannelSelectionId && $store.chat.mainFeedMessages.length === 0">
-                  <div class="chat-empty">No messages yet. Start a conversation!</div>
+                  <div class="chat-empty channel-thread-index-empty"><strong>No conversations yet</strong><span>Start the first thread for this channel.</span><button type="button" class="btn-primary" @click="$store.chat.openDeckThreadComposer()">New thread</button></div>
                 </template>
 
                 <div class="chat-feed-history-controls" x-show="$store.chat.showMainFeedLoadMoreControl" x-cloak>
@@ -4071,7 +4081,7 @@
                 </div>
 
                 <template x-for="(msg, index) in $store.chat.visibleMainFeedMessages" :key="msg.record_id">
-                  <div class="chat-post" :class="{ 'chat-post-focused': $store.chat.isFocusedMessage(msg.record_id), 'chat-post-unread': $store.chat.isMessageUnread(msg), 'chat-post-thread-unread': $store.chat.isRootThreadUnread(msg), 'chat-post-divider': index > 0 }" :data-message-id="msg.record_id">
+                  <article class="chat-post channel-thread-card" :class="{ 'chat-post-focused': $store.chat.isFocusedMessage(msg.record_id), 'chat-post-unread': $store.chat.isMessageUnread(msg), 'chat-post-thread-unread': $store.chat.isRootThreadUnread(msg) }" :data-message-id="msg.record_id" tabindex="0" role="link" :aria-label="`Open ${$store.chat.getThreadCardTitle(msg)} conversation`" @keydown.enter.prevent="$store.chat.openThread(msg.record_id)" @keydown.space.prevent="$store.chat.openThread(msg.record_id)">
                     <div class="chat-msg-actions-menu" @click.outside="$store.chat.isMessageActionsMenuOpen(msg.record_id) && $store.chat.closeMessageActionsMenu()">
                       <button type="button" class="chat-msg-actions-toggle" title="Message actions" aria-label="Message actions" @click.stop="$store.chat.toggleMessageActionsMenu(msg.record_id)">
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
@@ -4100,7 +4110,14 @@
                       :class="msg.sync_status === 'synced' ? 'chat-status-dot-synced' : msg.sync_status === 'failed' ? 'chat-status-dot-failed' : 'chat-status-dot-pending'"
                       :title="$store.chat.isTowerPgMode ? (msg.pg_backend ? 'Postgres row' : 'Local row') : (msg.sync_status === 'synced' ? 'Synced' : msg.sync_status === 'failed' ? 'Sync failed' : 'Pending sync')"
                     ></span>
-                    <div class="chat-post-header">
+                    <div class="channel-thread-card-heading" @click="$store.chat.openThread(msg.record_id)">
+                      <div class="channel-thread-card-title-row">
+                        <span class="channel-thread-card-kicker" x-show="$store.chat.isRootThreadUnread(msg)" x-cloak>Unread activity</span>
+                        <span class="channel-thread-card-count" x-text="$store.chat.getThreadMessageCount(msg.record_id) + ' ' + ($store.chat.getThreadMessageCount(msg.record_id) === 1 ? 'message' : 'messages')"></span>
+                      </div>
+                      <h3 x-text="$store.chat.getThreadCardTitle(msg)"></h3>
+                    </div>
+                    <div class="chat-post-header channel-thread-card-author">
                       <button type="button" class="identity-avatar-button" @click.stop="$store.chat.openIdentityCard($event, msg.sender_npub)" :title="$store.chat.getSenderName(msg.sender_npub)">
                         <template x-if="$store.chat.getSenderAvatar(msg.sender_npub)">
                           <img class="chat-post-avatar" :src="$store.chat.getSenderAvatar(msg.sender_npub)" alt="" @error="$store.chat.handleAvatarImageError($event)" />
@@ -4111,7 +4128,7 @@
                       </button>
                       <span class="chat-post-sender" x-text="$store.chat.getSenderName(msg.sender_npub)"></span>
                       <span class="chat-archived-badge" x-show="$store.chat.isChatThreadArchived(msg.record_id)" x-cloak>Archived</span>
-                      <span class="chat-post-time" x-text="new Date(msg.updated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })"></span>
+                      <span class="chat-post-time" x-text="$store.chat.formatRelativeTime(msg.updated_at)"></span>
                       <span class="chat-edited-indicator" x-show="$store.chat.isMessageEdited(msg)" x-cloak>edited</span>
                     </div>
                     <div
@@ -4224,7 +4241,8 @@
                       </div>
                     </template>
                     <template x-if="$store.chat.getThreadReplyCount(msg.record_id) > 0">
-                      <div class="chat-thread-summary" @click="$store.chat.openThread(msg.record_id)">
+                      <div class="chat-thread-summary channel-thread-card-latest" @click="$store.chat.openThread(msg.record_id)">
+                        <span class="channel-thread-card-latest-label">Latest activity</span>
                         <div class="chat-thread-preview">
                           <div class="chat-thread-replier-stack" x-show="$store.chat.getThreadReplierAvatars(msg.record_id).length > 0">
                             <template x-for="person in $store.chat.getThreadReplierAvatars(msg.record_id)" :key="person.npub">
@@ -4238,110 +4256,19 @@
                               </span>
                             </template>
                           </div>
-                          <span class="chat-thread-preview-count" x-text="$store.chat.getThreadReplyCount(msg.record_id) + ' ' + ($store.chat.getThreadReplyCount(msg.record_id) === 1 ? 'reply' : 'replies')"></span>
-                          <span class="chat-thread-preview-link">view thread</span>
+                          <span class="chat-thread-preview-count" x-text="$store.chat.getSenderName($store.chat.getLatestThreadReply(msg.record_id)?.sender_npub)"></span>
+                          <span class="chat-thread-preview-link" x-text="$store.chat.formatRelativeTime($store.chat.getLatestThreadReply(msg.record_id)?.updated_at)"></span>
                         </div>
                         <div class="chat-thread-latest-preview" x-text="$store.chat.getLatestThreadReplyPreview(msg.record_id)"></div>
                       </div>
                     </template>
-                    <div class="chat-post-reply-bar" @click="$store.chat.openThread(msg.record_id)">
-                      <span class="chat-post-reply-placeholder">Reply in thread...</span>
+                    <div class="chat-post-reply-bar channel-thread-card-open" @click="$store.chat.openThread(msg.record_id)">
+                      <span class="chat-post-reply-placeholder">Open conversation</span><span aria-hidden="true">→</span>
                     </div>
-                  </div>
+                  </article>
                 </template>
               </div>
 
-              <div class="chat-input-bar">
-                <p class="chat-composer-disabled-reason" x-show="!$store.chat.canComposeInChatDestination" x-cloak x-text="$store.chat.chatComposerDisabledReason"></p>
-                <div class="chat-editing-banner" x-show="$store.chat.isEditingMessage('message')" x-cloak>
-                  <div><strong>Editing message</strong><span x-show="$store.chat.messageEdit.error" x-text="$store.chat.messageEdit.error"></span></div>
-                  <button type="button" @click="$store.chat.cancelMessageEdit()" :disabled="$store.chat.messageEdit.submitting">Cancel</button>
-                </div>
-                <div class="recent-mention-chips" x-show="$store.chat.getRecentMentionChips('message').length" x-cloak aria-label="Recently mentioned participants">
-                  <template x-for="person in $store.chat.getRecentMentionChips('message')" :key="person.id">
-                    <div class="recent-mention-chip-group">
-                      <button type="button" class="recent-mention-chip" @click="$store.chat.insertRecentMention('message', person, $event)" :aria-label="'Mention ' + person.label">
-                        <img x-show="$store.chat.canRenderAvatarImage(person.avatarUrl)" :src="person.avatarUrl" alt="" @error="$store.chat.handleAvatarImageError($event)" />
-                        <span class="recent-mention-chip-avatar" x-show="!$store.chat.canRenderAvatarImage(person.avatarUrl)" aria-hidden="true" x-text="$store.chat.getInitials(person.label)"></span>
-                        <span x-text="person.label"></span>
-                      </button>
-                      <button type="button" class="recent-mention-chip recent-mention-update-chip" x-show="person.type === 'agent'" @click="$store.chat.insertRecentMention('message', person, $event, ' update please?')" :aria-label="'Ask ' + person.label + ' for an update'">
-                        <span x-text="'@' + person.label + ' update please?'"></span>
-                      </button>
-                    </div>
-                  </template>
-                </div>
-                <div
-                  class="chat-input"
-                  data-chat-composer="message"
-                  data-channel-visible-mentions="true"
-                  :contenteditable="$store.chat.canComposeInChatDestination ? 'true' : 'false'"
-                  :aria-disabled="(!$store.chat.canComposeInChatDestination).toString()"
-                  role="textbox"
-                  aria-label="Message channel"
-                  aria-multiline="true"
-                  :data-placeholder="$store.chat.canComposeInChatDestination ? 'Message channel' : 'Select a channel to write a message'"
-                  x-init="$store.chat.initMentionComposer($el, 'message'); $watch('$store.chat.messageInput', value => $store.chat.syncMentionComposerFromModel($el, 'message', value))"
-                  @input="$store.chat.syncMentionComposerDraft($event.currentTarget); $store.chat.handleMentionInput($event.currentTarget, $event)"
-                  @keydown="$store.chat.handleComposerKeydown($event, () => $store.chat.sendMessage())"
-                  @paste="$store.chat.handleMentionComposerPaste($event, 'message')"
-                  @dragover.prevent
-                  @drop.prevent="$store.chat.handleChatFileDrop($event, 'message')"
-                ></div>
-                <div class="chat-input-actions">
-                  <div class="chat-composer-menu" x-data="{ open: false }" @click.outside="open = false">
-                    <button class="chat-composer-menu-trigger" type="button" @click="open = !open" :aria-expanded="open" aria-haspopup="menu">Menu</button>
-                    <div class="chat-composer-menu-popover" x-show="open" x-cloak x-transition role="menu">
-                      <button type="button" role="menuitem" @click="$store.chat.openAgentActivityDetails('channel'); open = false">Working history &amp; diagnostics</button>
-                      <label class="chat-composer-file-action" role="menuitem">
-                        <span>Attach photo or file</span>
-                        <input type="file" :disabled="!$store.chat.canComposeInChatDestination" multiple aria-label="Choose photos or files to attach" @change="$store.chat.handleChatAttachmentSelection($event, 'message'); open = false" />
-                      </label>
-                      <button type="button" role="menuitem" :disabled="!$store.chat.canComposeInChatDestination" @click="$store.chat.openAudioRecorder('chat'); open = false">Record Audio</button>
-                      <button type="button" role="menuitem" @click="$store.chat.startChannelHangCall(); open = false" :disabled="!$store.chat.canComposeInChatDestination || $store.chat.channelHangCallSending" x-text="$store.chat.channelHangCallSending ? 'Starting Hang call…' : 'Start Hang call'"></button>
-                      <button type="button" role="menuitem" x-show="$store.chat.workroomsEnabled" @click="$store.chat.openWorkroomCreation(); open = false" :disabled="!$store.chat.canComposeInChatDestination || !$store.chat.isTowerPgMode || !$store.chat.selectedChannelId">Start Workroom</button>
-                    </div>
-                  </div>
-                  <button class="chat-send-btn-text" @click="$store.chat.sendMessage()" :disabled="(!$store.chat.canComposeInChatDestination || (!$store.chat.hasMentionComposerDraftText('message') && $store.chat.messageAudioDrafts.length === 0 && $store.chat.messageFileDrafts.length === 0) || $store.chat.messageImageUploadCount > 0 || $store.chat.messageFileDrafts.some(d => d.status !== 'ready') || $store.chat.messageEdit.submitting || $store.chat.composerSendPending.message)" :aria-busy="$store.chat.composerSendPending.message.toString()" x-text="$store.chat.isEditingMessage('message') ? ($store.chat.messageEdit.submitting ? 'Saving…' : 'Save') : ($store.chat.composerSendPending.message ? 'Sending…' : 'Send')"></button>
-                </div>
-              </div>
-              <div class="chat-hang-call-error" x-show="$store.chat.channelHangCallError" x-cloak role="alert">
-                <span x-text="$store.chat.channelHangCallError"></span>
-                <button type="button" x-show="$store.chat.channelHangCallRetryUrl" @click="$store.chat.retryChannelHangCall()" :disabled="$store.chat.channelHangCallSending" x-text="$store.chat.channelHangCallSending ? 'Retrying…' : 'Retry'"></button>
-              </div>
-              <div class="audio-draft-list" x-show="$store.chat.messageAudioDrafts.length > 0">
-                <template x-for="draft in $store.chat.messageAudioDrafts" :key="draft.draft_id">
-                  <div class="audio-card audio-card-draft">
-                    <div class="audio-card-main">
-                      <div class="audio-card-title" x-text="draft.title || 'Voice note'"></div>
-                      <div class="audio-card-meta">
-                        <span x-text="draft.duration_seconds ? $store.chat.formatAudioDuration(draft.duration_seconds) : 'Pending'"></span>
-                        <span>Ready to send</span>
-                      </div>
-                    </div>
-                    <button type="button" class="audio-card-remove" @click="$store.chat.removeAudioDraft('chat', draft.draft_id)">&times;</button>
-                  </div>
-                </template>
-              </div>
-              <div class="chat-image-draft-list" x-show="$store.chat.messageFileDrafts.some(d => d.kind === 'image')" x-cloak aria-label="Pending images">
-                <template x-for="draft in $store.chat.messageFileDrafts.filter(d => d.kind === 'image')" :key="draft.draft_id">
-                  <div class="chat-image-draft" :class="{ 'chat-image-draft-error': draft.status === 'error' }">
-                    <button type="button" class="chat-image-draft-open" @click="$store.chat.openChatImagePreview(draft, $event.currentTarget)" :aria-label="'Open ' + draft.filename + ' preview'"><img :src="draft.preview_url" :alt="draft.filename" /></button>
-                    <span class="chat-image-draft-status" x-text="draft.status === 'uploading' ? 'Uploading…' : draft.status === 'error' ? 'Upload failed' : 'Ready'"></span>
-                    <button type="button" class="chat-image-draft-retry" x-show="draft.status === 'error'" @click="$store.chat.uploadChatFileDraft(draft.draft_id, 'message')">Retry</button>
-                    <button type="button" class="chat-image-draft-remove" :aria-label="'Remove ' + draft.filename" @click="$store.chat.removeChatFileDraft(draft.draft_id, 'message')">&times;</button>
-                  </div>
-                </template>
-              </div>
-              <div class="chat-file-draft-list" x-show="$store.chat.messageFileDrafts.some(d => d.kind !== 'image')" x-cloak>
-                <template x-for="draft in $store.chat.messageFileDrafts.filter(d => d.kind !== 'image')" :key="draft.draft_id">
-                  <div class="chat-file-draft" :class="{ 'chat-file-draft-error': draft.status === 'error' }">
-                    <div class="chat-file-draft-copy"><strong x-text="draft.filename"></strong><span x-text="$store.chat.formatAttachmentSize(draft.size_bytes) + ' · ' + (draft.status === 'uploading' ? 'Uploading…' : draft.status === 'error' ? draft.error : 'Ready to send')"></span></div>
-                    <button type="button" x-show="draft.status === 'error'" @click="$store.chat.uploadChatFileDraft(draft.draft_id, 'message')">Retry</button>
-                    <button type="button" aria-label="Remove attachment" @click="$store.chat.removeChatFileDraft(draft.draft_id, 'message')">&times;</button>
-                  </div>
-                </template>
-              </div>
             </div>
           </div>
 

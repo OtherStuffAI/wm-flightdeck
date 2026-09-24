@@ -165,7 +165,7 @@ describe('flight deck summary template', () => {
     const inbox = html.slice(inboxStart, recentStart);
 
     expect(hero).not.toContain('openDeckThreadComposer()');
-    expect(html.match(/openDeckThreadComposer\(\)/g)).toHaveLength(1);
+    expect(html.match(/openDeckThreadComposer\(\)/g)).toHaveLength(3);
     expect(inbox).not.toContain('Newest activity first');
     expect(inbox).toMatch(/<\/form>\s*<button type="button" class="deck-new-thread-button" title="New thread" aria-label="New thread" @click="\$store\.chat\.openDeckThreadComposer\(\)"><span aria-hidden="true">\+<\/span><\/button>\s*<div class="doc-actions-menu inbox-read-menu"/);
     expect(inbox).not.toMatch(/role="menuitem"[^>]*>New thread<\/button>/);

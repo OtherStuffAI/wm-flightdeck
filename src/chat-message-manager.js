@@ -1918,6 +1918,14 @@ export const chatMessageManagerMixin = {
     return truncateWords(latestReply.body, THREAD_REPLY_PREVIEW_WORD_LIMIT);
   },
 
+  getThreadMessageCount(recordId) {
+    return 1 + this.getThreadReplyCount(recordId);
+  },
+
+  getThreadCardTitle(message) {
+    return String(message?.title || message?.pg_thread_title || normalizePreviewText(message?.body) || 'Untitled thread').trim();
+  },
+
   getThreadReplierAvatars(recordId) {
     const seen = new Set();
     const avatars = [];
@@ -2900,21 +2908,22 @@ export const chatMessageManagerMixin = {
     if (!this.canEditMessage(message) || this.messageEdit?.submitting) return;
     if (this.messageEdit?.recordId) this.cancelMessageEdit();
 
-    const context = message.parent_message_id ? 'thread' : 'message';
-    const modelKey = context === 'thread' ? 'threadInput' : 'messageInput';
+    const context = 'thread';
+    const modelKey = 'threadInput';
     const existingMentions = message?.pg_metadata?.mentions || message?.metadata?.mentions;
     const mentions = (Array.isArray(existingMentions) ? existingMentions : [])
       .filter((mention) => ['agent', 'person'].includes(mention?.type) && mention?.npub)
       .map((mention) => ({ type: mention.type, npub: mention.npub, label: mention.label || mention.npub }));
 
-    if (context === 'thread' && this.activeThreadId !== message.parent_message_id) {
-      this.openThread(message.parent_message_id, { preserveComposer: true });
+    const threadRootId = message.parent_message_id || message.record_id;
+    if (this.activeThreadId !== threadRootId) {
+      this.openThread(threadRootId, { preserveComposer: true });
     }
     this.messageEdit = {
       recordId: message.record_id,
       context,
       channelId: message.channel_id,
-      threadRootId: message.parent_message_id || '',
+      threadRootId,
       originalBody: message.body || '',
       draftBeforeEdit: this[modelKey] || '',
       mentionsBeforeEdit: [...(this.selectedAgentMentionsByComposer?.[context] || [])],
@@ -2966,7 +2975,7 @@ export const chatMessageManagerMixin = {
       return;
     }
     if (message.channel_id !== this.selectedChannelId
-      || (edit.context === 'thread' && message.parent_message_id !== this.activeThreadId)) {
+      || (edit.context === 'thread' && (message.parent_message_id || message.record_id) !== this.activeThreadId)) {
       this.messageEdit = { ...edit, error: 'The chat context changed. Cancel and reopen the message to edit it.' };
       return;
     }

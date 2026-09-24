@@ -9,10 +9,10 @@ describe('Hang call UI', () => {
     expect(html).toContain(':disabled="$store.chat.threadHangCallSending"');
   });
 
-  it('offers the channel action with duplicate blocking and retry feedback', () => {
-    expect(html).toContain('$store.chat.startChannelHangCall()');
-    expect(html).toContain(':disabled="$store.chat.channelHangCallSending"');
-    expect(html).toContain('$store.chat.retryChannelHangCall()');
+  it('does not expose a channel-level action outside the conversation modal', () => {
+    expect(html).not.toContain('$store.chat.startChannelHangCall()');
+    expect(html).not.toContain(':disabled="$store.chat.channelHangCallSending"');
+    expect(html).not.toContain('$store.chat.retryChannelHangCall()');
   });
 
   it('renders a recognisable Join action with safe new-tab attributes', () => {

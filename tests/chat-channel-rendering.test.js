@@ -17,9 +17,18 @@ describe('Chat channel rendering hooks', () => {
     expect(styles).toMatch(/@media \(max-width: 640px\)[\s\S]*\.chat-read-aloud-btn\s*\{[\s\S]*min-height:\s*44px;/);
   });
 
-  it('renders explicit unread-row and divider hooks for chat messages', () => {
-    expect(html).toContain('chat-post-unread');
-    expect(html).toContain('chat-post-divider');
+  it('renders the channel as a stacked thread-card index with modal-only creation', () => {
+    expect(html).toContain('class="chat-feed channel-thread-index"');
+    expect(html).toContain('class="chat-post channel-thread-card"');
+    expect(html).toContain('getThreadCardTitle(msg)');
+    expect(html).toContain('getThreadMessageCount(msg.record_id)');
+    expect(html).toContain('channel-thread-card-latest');
+    expect(html).toContain('@click="$store.chat.openDeckThreadComposer()"');
+    const indexStart = html.indexOf('class="chat-layout"');
+    const modalStart = html.indexOf('class="chat-thread-modal-backdrop"', indexStart);
+    expect(html.slice(indexStart, modalStart)).not.toContain('data-chat-composer="message"');
+    expect(styles).toMatch(/\.chat-feed\.channel-thread-index\s*\{[\s\S]*gap:\s*1rem;/);
+    expect(styles).toMatch(/\.chat-post\.channel-thread-card\s*\{[\s\S]*border-radius:\s*16px;/);
   });
 
   it('keeps the load-more control wired to the shared visibility getter', () => {
@@ -28,6 +37,16 @@ describe('Chat channel rendering hooks', () => {
 
   it('keeps focus and unread styling on the same chat row binding', () => {
     expect(html).toMatch(/chat-post-focused[\s\S]*chat-post-unread/);
+  });
+
+  it('routes index editing through the existing thread modal composer', () => {
+    const indexStart = html.indexOf('class="chat-layout"');
+    const modalStart = html.indexOf('class="chat-thread-modal-backdrop"', indexStart);
+    const indexMarkup = html.slice(indexStart, modalStart);
+
+    expect(indexMarkup).toContain('startMessageEdit(msg.record_id)');
+    expect(indexMarkup).not.toContain('data-chat-composer="message"');
+    expect(html.slice(modalStart)).toContain('x-show="$store.chat.isEditingMessage(\'thread\')"');
   });
 
   it('binds the pastel unread treatment to root thread resource state', () => {
