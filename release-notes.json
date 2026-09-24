@@ -1942,6 +1942,12 @@
       "notes": [
         "Release document edit access when you leave Docs or background the page, while preserving unsaved changes as a local recovery draft."
       ]
+    },
+    {
+      "buildNumber": 2047,
+      "label": "Autopilot connection safety seam",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
