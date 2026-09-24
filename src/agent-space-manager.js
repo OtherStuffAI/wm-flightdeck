@@ -1,5 +1,6 @@
 import { createAutopilotDiscoveryClient, verifyAutopilotConnectPackage } from './autopilot-connect-client.js';
 import { createTowerPgAutopilotConnection, createTowerPgWorkspaceAgent } from './tower-command-intents.js';
+import { refreshInstalledAutopilotConnection, storedPackage } from './autopilot-connection-refresh.js';
 
 const text = (value) => String(value ?? '').trim();
 const VIEWS = new Set(['overview', 'pipelines', 'schedules', 'triggers']);
@@ -39,21 +40,7 @@ export function normalizeAgentBoundRows(payload, key, agent) {
   ));
 }
 
-export function storedPackage(connection) {
-  const endpoint = new URL(text(connection?.fips_endpoint));
-  const transportNpub = text(connection?.fips_transport_npub || connection?.metadata?.installation_npub);
-  if (endpoint.protocol !== 'http:' || !endpoint.port || endpoint.origin !== `http://${transportNpub}.fips:${endpoint.port}`) {
-    throw new Error('Stored Autopilot transport identity does not match its signed FIPS origin.');
-  }
-  const metadata = connection?.metadata || {};
-  return Object.freeze({
-    version: Number(metadata.connect_package_version || 1), installationId: text(connection.installation_id),
-    installationNpub: text(connection.metadata?.installation_npub), transportNpub, fipsEndpoint: endpoint.origin,
-    httpsEndpoint: text(connection.https_endpoint) || null, apiVersion: Number(connection.api_version || 1),
-    capabilities: Object.freeze([...(connection.capabilities || [])]), healthPath: text(metadata.health_path), agentsPath: text(metadata.agents_path),
-    controlledRestartPath: text(metadata.controlled_restart_path), controlledRestartStatusPath: text(metadata.controlled_restart_status_path),
-  });
-}
+export { storedPackage } from './autopilot-connection-refresh.js';
 
 export function formatAgentConnectError(error, fallback) {
   const rawMessage = text(error?.message || error?.reason);
@@ -75,6 +62,8 @@ export const agentSpaceManagerMixin = {
   agentConnectStep: 'package', agentDiscoveredAgents: [], agentSelectedDiscoveryIds: [], _verifiedAgentConnectPackage: null,
   selectedWorkspaceAgentId: '', agentSpaceView: 'overview', agentSpaceLoading: false, agentSpaceError: '', agentSpaceData: null,
   controlledRestartConfirmOpen: false, controlledRestartBusy: false, controlledRestartStatus: null, controlledRestartError: '',
+  controlledRestartConnectionId: '', controlledRestartAvailability: 'idle', controlledRestartAvailabilityMessage: '',
+  _verifiedControlledRestartPackages: null,
 
   openAgentConnectModal() {
     this.showAgentConnectModal = true; this.agentConnectStep = 'package'; this.agentConnectError = '';
@@ -138,7 +127,52 @@ export const agentSpaceManagerMixin = {
   async openAgentSpace(workspaceAgentId, view = 'overview') {
     this.selectedWorkspaceAgentId = text(workspaceAgentId); this.navSection = 'agents'; this.mobileNavOpen = false;
     await this.selectAgentSpaceView(view, { syncRoute: true });
-    if (this.selectedAgentCanControlledRestart) void this.resumeControlledRestartStatus();
+  },
+  async initializeControlledRestartLifecycle() {
+    const connections = this.controlledRestartConnections;
+    if (!this.controlledRestartConnectionId || !connections.some((row) => row.id === this.controlledRestartConnectionId)) {
+      this.controlledRestartConnectionId = connections.length === 1 ? connections[0].id : '';
+    }
+    if (!this.controlledRestartConnectionId) {
+      this.controlledRestartAvailability = connections.length ? 'selection_required' : 'unavailable';
+      this.controlledRestartAvailabilityMessage = connections.length
+        ? 'Choose the Autopilot installation to check. No restart target is selected.'
+        : 'No installed Autopilot connection is available in this workspace.';
+      return false;
+    }
+    return this.refreshControlledRestartAvailability();
+  },
+  async selectControlledRestartConnection(connectionId) {
+    this.controlledRestartConnectionId = text(connectionId);
+    this.controlledRestartStatus = null;
+    this.controlledRestartError = '';
+    return this.refreshControlledRestartAvailability();
+  },
+  async refreshControlledRestartAvailability() {
+    const connection = this.controlledRestartConnection;
+    if (!connection) return this.initializeControlledRestartLifecycle();
+    this.controlledRestartAvailability = 'checking';
+    this.controlledRestartAvailabilityMessage = 'Checking the current signed Autopilot capabilities…';
+    this.controlledRestartError = '';
+    try {
+      const { verified } = await refreshInstalledAutopilotConnection(this, connection);
+      if (!this._verifiedControlledRestartPackages) this._verifiedControlledRestartPackages = new Map();
+      this._verifiedControlledRestartPackages.set(connection.id, verified);
+      if (!verified.capabilities.includes('system.controlled-restart.v1')) {
+        this.controlledRestartAvailability = 'unavailable';
+        this.controlledRestartAvailabilityMessage = 'This Autopilot installation does not advertise controlled restart.';
+        return false;
+      }
+      this.controlledRestartAvailability = 'available';
+      this.controlledRestartAvailabilityMessage = 'Controlled restart is available. The destructive request still requires your browser admin signature.';
+      void this.resumeControlledRestartStatus();
+      return true;
+    } catch (error) {
+      this._verifiedControlledRestartPackages?.delete(connection.id);
+      this.controlledRestartAvailability = 'error';
+      this.controlledRestartAvailabilityMessage = managerError(error, 'Could not verify the current signed Autopilot capabilities.');
+      return false;
+    }
   },
   async selectAgentSpaceView(view, { syncRoute = false } = {}) {
     const nextView = VIEWS.has(view) ? view : 'overview'; this.agentSpaceView = nextView;
@@ -170,11 +204,12 @@ export const agentSpaceManagerMixin = {
     if (!this.controlledRestartBusy) this.controlledRestartConfirmOpen = false;
   },
   async requestControlledRestart() {
-    const connection = this.selectedAgentConnection;
-    if (!connection) return;
+    const connection = this.controlledRestartConnection;
+    const verified = this._verifiedControlledRestartPackages?.get(connection?.id);
+    if (!connection || !verified || this.controlledRestartAvailability !== 'available') return;
     this.controlledRestartBusy = true; this.controlledRestartError = '';
     try {
-      const client = createAutopilotDiscoveryClient(storedPackage(connection));
+      const client = createAutopilotDiscoveryClient(verified);
       this.controlledRestartStatus = await client.controlledRestart();
       this.controlledRestartConfirmOpen = false;
       await this.pollControlledRestartStatus();
@@ -189,12 +224,13 @@ export const agentSpaceManagerMixin = {
     } finally { this.controlledRestartBusy = false; }
   },
   async pollControlledRestartStatus() {
-    const connection = this.selectedAgentConnection;
-    if (!connection) return;
+    const connection = this.controlledRestartConnection;
+    const verified = this._verifiedControlledRestartPackages?.get(connection?.id);
+    if (!connection || !verified) return;
     const deadline = Date.now() + 120_000;
     while (Date.now() < deadline) {
       try {
-        const client = createAutopilotDiscoveryClient(storedPackage(connection));
+        const client = createAutopilotDiscoveryClient(verified);
         const status = await client.controlledRestartStatus();
         this.controlledRestartStatus = status;
         this.controlledRestartError = '';
@@ -209,10 +245,11 @@ export const agentSpaceManagerMixin = {
     return null;
   },
   async resumeControlledRestartStatus() {
-    const connection = this.selectedAgentConnection;
-    if (!connection) return false;
+    const connection = this.controlledRestartConnection;
+    const verified = this._verifiedControlledRestartPackages?.get(connection?.id);
+    if (!connection || !verified) return false;
     try {
-      const status = await createAutopilotDiscoveryClient(storedPackage(connection)).controlledRestartStatus();
+      const status = await createAutopilotDiscoveryClient(verified).controlledRestartStatus();
       this.controlledRestartStatus = status;
       this.controlledRestartError = '';
       if (status?.inProgress) void this.pollControlledRestartStatus();
@@ -226,6 +263,13 @@ export const agentSpaceManagerMixin = {
   get selectedAgentAutopilotUrl() { return text(this.selectedWorkspaceAgent?.metadata?.launch_url || this.selectedAgentConnection?.https_endpoint); },
   get selectedAgentCanInstructLabel() { return this.selectedWorkspaceAgent?.metadata?.can_instruct === true ? 'Can receive instructions' : 'Read-only'; },
   get selectedAgentCanControlledRestart() { return (this.selectedAgentConnection?.capabilities || []).includes('system.controlled-restart.v1'); },
+  get controlledRestartConnections() { return (this.agentConnections || []).filter((row) => row?.fips_endpoint && row?.metadata?.installation_npub); },
+  get controlledRestartConnection() { return this.controlledRestartConnections.find((row) => row.id === this.controlledRestartConnectionId) || null; },
+  get controlledRestartTargetLabel() {
+    const connection = this.controlledRestartConnection;
+    return connection ? `${connection.display_name || connection.installation_id} · ${connection.installation_id}` : 'No Autopilot installation selected';
+  },
+  get controlledRestartCanSubmit() { return this.controlledRestartAvailability === 'available' && !this.controlledRestartBusy && Boolean(this.controlledRestartConnection); },
   get controlledRestartStatusLabel() {
     const operation = this.controlledRestartStatus?.operation;
     if (operation) {

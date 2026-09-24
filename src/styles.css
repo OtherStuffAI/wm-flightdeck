@@ -10391,6 +10391,22 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   color: #991b1b;
 }
 
+.thread-live-activity-availability {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: #fff7ed;
+  color: #9a3412;
+  font-size: 0.82rem;
+}
+
+.thread-live-activity-availability button {
+  flex: 0 0 auto;
+}
+
 .chat-post-response-activity {
   display: inline-flex;
   align-items: center;
@@ -21192,7 +21208,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   color: #fff !important;
 }
 
-.agent-space{display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);min-height:calc(100vh - 120px);gap:1px;background:var(--border-color,#d8dde6)}
+.agents-page{display:grid;gap:1rem}.controlled-restart-top-level{margin:1.25rem 1.25rem 0;padding:1rem;border:1px solid var(--border-color,#d8dde6);border-radius:10px;background:var(--bg-primary,#fff);display:grid;gap:.75rem}.controlled-restart-top-level h2,.controlled-restart-top-level p{margin:.2rem 0}.controlled-restart-top-level label{display:grid;gap:.35rem;max-width:38rem}.controlled-restart-actions{display:flex;flex-wrap:wrap;gap:.65rem}.agent-space{display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);min-height:calc(100vh - 120px);gap:1px;background:var(--border-color,#d8dde6)}
 .agent-space-list,.agent-space-detail{background:var(--bg-primary,#fff);padding:1.25rem}.agent-space-list header,.agent-space-header,.agent-connect-modal>header{display:flex;align-items:flex-start;justify-content:space-between;gap:1rem}.agent-space-list h2,.agent-space-header h1{margin:0}
 .agent-space-card{display:flex;width:100%;flex-direction:column;align-items:flex-start;gap:.25rem;margin-top:.65rem;padding:.85rem;border:1px solid var(--border-color,#d8dde6);border-radius:10px;background:transparent;text-align:left;color:inherit}.agent-space-card.active{border-color:var(--accent-color,#4769ff);background:var(--surface-secondary,#f4f6fb)}.agent-space-card span,.agent-space-card small{color:var(--text-secondary,#667085)}
 .agent-space-tabs{display:flex;gap:.35rem;overflow:auto;margin:1rem 0;border-bottom:1px solid var(--border-color,#d8dde6)}.agent-space-tabs button{border:0;border-bottom:2px solid transparent;padding:.7rem .85rem;background:transparent;color:inherit}.agent-space-tabs button.active{border-bottom-color:var(--accent-color,#4769ff);font-weight:600}

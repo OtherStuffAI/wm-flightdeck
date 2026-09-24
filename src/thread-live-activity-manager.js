@@ -1,8 +1,10 @@
 import {
+  LIVE_THREAD_ACTIVITY_CAPABILITY,
   liveOverlayAsAgentActivity,
   ThreadLiveActivityController,
   terminalLiveActivityHasDurableFinal,
 } from './thread-live-activity.js';
+import { refreshInstalledAutopilotConnection } from './autopilot-connection-refresh.js';
 
 const text = (value) => String(value ?? '').trim();
 
@@ -40,7 +42,10 @@ function mentionedAgent(store) {
 export const threadLiveActivityManagerMixin = {
   liveThreadActivityOverlay: null,
   liveThreadActivityContext: null,
+  liveThreadActivityAvailability: 'idle',
+  liveThreadActivityAvailabilityMessage: '',
   _threadLiveActivityController: null,
+  _liveThreadActivityRefreshes: null,
 
   startThreadLiveActivity() {
     if (!this.activeThreadId || !this.isTowerPgMode) {
@@ -67,6 +72,10 @@ export const threadLiveActivityManagerMixin = {
       this.stopThreadLiveActivity();
       return;
     }
+    if (!connection.capabilities?.includes(LIVE_THREAD_ACTIVITY_CAPABILITY)) {
+      this._refreshThreadLiveActivityConnection(connection);
+      return;
+    }
     const key = JSON.stringify([connection.id, ...Object.values(context)]);
     if (this.liveThreadActivityContext?.key === key) return;
     this._threadLiveActivityController ??= new ThreadLiveActivityController({
@@ -76,13 +85,63 @@ export const threadLiveActivityManagerMixin = {
       },
     });
     this.liveThreadActivityContext = { ...context, key };
+    this.liveThreadActivityAvailability = 'available';
+    this.liveThreadActivityAvailabilityMessage = '';
     void this._threadLiveActivityController.open({ connection, context });
+  },
+
+  async _refreshThreadLiveActivityConnection(connection, { force = false } = {}) {
+    if (!this._liveThreadActivityRefreshes) this._liveThreadActivityRefreshes = new Map();
+    const fingerprint = JSON.stringify([connection.id, connection.row_version, connection.capabilities]);
+    if (!force && this._liveThreadActivityRefreshes.has(fingerprint)) return this._liveThreadActivityRefreshes.get(fingerprint);
+    this.liveThreadActivityAvailability = 'checking';
+    this.liveThreadActivityAvailabilityMessage = '';
+    const activeThreadId = text(this.activeThreadId);
+    const stillCurrent = () => activeThreadId && text(this.activeThreadId) === activeThreadId
+      && (this.agentConnections || []).some((row) => row.id === connection.id);
+    const refresh = refreshInstalledAutopilotConnection(this, connection)
+      .then(({ verified }) => {
+        if (!stillCurrent()) return false;
+        if (!verified.capabilities.includes(LIVE_THREAD_ACTIVITY_CAPABILITY)) {
+          this.liveThreadActivityAvailability = 'unsupported';
+          this.liveThreadActivityAvailabilityMessage = 'This Autopilot does not support live activity. Tower updates remain available; upgrade Autopilot, then retry the capability check.';
+          return false;
+        }
+        this.liveThreadActivityAvailability = 'refreshing';
+        this.liveThreadActivityAvailabilityMessage = 'Verified updated Autopilot capabilities. Enabling live activity…';
+        return true;
+      })
+      .catch((error) => {
+        if (!stillCurrent()) return false;
+        const code = text(error?.code);
+        if (code === 'route_unavailable') {
+          this.liveThreadActivityAvailability = 'unsupported';
+          this.liveThreadActivityAvailabilityMessage = 'This healthy Autopilot uses an older connection package. Upgrade Autopilot, then retry the capability check; Tower updates remain available.';
+        } else if (['installation_mismatch', 'endpoint_mismatch'].includes(code) || /preserve the installed .* identity/i.test(text(error?.message))) {
+          this.liveThreadActivityAvailability = 'rejected';
+          this.liveThreadActivityAvailabilityMessage = 'Live activity stayed disabled because the refreshed package did not match this installed Autopilot connection. Review the paired installation before retrying.';
+        } else {
+          this.liveThreadActivityAvailability = 'offline';
+          this.liveThreadActivityAvailabilityMessage = '';
+        }
+        return false;
+      });
+    this._liveThreadActivityRefreshes.set(fingerprint, refresh);
+    return refresh;
+  },
+
+  retryThreadLiveActivityCapabilityRefresh() {
+    const agent = mentionedAgent(this);
+    const connection = (this.agentConnections || []).find((row) => row.id === agent?.connection_id);
+    if (connection) void this._refreshThreadLiveActivityConnection(connection, { force: true });
   },
 
   stopThreadLiveActivity() {
     this._threadLiveActivityController?.clear();
     this.liveThreadActivityOverlay = null;
     this.liveThreadActivityContext = null;
+    this.liveThreadActivityAvailability = 'idle';
+    this.liveThreadActivityAvailabilityMessage = '';
   },
 
   getLiveThreadActivityRow() {

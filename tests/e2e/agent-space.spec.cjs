@@ -25,6 +25,15 @@ async function seedAgentSpace(page) {
       fips_endpoint: 'http://npub1transport.fips:3601', https_endpoint: 'https://autopilot.example',
       metadata: { installation_npub: 'npub1installation', health_path: '/health', agents_path: '/agents' }, capabilities: [], api_version: '1',
     }];
+    store.controlledRestartConnectionId = 'connection-one';
+    store.controlledRestartAvailability = 'idle';
+    store.controlledRestartAvailabilityMessage = 'Capability snapshot is stale. Refreshing the signed Autopilot manifest…';
+    store.refreshControlledRestartAvailability = async function refreshControlledRestartAvailability() {
+      this.controlledRestartAvailability = 'available';
+      this.controlledRestartAvailabilityMessage = 'Controlled restart is available. The destructive request still requires your browser admin signature.';
+      this._verifiedControlledRestartPackages = new Map([['connection-one', { capabilities: ['system.controlled-restart.v1'] }]]);
+      return true;
+    };
     store.workspaceAgents = [
       { id: 'installed-alpha', connection_id: 'connection-one', agent_id: 'agent-alpha', agent_npub: 'npub1alpha', display_name: 'Alpha', is_visible: true, metadata: { description: 'First installed agent', can_instruct: true } },
       { id: 'installed-beta', connection_id: 'connection-one', agent_id: 'agent-beta', agent_npub: 'npub1beta', display_name: 'Beta', is_visible: true, metadata: { description: 'Second installed agent', can_instruct: false } },
@@ -57,6 +66,19 @@ test('shows two stable agents from one installation and read-only Agent Space da
   await expect(page.locator('.agent-space-detail')).toContainText('Shared one');
   await expect(page.locator('.agent-space-detail')).toContainText('channel: channel-one');
   await expect(page.getByRole('link', { name: 'Open in Autopilot' })).toHaveAttribute('href', 'https://autopilot.example');
+});
+
+test('renders top-level controlled restart for a stale connection and enables it after verified refresh', async ({ page }) => {
+  await seedAgentSpace(page);
+  const lifecycle = page.getByTestId('controlled-restart-panel');
+  await expect(lifecycle).toBeVisible();
+  await expect(lifecycle).toContainText('Capability snapshot is stale');
+  await expect(page.getByTestId('controlled-restart-open')).toBeDisabled();
+  await page.getByTestId('controlled-restart-refresh').click();
+  await expect(page.getByTestId('controlled-restart-availability')).toContainText('Controlled restart is available');
+  await expect(page.getByTestId('controlled-restart-open')).toBeEnabled();
+  await page.getByRole('button', { name: 'Pipelines' }).click();
+  await expect(lifecycle).toBeVisible();
 });
 
 test('keeps Agent Space usable at Peekaboo mobile width', async ({ page }) => {

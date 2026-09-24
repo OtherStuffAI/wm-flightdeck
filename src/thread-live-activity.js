@@ -1,4 +1,4 @@
-import { storedPackage } from './agent-space-manager.js';
+import { storedPackage } from './autopilot-connection-refresh.js';
 import { createAutopilotDiscoveryClient } from './autopilot-connect-client.js';
 
 export const LIVE_THREAD_ACTIVITY_CAPABILITY = 'flightdeck.live-thread-activity.v1';

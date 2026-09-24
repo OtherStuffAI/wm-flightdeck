@@ -2050,6 +2050,14 @@
       "notes": [
         "Request an explicitly confirmed, admin-signed Autopilot restart directly over the verified FIPS connection and follow its recovery status across reconnect."
       ]
+    },
+    {
+      "buildNumber": 2077,
+      "label": "Verified Autopilot capabilities",
+      "notes": [
+        "Use controlled restart from the top-level Agents screen, with an explicit Autopilot target and a verified current capability check before the action is enabled.",
+        "Refresh signed capabilities for existing paired Autopilots so compatible live thread activity starts without reinstalling agents, while Tower remains the fallback."
+      ]
     }
   ]
 }

@@ -353,6 +353,21 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
   }
 
   return Object.freeze({
+    async refreshConnectPackage() {
+      const ownerMatch = verifiedPackage.healthPath.match(/^\/api\/owners\/([^/]+)\/control-plane\/v1\/health$/);
+      if (!ownerMatch) fail('route_unavailable', 'The stored Autopilot connection does not contain a verified owner health route.');
+      const ownerNpub = decodeURIComponent(ownerMatch[1]);
+      const path = `/api/control-plane/v2/connect-package?owner_npub=${encodeURIComponent(ownerNpub)}`;
+      const envelope = await request(path, 'Connect capability refresh');
+      const refreshed = verifyAutopilotConnectPackage(envelope);
+      if (refreshed.installationId !== verifiedPackage.installationId
+        || refreshed.installationNpub !== verifiedPackage.installationNpub
+        || refreshed.transportNpub !== verifiedPackage.transportNpub
+        || refreshed.fipsEndpoint !== verifiedPackage.fipsEndpoint) {
+        fail('installation_mismatch', 'Refreshed Autopilot Connect Package does not match the installed connection.');
+      }
+      return refreshed;
+    },
     requestJson(path, options = {}) {
       if (!advertisedPaths.has(path)) {
         fail('route_unavailable', 'Request path was not signed into this Autopilot Connect Package.');

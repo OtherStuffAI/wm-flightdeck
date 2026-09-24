@@ -64,7 +64,7 @@ export const TOWER_WORKSPACE_COMMAND_CONTRACT = Object.freeze({
     'wapp-install-intent.list', 'wapp-install-intent.create', 'wapp-installation.list',
     'wapp-installation.reconcile', 'wapp-installation.revoke',
     'daily-note.upsert', 'resource-view-state.put',
-    'autopilot-connection.create', 'workspace-agent.create',
+    'autopilot-connection.create', 'autopilot-connection.update', 'workspace-agent.create',
   ]),
   acknowledgementWithTargetedCoverage: Object.freeze([
     'task.assignments.sync', 'thread.delete', 'thread.archive', 'thread.title.update',
@@ -134,7 +134,7 @@ async function reconcileTypedCommand(name, result, { owner = '', args = [] } = {
   } else if (name === 'resource-view-state.put') {
     const row = mapTowerResourceViewState(result?.view_state || result?.resource_view_state || result, { workspaceId: args[0] });
     if (row?.record_id) await upsertResourceViewState(row);
-  } else if (name === 'autopilot-connection.create') {
+  } else if (name === 'autopilot-connection.create' || name === 'autopilot-connection.update') {
     const row = inboundAutopilotConnection(result?.autopilot_connection || result);
     if (row.id) await upsertAutopilotConnection(row);
   } else if (name === 'workspace-agent.create') {
@@ -214,6 +214,7 @@ export function prepareTowerWorkspaceCommand(store, name, input = {}) {
     'invocation.create': 'createTowerPgInvocation',
     'resource-view-state.put': 'putTowerPgResourceViewState',
     'autopilot-connection.create': 'createTowerPgAutopilotConnection',
+    'autopilot-connection.update': 'updateTowerPgAutopilotConnection',
     'workspace-agent.create': 'createTowerPgWorkspaceAgent',
     'document-metadata.update': 'updateTowerPgDoc',
     'file-metadata.update': 'updateTowerPgFile',

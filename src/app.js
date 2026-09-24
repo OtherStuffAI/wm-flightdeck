@@ -3277,6 +3277,9 @@ export function initApp() {
       if (section === 'status') {
         this.refreshStatusRecentChanges({ force: true });
       }
+      if (section === 'agents') {
+        void this.initializeControlledRestartLifecycle?.();
+      }
       if (section === 'files' && isTowerPgBackendMode()) {
         Promise.resolve()
           .then(() => this.refreshDocuments())

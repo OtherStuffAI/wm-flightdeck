@@ -228,6 +228,85 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
     expect(event.tags).toContainEqual(['payload', expectedHash]);
   });
 
+  it('refreshes capabilities through the exact FIPS Connect route and verifies identity continuity', async () => {
+    const now = new Date();
+    const current = fixture({
+      generated_at: now.toISOString(),
+      api: {
+        version: 1,
+        capabilities: ['health', 'agents.read'],
+        health_path: '/api/owners/npub1owner/control-plane/v1/health',
+        agents_path: '/api/owners/npub1owner/control-plane/v1/agents',
+      },
+    });
+    const stored = verifyAutopilotConnectPackage(current.envelope, { now });
+    const refreshedManifest = {
+      ...current.manifest,
+      api: {
+        ...current.manifest.api,
+        capabilities: [...current.manifest.api.capabilities, 'system.controlled-restart.v1'],
+        controlled_restart_path: '/api/system/controlled-restart',
+        controlled_restart_status_path: '/api/system/controlled-restart/status',
+      },
+    };
+    const refreshedEnvelope = {
+      manifest: refreshedManifest,
+      signature: finalizeEvent({
+        kind: AUTOPILOT_CONNECT_SIGNATURE_KIND,
+        created_at: Math.floor(now.getTime() / 1000),
+        tags: [['d', refreshedManifest.installation.id]],
+        content: autopilotConnectManifestContent(refreshedManifest),
+      }, current.secret),
+    };
+    const authHeader = vi.fn(async () => 'Nostr exact');
+    const bridge = {
+      version: 2,
+      pairingIdentity: 'service-npub',
+      connect: vi.fn(async ({ endpoint, serviceNpub }) => ({ version: 2, endpoint, serviceNpub, transport: 'native' })),
+      fetch: vi.fn(async () => response(refreshedEnvelope)),
+    };
+    const refreshed = await createAutopilotDiscoveryClient(stored, { bridge, authHeader }).refreshConnectPackage();
+    const exactUrl = `${stored.fipsEndpoint}/api/control-plane/v2/connect-package?owner_npub=npub1owner`;
+    expect(authHeader).toHaveBeenCalledWith(exactUrl, 'GET', null);
+    expect(bridge.fetch).toHaveBeenCalledWith(exactUrl, expect.objectContaining({ method: 'GET', redirect: 'error' }));
+    expect(refreshed.capabilities).toContain('system.controlled-restart.v1');
+  });
+
+  it('rejects a newly signed refresh package for a different installation identity', async () => {
+    const now = new Date();
+    const current = fixture({
+      generated_at: now.toISOString(),
+      api: {
+        version: 1,
+        capabilities: ['health'],
+        health_path: '/api/owners/npub1owner/control-plane/v1/health',
+        agents_path: '/api/owners/npub1owner/control-plane/v1/agents',
+      },
+    });
+    const stored = verifyAutopilotConnectPackage(current.envelope, { now });
+    const mismatchedManifest = {
+      ...current.manifest,
+      installation: { ...current.manifest.installation, id: 'different-installation' },
+    };
+    const mismatchedEnvelope = {
+      manifest: mismatchedManifest,
+      signature: finalizeEvent({
+        kind: AUTOPILOT_CONNECT_SIGNATURE_KIND,
+        created_at: Math.floor(now.getTime() / 1000),
+        tags: [['d', mismatchedManifest.installation.id]],
+        content: autopilotConnectManifestContent(mismatchedManifest),
+      }, current.secret),
+    };
+    const bridge = {
+      version: 2,
+      pairingIdentity: 'service-npub',
+      connect: vi.fn(async ({ endpoint, serviceNpub }) => ({ version: 2, endpoint, serviceNpub, transport: 'native' })),
+      fetch: vi.fn(async () => response(mismatchedEnvelope)),
+    };
+    await expect(createAutopilotDiscoveryClient(stored, { bridge, authHeader: vi.fn(async () => 'Nostr exact') }).refreshConnectPackage())
+      .rejects.toMatchObject({ code: 'installation_mismatch' });
+  });
+
   it('signs the exact live-thread snapshot URL and requires advertised capability', async () => {
     const authHeader = vi.fn(async () => 'Nostr exact');
     const bridge = {

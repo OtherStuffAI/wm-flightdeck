@@ -48,8 +48,8 @@ function makeStore() {
     session: { npub: 'npub1person' },
     _recordDeltaAttentionActive: true,
     agentConnectStep: 'agents',
-    agentDiscoveredAgents: [{ agentId: 'rick', botNpub: 'npub1rick', name: 'Rick', description: 'Agent', canInstruct: true, paths: {} }],
-    agentSelectedDiscoveryIds: ['rick'],
+    agentDiscoveredAgents: [{ agentId: 'test-agent', botNpub: 'npub1testagent', name: 'Test Agent', description: 'Agent', canInstruct: true, paths: {} }],
+    agentSelectedDiscoveryIds: ['test-agent'],
     _verifiedAgentConnectPackage: {
       version: 2,
       installationId: 'installation-one',
@@ -79,8 +79,8 @@ function makeStore() {
   Object.assign(store, {
     _recordDeltaAttentionActive: true,
     agentConnectStep: 'agents',
-    agentDiscoveredAgents: [{ agentId: 'rick', botNpub: 'npub1rick', name: 'Rick', description: 'Agent', canInstruct: true, paths: {} }],
-    agentSelectedDiscoveryIds: ['rick'],
+    agentDiscoveredAgents: [{ agentId: 'test-agent', botNpub: 'npub1testagent', name: 'Test Agent', description: 'Agent', canInstruct: true, paths: {} }],
+    agentSelectedDiscoveryIds: ['test-agent'],
     _verifiedAgentConnectPackage: {
       version: 2, installationId: 'installation-one', installationNpub: 'npub1installation', transportNpub: 'npub1transport',
       fipsEndpoint: 'http://npub1transport.fips:3601', httpsEndpoint: null, apiVersion: 1, capabilities: ['agents.read'],
@@ -121,8 +121,8 @@ describe('Agent Connect install lifecycle', () => {
       created_at: '2026-09-24T00:00:00Z', updated_at: '2026-09-24T00:00:00Z', archived_at: null,
     } });
     api.createTowerPgWorkspaceAgent.mockResolvedValue({ workspace_agent: {
-      id: agentId, workspace_id: workspaceId, connection_id: connectionId, agent_id: 'rick', agent_npub: 'npub1rick',
-      display_name: 'Rick', avatar_url: null, capabilities: [], sort_order: 0, is_visible: true,
+      id: agentId, workspace_id: workspaceId, connection_id: connectionId, agent_id: 'test-agent', agent_npub: 'npub1testagent',
+      display_name: 'Test Agent', avatar_url: null, capabilities: [], sort_order: 0, is_visible: true,
       metadata: { description: 'Agent', can_instruct: true, paths: {} }, row_version: 1,
       created_by_actor_id: 'actor-1', updated_by_actor_id: 'actor-1', archived_by_actor_id: null,
       created_at: '2026-09-24T00:00:00Z', updated_at: '2026-09-24T00:00:00Z', archived_at: null,
@@ -146,10 +146,10 @@ describe('Agent Connect install lifecycle', () => {
     expect(store.agentConnectError).toBe('');
     expect(store.openAgentSpace).toHaveBeenCalledWith(agentId);
     expect(await db.autopilot_connections.get(connectionId)).toMatchObject({ installation_id: 'installation-one' });
-    expect(await db.workspace_agents.get(agentId)).toMatchObject({ agent_id: 'rick', connection_id: connectionId });
+    expect(await db.workspace_agents.get(agentId)).toMatchObject({ agent_id: 'test-agent', connection_id: connectionId });
     db.close();
     await openWorkspaceDb('agent-connect-install-lifecycle').open();
-    expect(await getWorkspaceDb().workspace_agents.get(agentId)).toMatchObject({ agent_id: 'rick' });
+    expect(await getWorkspaceDb().workspace_agents.get(agentId)).toMatchObject({ agent_id: 'test-agent' });
   });
 
   it('owns command transport and forced materialization outside an ambient Dexie transaction', async () => {
@@ -162,6 +162,6 @@ describe('Agent Connect install lifecycle', () => {
     });
     await install;
     expect(store.agentConnectError).toBe('');
-    expect(await db.workspace_agents.get(agentId)).toMatchObject({ agent_id: 'rick' });
+    expect(await db.workspace_agents.get(agentId)).toMatchObject({ agent_id: 'test-agent' });
   });
 });

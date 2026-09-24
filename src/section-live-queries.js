@@ -408,6 +408,10 @@ function buildWorkspaceSpecs(store) {
         if (!isSameWorkspace(store, workspaceKey, ownerNpub)) return;
         store.agentConnections = connections;
         void store.startThreadLiveActivity?.();
+        if (store.navSection === 'agents' && (store.controlledRestartAvailability === 'idle'
+          || (!store.controlledRestartConnectionId && connections.length > 0))) {
+          void store.initializeControlledRestartLifecycle?.();
+        }
         if (store.navSection === 'agents' && store.selectedWorkspaceAgentId && !store.agentSpaceLoading && !store.agentSpaceData) {
           void store.loadSelectedAgentSpaceView?.();
         }
