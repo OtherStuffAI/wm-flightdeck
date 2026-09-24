@@ -1987,6 +1987,12 @@
         "Connect signed Autopilot packages over native FIPS, choose multiple visible agents, and keep their cards across reloads.",
         "Open read-only agent Overview, Pipelines, Schedules, and Triggers in Flight Deck, with a secondary link to Autopilot."
       ]
+    },
+    {
+      "buildNumber": 2058,
+      "label": "Activate read-only Agent Space",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
