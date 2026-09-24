@@ -22,6 +22,8 @@ import {
   upsertWorkroomApproval,
   upsertDailyNote,
   deleteWappActivityMute,
+  upsertAutopilotConnection,
+  upsertWorkspaceAgent,
 } from './db.js';
 import * as pgWrites from './pg-write-adapter.js';
 import * as api from './api.js';
@@ -39,6 +41,7 @@ import {
 } from './pg-read-hydrator.js';
 import { mapTowerResourceViewState } from './resource-view-state.js';
 import { toRaw } from './utils/state-helpers.js';
+import { inboundAutopilotConnection, inboundWorkspaceAgent } from './translators/autopilot-connections.js';
 
 export const TOWER_WORKSPACE_COMMAND_CONTRACT = Object.freeze({
   descriptorReconciled: Object.freeze([
@@ -61,6 +64,7 @@ export const TOWER_WORKSPACE_COMMAND_CONTRACT = Object.freeze({
     'wapp-install-intent.list', 'wapp-install-intent.create', 'wapp-installation.list',
     'wapp-installation.reconcile', 'wapp-installation.revoke',
     'daily-note.upsert', 'resource-view-state.put',
+    'autopilot-connection.create', 'workspace-agent.create',
   ]),
   acknowledgementWithTargetedCoverage: Object.freeze([
     'task.assignments.sync', 'thread.delete', 'thread.archive', 'thread.title.update',
@@ -130,6 +134,12 @@ async function reconcileTypedCommand(name, result, { owner = '', args = [] } = {
   } else if (name === 'resource-view-state.put') {
     const row = mapTowerResourceViewState(result?.view_state || result?.resource_view_state || result, { workspaceId: args[0] });
     if (row?.record_id) await upsertResourceViewState(row);
+  } else if (name === 'autopilot-connection.create') {
+    const row = inboundAutopilotConnection(result?.autopilot_connection || result);
+    if (row.id) await upsertAutopilotConnection(row);
+  } else if (name === 'workspace-agent.create') {
+    const row = inboundWorkspaceAgent(result?.workspace_agent || result);
+    if (row.id) await upsertWorkspaceAgent(row);
   }
   return result;
 }
@@ -203,6 +213,8 @@ export function prepareTowerWorkspaceCommand(store, name, input = {}) {
     'daily-scope-access.upsert': 'upsertTowerPgDailyScopeAgentAccess',
     'invocation.create': 'createTowerPgInvocation',
     'resource-view-state.put': 'putTowerPgResourceViewState',
+    'autopilot-connection.create': 'createTowerPgAutopilotConnection',
+    'workspace-agent.create': 'createTowerPgWorkspaceAgent',
     'document-metadata.update': 'updateTowerPgDoc',
     'file-metadata.update': 'updateTowerPgFile',
   }[name];

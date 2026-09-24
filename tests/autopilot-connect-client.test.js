@@ -3,6 +3,7 @@ import { finalizeEvent, generateSecretKey, getPublicKey, nip19 } from 'nostr-too
 import {
   AUTOPILOT_CONNECT_KIND,
   AUTOPILOT_CONNECT_SIGNATURE_KIND,
+  AUTOPILOT_CONNECT_TRANSPORT_VERSION,
   autopilotConnectManifestContent,
   createAutopilotDiscoveryClient,
   verifyAutopilotConnectPackage,
@@ -10,6 +11,8 @@ import {
 import { createNip98AuthHeaderForSecret } from '../src/auth/nostr.js';
 
 afterEach(() => vi.unstubAllGlobals());
+
+const NOW = new Date('2026-09-24T00:04:00.000Z');
 
 function fixture(overrides = {}) {
   const secret = generateSecretKey();
@@ -30,7 +33,7 @@ function fixture(overrides = {}) {
   };
   const signature = finalizeEvent({
     kind: AUTOPILOT_CONNECT_SIGNATURE_KIND,
-    created_at: 1_795_000_000,
+    created_at: Math.floor(Date.parse(manifest.generated_at) / 1000),
     tags: [['d', manifest.installation.id]],
     content: autopilotConnectManifestContent(manifest),
   }, secret);
@@ -44,9 +47,10 @@ function response(payload, status = 200) {
 describe('Autopilot Connect Package verification', () => {
   it('verifies a signed versioned package and binds its identity to the exact endpoint', () => {
     const { envelope, manifest } = fixture();
-    expect(verifyAutopilotConnectPackage(JSON.stringify(envelope))).toMatchObject({
+    expect(verifyAutopilotConnectPackage(JSON.stringify(envelope), { now: NOW })).toMatchObject({
       installationId: 'installation-test',
       installationNpub: manifest.installation.npub,
+      transportNpub: manifest.installation.npub,
       fipsEndpoint: `http://${manifest.installation.npub}.fips:43101`,
       apiVersion: 1,
     });
@@ -55,9 +59,9 @@ describe('Autopilot Connect Package verification', () => {
   it('rejects tampering and unsupported package versions', () => {
     const tampered = fixture();
     tampered.envelope.manifest.installation.id = 'changed';
-    expect(() => verifyAutopilotConnectPackage(tampered.envelope)).toThrowError(expect.objectContaining({ code: 'package_tampered' }));
-    const unsupported = fixture({ version: 2 });
-    expect(() => verifyAutopilotConnectPackage(unsupported.envelope)).toThrowError(expect.objectContaining({ code: 'package_version_unsupported' }));
+    expect(() => verifyAutopilotConnectPackage(tampered.envelope, { now: NOW })).toThrowError(expect.objectContaining({ code: 'package_tampered' }));
+    const unsupported = fixture({ version: 3 });
+    expect(() => verifyAutopilotConnectPackage(unsupported.envelope, { now: NOW })).toThrowError(expect.objectContaining({ code: 'package_version_unsupported' }));
   });
 
   it('rejects signer and FIPS endpoint identities that differ from the installation', () => {
@@ -65,23 +69,58 @@ describe('Autopilot Connect Package verification', () => {
     const otherSecret = generateSecretKey();
     wrongSigner.envelope.signature = finalizeEvent({
       kind: AUTOPILOT_CONNECT_SIGNATURE_KIND,
-      created_at: 1_795_000_000,
-      tags: [],
+      created_at: Math.floor(Date.parse(wrongSigner.manifest.generated_at) / 1000),
+      tags: [['d', wrongSigner.manifest.installation.id]],
       content: autopilotConnectManifestContent(wrongSigner.manifest),
     }, otherSecret);
-    expect(() => verifyAutopilotConnectPackage(wrongSigner.envelope)).toThrowError(expect.objectContaining({ code: 'installation_mismatch' }));
+    expect(() => verifyAutopilotConnectPackage(wrongSigner.envelope, { now: NOW })).toThrowError(expect.objectContaining({ code: 'installation_mismatch' }));
 
     const endpointMismatch = fixture();
     const otherNpub = nip19.npubEncode(getPublicKey(generateSecretKey()));
     endpointMismatch.manifest.endpoints.fips = `http://${otherNpub}.fips:43101`;
     endpointMismatch.signature = finalizeEvent({
       kind: AUTOPILOT_CONNECT_SIGNATURE_KIND,
-      created_at: 1_795_000_000,
-      tags: [],
+      created_at: Math.floor(Date.parse(endpointMismatch.manifest.generated_at) / 1000),
+      tags: [['d', endpointMismatch.manifest.installation.id]],
       content: autopilotConnectManifestContent(endpointMismatch.manifest),
     }, endpointMismatch.secret);
-    expect(() => verifyAutopilotConnectPackage({ manifest: endpointMismatch.manifest, signature: endpointMismatch.signature }))
+    expect(() => verifyAutopilotConnectPackage({ manifest: endpointMismatch.manifest, signature: endpointMismatch.signature }, { now: NOW }))
       .toThrowError(expect.objectContaining({ code: 'endpoint_mismatch' }));
+  });
+
+  it('accepts v2 distinct signer and transport identities and rejects transport tampering', () => {
+    const transportNpub = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    const v2 = fixture({
+      version: AUTOPILOT_CONNECT_TRANSPORT_VERSION,
+      transport: { fips: { npub: transportNpub } },
+      endpoints: { fips: `http://${transportNpub}.fips:43101`, https: 'https://autopilot.example' },
+    });
+    expect(verifyAutopilotConnectPackage(v2.envelope, { now: NOW })).toMatchObject({
+      version: 2,
+      installationNpub: v2.manifest.installation.npub,
+      transportNpub,
+      fipsEndpoint: `http://${transportNpub}.fips:43101`,
+    });
+
+    const wrongTransport = nip19.npubEncode(getPublicKey(generateSecretKey()));
+    const mismatched = fixture({
+      version: 2,
+      transport: { fips: { npub: wrongTransport } },
+      endpoints: { fips: `http://${transportNpub}.fips:43101`, https: null },
+    });
+    expect(() => verifyAutopilotConnectPackage(mismatched.envelope, { now: NOW }))
+      .toThrowError(expect.objectContaining({ code: 'endpoint_mismatch' }));
+  });
+
+  it('rejects expired, future-dated and signature-time-mismatched packages', () => {
+    expect(() => verifyAutopilotConnectPackage(fixture().envelope, { now: new Date('2026-09-24T00:06:00.001Z') }))
+      .toThrowError(expect.objectContaining({ code: 'package_expired' }));
+    expect(() => verifyAutopilotConnectPackage(fixture({ generated_at: '2026-09-24T00:05:00.000Z' }).envelope, { now: NOW }))
+      .toThrowError(expect.objectContaining({ code: 'package_expired' }));
+    const unbound = fixture();
+    unbound.envelope.signature = finalizeEvent({ ...unbound.signature, created_at: unbound.signature.created_at + 2 }, unbound.secret);
+    expect(() => verifyAutopilotConnectPackage(unbound.envelope, { now: NOW }))
+      .toThrowError(expect.objectContaining({ code: 'package_tampered' }));
   });
 
   it('rejects secret-bearing packages without persisting or logging their contents', () => {
@@ -91,10 +130,19 @@ describe('Autopilot Connect Package verification', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     const setItem = vi.fn();
     vi.stubGlobal('localStorage', { getItem: vi.fn(), setItem });
-    expect(() => verifyAutopilotConnectPackage(secretPackage.envelope)).toThrowError(expect.objectContaining({ code: 'package_secret' }));
+    expect(() => verifyAutopilotConnectPackage(secretPackage.envelope, { now: NOW })).toThrowError(expect.objectContaining({ code: 'package_secret' }));
     expect(log).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
     expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsafe advertised paths and credential-like query data', () => {
+    for (const healthPath of ['//attacker.invalid/health', '/health#fragment', '/health?token=reusable']) {
+      const candidate = fixture({ api: { ...fixture().manifest.api, health_path: healthPath } });
+      expect(() => verifyAutopilotConnectPackage(candidate.envelope, { now: NOW })).toThrowError(
+        expect.objectContaining({ code: expect.stringMatching(/^package_(invalid|secret)$/) }),
+      );
+    }
   });
 });
 
@@ -102,7 +150,7 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
   let verified;
 
   beforeEach(() => {
-    verified = verifyAutopilotConnectPackage(fixture().envelope);
+    verified = verifyAutopilotConnectPackage(fixture().envelope, { now: NOW });
   });
 
   it('uses only FIPS and exposes actionable missing-bridge and no-route failures', async () => {
@@ -121,6 +169,13 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
     };
     const client = createAutopilotDiscoveryClient(verified, { bridge, authHeader: vi.fn(async () => 'Nostr signed') });
     await expect(client.health()).rejects.toMatchObject({ code: 'route_unavailable', status: 404 });
+    expect(publicFetch).not.toHaveBeenCalled();
+
+    const failedNative = createAutopilotDiscoveryClient(verified, {
+      bridge: { ...bridge, connect: vi.fn(async () => { throw new Error('mesh offline'); }) },
+      authHeader: vi.fn(async () => 'Nostr signed'),
+    });
+    await expect(failedNative.health()).rejects.toMatchObject({ code: 'fips_connection_failed' });
     expect(publicFetch).not.toHaveBeenCalled();
 
     const disconnect = vi.fn();
@@ -152,7 +207,7 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
     await client.requestJson(verified.agentsPath, { method: 'POST', body });
     expect(bridge.connect).toHaveBeenCalledWith({
       endpoint: verified.fipsEndpoint,
-      serviceNpub: verified.installationNpub,
+      serviceNpub: verified.transportNpub,
     });
     const exactUrl = `${verified.fipsEndpoint}${verified.agentsPath}`;
     const exactBody = JSON.stringify(body);
@@ -178,13 +233,17 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
       fetch: vi.fn(async (url) => url.endsWith('/health')
         ? response({ ok: true, installation_id: verified.installationId, installation_npub: verified.installationNpub, api_version: 1, internal: 'drop' })
         : response({ installation_id: verified.installationId, agents: [
-          { agent_id: 'agent-alpha', bot_npub: verified.installationNpub, name: 'Example Agent', description: 'Product-neutral fixture', can_instruct: true, working_directory: '/private', ...{} },
+          { agent_id: 'agent-alpha', bot_npub: verified.installationNpub, name: 'Example Agent', description: 'Product-neutral fixture', can_instruct: true, paths: {
+            overview: '/api/agents/alpha/overview', pipelines: '/api/agents/alpha/pipelines', schedules: '/api/agents/alpha/schedules', triggers: '/api/agents/alpha/triggers',
+          }, working_directory: '/private' },
           hidden,
         ] })),
     };
     const client = createAutopilotDiscoveryClient(verified, { bridge, authHeader: vi.fn(async () => 'Nostr signed') });
     expect(await client.health()).toEqual({ ok: true, installationId: verified.installationId, installationNpub: verified.installationNpub, apiVersion: 1 });
-    expect(await client.discoverAgents()).toEqual([{ agentId: 'agent-alpha', botNpub: verified.installationNpub, name: 'Example Agent', description: 'Product-neutral fixture', canInstruct: true }]);
+    expect(await client.discoverAgents()).toEqual([{ agentId: 'agent-alpha', botNpub: verified.installationNpub, name: 'Example Agent', description: 'Product-neutral fixture', canInstruct: true, paths: {
+      overview: '/api/agents/alpha/overview', pipelines: '/api/agents/alpha/pipelines', schedules: '/api/agents/alpha/schedules', triggers: '/api/agents/alpha/triggers',
+    } }]);
   });
 
   it('reports authentication and health identity failures distinctly', async () => {

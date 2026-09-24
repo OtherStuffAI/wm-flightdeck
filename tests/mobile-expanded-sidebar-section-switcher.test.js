@@ -44,13 +44,14 @@ describe('expanded left-column section switcher', () => {
       ['docs', 'Docs'],
       ['files', 'Files'],
       ['settings', 'Setup'],
+      ['agents', 'Agents'],
     ]) {
       expect(expandedSwitcher).toContain(`navigateTo('${section}')`);
       expect(expandedSwitcher).toContain(`$store.chat.navSection === '${section}' ? 'page' : null`);
       expect(expandedSwitcher).toMatch(new RegExp(`>${label}<\\/span>`));
     }
 
-    expect(expandedSwitcher.match(/class="expanded-sidebar-section-icon"/g)).toHaveLength(6);
+    expect(expandedSwitcher.match(/class="expanded-sidebar-section-icon"/g)).toHaveLength(7);
     expect(expandedSwitcher.match(/navigateTo\('settings'\)/g)).toHaveLength(1);
     const setupButton = expandedSwitcher.match(/<button[^>]*navigateTo\('settings'\)[^>]*>[\s\S]*?<\/button>/)?.[0] ?? '';
     const canonicalSetupItem = sidebar.match(/<li[^>]*navSection === 'settings'[^>]*>[\s\S]*?<\/li>/)?.[0] ?? '';

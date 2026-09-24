@@ -37,6 +37,19 @@ function publicUrl(value, field, schemes, { nullable = false } = {}) {
   return normalized;
 }
 
+function connectionFipsEndpoint(row) {
+  const endpoint = publicUrl(row.fips_endpoint, 'fips_endpoint', ['http:', 'fips:', 'https:']);
+  if (row.fips_transport_npub != null) {
+    const transportNpub = string(row.fips_transport_npub, 'fips_transport_npub');
+    const parsed = new URL(endpoint);
+    if (parsed.protocol !== 'http:' || parsed.origin !== `http://${transportNpub}.fips:${parsed.port}`
+      || !parsed.port || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      throw new Error('fips_endpoint must exactly match fips_transport_npub');
+    }
+  }
+  return endpoint;
+}
+
 function publicMetadata(value, path = 'metadata') {
   if (value == null) return {};
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${path} must be an object`);
@@ -75,7 +88,8 @@ export function inboundAutopilotConnection(row = {}) {
     workspace_id: string(row.workspace_id, 'workspace_id'),
     installation_id: string(row.installation_id, 'installation_id').toLowerCase(),
     display_name: string(row.display_name, 'display_name'),
-    fips_endpoint: publicUrl(row.fips_endpoint, 'fips_endpoint', ['fips:', 'https:']),
+    fips_transport_npub: string(row.fips_transport_npub, 'fips_transport_npub', { nullable: true }),
+    fips_endpoint: connectionFipsEndpoint(row),
     https_endpoint: publicUrl(row.https_endpoint, 'https_endpoint', ['https:'], { nullable: true }),
     api_version: string(row.api_version, 'api_version'),
     capabilities: stringList(row.capabilities ?? [], 'capabilities'),
@@ -110,7 +124,8 @@ export function outboundAutopilotConnection(row = {}) {
   return {
     installation_id: string(row.installation_id, 'installation_id').toLowerCase(),
     display_name: string(row.display_name, 'display_name'),
-    fips_endpoint: publicUrl(row.fips_endpoint, 'fips_endpoint', ['fips:', 'https:']),
+    ...(row.fips_transport_npub == null ? {} : { fips_transport_npub: string(row.fips_transport_npub, 'fips_transport_npub') }),
+    fips_endpoint: connectionFipsEndpoint(row),
     https_endpoint: publicUrl(row.https_endpoint, 'https_endpoint', ['https:'], { nullable: true }),
     api_version: string(row.api_version ?? '1', 'api_version'),
     capabilities: stringList(row.capabilities ?? [], 'capabilities'),

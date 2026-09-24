@@ -73,6 +73,7 @@ async function renderExpandedComposition(page, { width, height }) {
                 <button class="expanded-sidebar-section-switcher-btn" data-section="docs">Docs</button>
                 <button class="expanded-sidebar-section-switcher-btn" data-section="files">Files</button>
                 <button class="expanded-sidebar-section-switcher-btn" data-section="settings">Setup</button>
+                <button class="expanded-sidebar-section-switcher-btn" data-section="agents">Agents</button>
               </nav>
               <div class="chat-channel-header-actions"><button class="chat-channel-header-icon-btn" aria-label="Full screen">↗</button></div>
             </div>
@@ -116,8 +117,8 @@ test('rendered narrow expanded composition keeps Setup reachable and active', as
   await expect(sidebar.locator('.sidebar-scope-navigation')).toBeVisible();
   await expect(sidebar.locator('hr')).toHaveCount(0);
   await expect(topSections).toHaveCount(1);
-  await expect(topSections.locator('.expanded-sidebar-section-switcher-btn')).toHaveCount(6);
-  await expect(topSections.locator('.expanded-sidebar-section-switcher-btn')).toHaveText(['Deck', 'Chat', 'Tasks', 'Docs', 'Files', 'Setup']);
+  await expect(topSections.locator('.expanded-sidebar-section-switcher-btn')).toHaveCount(7);
+  await expect(topSections.locator('.expanded-sidebar-section-switcher-btn')).toHaveText(['Deck', 'Chat', 'Tasks', 'Docs', 'Files', 'Setup', 'Agents']);
   await expect(fullScreen).toBeVisible();
 
   await expectSetupRoutesAndActivates(page);
@@ -155,7 +156,7 @@ test('rendered wide laptop expanded composition shows Setup in the labelled top 
   await expect(sidebar.locator('.sidebar-scope-navigation')).toBeVisible();
   await expect(sidebar.locator('hr')).toHaveCount(0);
   await expect(topSections).toHaveCount(1);
-  await expect(topSections.locator('.expanded-sidebar-section-switcher-btn:visible')).toHaveText(['Deck', 'Chat', 'Tasks', 'Docs', 'Files', 'Setup']);
+  await expect(topSections.locator('.expanded-sidebar-section-switcher-btn:visible')).toHaveText(['Deck', 'Chat', 'Tasks', 'Docs', 'Files', 'Setup', 'Agents']);
   await expect(fullScreen).toBeVisible();
   await expectSetupRoutesAndActivates(page);
 

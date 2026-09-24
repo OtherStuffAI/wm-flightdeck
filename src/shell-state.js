@@ -742,6 +742,7 @@ export function createShellState(options = {}) {
           case 'chat': return 'chat';
           case 'docs': return 'docs';
           case 'files': return 'files';
+          case 'agents': return 'agents';
           case 'drive':
           case 'files': return 'files';
           case 'workroom': return 'workroom';
@@ -788,6 +789,9 @@ export function createShellState(options = {}) {
         if (this.navSection === 'tasks' && this.activeTaskId) url.searchParams.set('taskid', this.activeTaskId);
         if (this.navSection === 'tasks' && this.taskViewMode === 'list') url.searchParams.set('view', 'list');
         if (normalizeTaskSortMode(this.taskSortMode) !== 'manual') url.searchParams.set('sort', normalizeTaskSortMode(this.taskSortMode));
+      } else if (this.navSection === 'agents') {
+        if (this.selectedWorkspaceAgentId) url.searchParams.set('agentid', this.selectedWorkspaceAgentId);
+        if (this.agentSpaceView && this.agentSpaceView !== 'overview') url.searchParams.set('agentview', this.agentSpaceView);
       }
 
       return `${url.pathname}${url.search}${this.navSection === 'files' && url.hash.startsWith('#drive?') ? url.hash : ''}`;
@@ -950,6 +954,11 @@ export function createShellState(options = {}) {
           } else {
             this.closeTaskDetail({ syncRoute: false });
           }
+        } else if (this.navSection === 'agents') {
+          this.selectedWorkspaceAgentId = route.params.agentid || this.workspaceAgents?.[0]?.id || '';
+          this.agentSpaceView = ['overview', 'pipelines', 'schedules', 'triggers'].includes(route.params.agentview)
+            ? route.params.agentview : 'overview';
+          if (this.selectedWorkspaceAgentId) await this.loadSelectedAgentSpaceView?.();
         }
       } finally {
         this.routeSyncPaused = false;

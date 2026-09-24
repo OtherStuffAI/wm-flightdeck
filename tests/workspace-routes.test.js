@@ -205,7 +205,7 @@ describe('parseRouteLocation', () => {
   });
 
   it('parses enabled known page sections', () => {
-    const pages = ['chat', 'tasks', 'docs', 'files', 'settings'];
+    const pages = ['chat', 'tasks', 'docs', 'files', 'agents', 'settings'];
     for (const page of pages) {
       const route = parseRouteLocation(`${base}/my-ws/${page}`);
       expect(route.workspaceSlug).toBe('my-ws');
@@ -226,6 +226,13 @@ describe('parseRouteLocation', () => {
     const route = parseRouteLocation(`${base}/my-ws/autopilot`);
     expect(route.workspaceSlug).toBe('my-ws');
     expect(route.section).toBe('status');
+  });
+
+  it('parses a durable Agent Space selection', () => {
+    const route = parseRouteLocation(`${base}/my-ws/agents?agentid=installed-2&agentview=pipelines`);
+    expect(route.section).toBe('agents');
+    expect(route.params.agentid).toBe('installed-2');
+    expect(route.params.agentview).toBe('pipelines');
   });
 
   it('parses bare /notifications as status section (backward compat)', () => {

@@ -58,6 +58,21 @@ describe('Autopilot PG translators', () => {
     expect(() => inboundAutopilotConnection({ ...connection, metadata: { bearer_token: 'nope' } })).toThrow('not public capability metadata');
     expect(() => outboundAutopilotConnection({ ...connection, metadata: { nested: { bunker_uri: 'bunker://secret' } } })).toThrow('not public capability metadata');
   });
+
+  it('preserves v2 signer, transport identity and the exact signed HTTP FIPS origin', () => {
+    const connection = fixture.canonical_upserts.changes.find(change => change.family === 'autopilot_connection').row;
+    const row = {
+      ...connection,
+      fips_transport_npub: 'npub1transport',
+      fips_endpoint: 'http://npub1transport.fips:3601',
+    };
+    expect(outboundAutopilotConnection(inboundAutopilotConnection(row))).toMatchObject({
+      fips_transport_npub: 'npub1transport',
+      fips_endpoint: 'http://npub1transport.fips:3601',
+    });
+    expect(() => inboundAutopilotConnection({ ...row, fips_endpoint: 'http://npub1other.fips:3601' }))
+      .toThrow('must exactly match fips_transport_npub');
+  });
 });
 
 describe('Autopilot materialization and compatibility migration', () => {

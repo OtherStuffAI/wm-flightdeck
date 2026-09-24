@@ -1979,6 +1979,14 @@
       "label": "Converge Autopilot snapshot authority",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2057,
+      "label": "Read-only Agent Space",
+      "notes": [
+        "Connect signed Autopilot packages over native FIPS, choose multiple visible agents, and keep their cards across reloads.",
+        "Open read-only agent Overview, Pipelines, Schedules, and Triggers in Flight Deck, with a secondary link to Autopilot."
+      ]
     }
   ]
 }

@@ -43,6 +43,8 @@ import {
   getWorkroomLinks,
   getPendingWorkroomApprovals,
   isWorkspaceDbOpenForKey,
+  getAutopilotConnectionsByWorkspace,
+  getWorkspaceAgentsByWorkspace,
 } from './db.js';
 import { recordFamilyHash } from './translators/chat.js';
 import { isTowerPgBackendMode } from './backend-mode.js';
@@ -398,6 +400,27 @@ function buildWorkspaceSpecs(store) {
         store.pgWorkspaceMembers = members;
         store.refreshActiveMentionResults?.();
         store.scheduleTowerPgUnreadProjectionRefresh?.();
+      },
+    }, {
+      key: 'ws:autopilot-connections',
+      query: () => getAutopilotConnectionsByWorkspace(currentPgWorkspaceId(store)),
+      onNext: (connections) => {
+        if (!isSameWorkspace(store, workspaceKey, ownerNpub)) return;
+        store.agentConnections = connections;
+        if (store.navSection === 'agents' && store.selectedWorkspaceAgentId && !store.agentSpaceLoading && !store.agentSpaceData) {
+          void store.loadSelectedAgentSpaceView?.();
+        }
+      },
+    }, {
+      key: 'ws:workspace-agents',
+      query: () => getWorkspaceAgentsByWorkspace(currentPgWorkspaceId(store), { visibleOnly: true }),
+      onNext: (agents) => {
+        if (!isSameWorkspace(store, workspaceKey, ownerNpub)) return;
+        store.workspaceAgents = agents;
+        if (store.navSection === 'agents' && !store.selectedWorkspaceAgentId && agents[0]) store.selectedWorkspaceAgentId = agents[0].id;
+        if (store.navSection === 'agents' && store.selectedWorkspaceAgentId && !store.agentSpaceLoading && !store.agentSpaceData) {
+          void store.loadSelectedAgentSpaceView?.();
+        }
       },
     }] : []),
   ];

@@ -79,6 +79,8 @@ export const upsertTowerPgDailyNote = (store, ...args) => issueTypedApi(store, '
 export const upsertTowerPgDailyScopeAgentAccess = (store, ...args) => issueTypedApi(store, 'daily-scope-access.upsert', args, args[1]?.agent_npub || 'daily-scope-access');
 export const createTowerPgInvocation = (store, ...args) => issueTypedApi(store, 'invocation.create', args, args[1]?.client_record_id || args[1]?.id);
 export const putTowerPgResourceViewState = (store, ...args) => issueTypedApi(store, 'resource-view-state.put', args, `${args[1]}:${args[2]}`);
+export const createTowerPgAutopilotConnection = (store, ...args) => issueTypedApi(store, 'autopilot-connection.create', args, args[1]?.installation_id);
+export const createTowerPgWorkspaceAgent = (store, ...args) => issueTypedApi(store, 'workspace-agent.create', args, `${args[1]?.connection_id}:${args[1]?.agent_id}`);
 export const updateTowerPgDocumentMetadata = (store, ...args) => issueTypedApi(store, 'document-metadata.update', args, args[1]);
 export const updateTowerPgFileMetadata = (store, ...args) => issueTypedApi(store, 'file-metadata.update', args, args[1]);
 export const queueTowerPendingWrite = (store, pendingWrite) => issue(

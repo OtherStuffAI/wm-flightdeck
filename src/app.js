@@ -57,6 +57,7 @@ import { reportsManagerMixin } from './reports-manager.js';
 import { filesManagerMixin } from './files-manager.js';
 import { writeContextManagerMixin } from './write-context-manager.js';
 import { autopilotOverviewManagerMixin } from './autopilot-overview-manager.js';
+import { agentSpaceManagerMixin } from './agent-space-manager.js';
 import { resolveDeckInboxEnabled } from './deck-inbox-preference.js';
 import { resolveMyFocusEnabled } from './my-focus-preference.js';
 import { notificationsManagerMixin } from './notifications-manager.js';
@@ -9859,6 +9860,7 @@ export function initApp() {
     storageImageManagerMixin,
     filesManagerMixin,
     autopilotOverviewManagerMixin,
+    agentSpaceManagerMixin,
     notificationsManagerMixin,
     wappPublishingManagerMixin,
     wappImageManagerMixin,

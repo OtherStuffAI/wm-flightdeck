@@ -1706,6 +1706,9 @@ export async function getAutopilotConnectionsByWorkspace(workspaceId, { includeA
     .sort((left, right) => String(left.display_name || '').localeCompare(String(right.display_name || '')) || String(left.id).localeCompare(String(right.id)));
 }
 
+export async function upsertAutopilotConnection(row) { return wsDb().autopilot_connections.put(sanitizeForStorage(row)); }
+export async function upsertWorkspaceAgent(row) { return wsDb().workspace_agents.put(sanitizeForStorage(row)); }
+
 export async function getWorkspaceAgentsByWorkspace(workspaceId, { includeArchived = false, visibleOnly = false } = {}) {
   const db = wsDb();
   const normalizedWorkspaceId = String(workspaceId || '');

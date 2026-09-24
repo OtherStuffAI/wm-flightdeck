@@ -3,7 +3,7 @@ import { normalizeEnabledFlightDeckSection } from './disabled-surfaces.js';
 export const KNOWN_PAGES = new Set([
   'flight-deck', 'notifications', 'status', 'tasks',
   'chat', 'docs', 'files', 'drive', 'reports', 'opportunities', 'people', 'settings',
-  'workroom', 'workrooms',
+  'workroom', 'workrooms', 'agents',
 ]);
 
 export function pageToSection(page) {
@@ -98,6 +98,8 @@ export function parseRouteLocation(href) {
       reportid: url.searchParams.get('reportid') || null,
       opportunityid: url.searchParams.get('opportunityid') || null,
       taskid: url.searchParams.get('taskid') || null,
+      agentid: url.searchParams.get('agentid') || null,
+      agentview: url.searchParams.get('agentview') || null,
       workroomid: pathWorkroomId || url.searchParams.get('workroomid') || null,
       view: url.searchParams.get('view') || null,
       sort: url.searchParams.get('sort') || null,

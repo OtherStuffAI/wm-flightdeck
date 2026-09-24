@@ -399,6 +399,8 @@ describe('section live query plan', () => {
       'ws:groups',
       'ws:daily-notes',
       'ws:members',
+      'ws:autopilot-connections',
+      'ws:workspace-agents',
       'ws:record-attention',
       'files:messages:100',
       'files:comments:100',

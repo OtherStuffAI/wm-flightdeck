@@ -3,10 +3,13 @@ import { createNip98AuthHeader } from './auth/nostr.js';
 
 export const AUTOPILOT_CONNECT_KIND = 'wingman_autopilot_connect';
 export const AUTOPILOT_CONNECT_VERSION = 1;
+export const AUTOPILOT_CONNECT_TRANSPORT_VERSION = 2;
 export const AUTOPILOT_CONNECT_SIGNATURE_KIND = 27236;
+export const AUTOPILOT_CONNECT_MAX_AGE_SECONDS = 300;
 
 const SECRET_KEY_PATTERN = /(^|_)(nsec|secret|private_key|bearer|token|bunker_uri|nwc|wallet_connect)(_|$)/i;
-const SECRET_VALUE_PATTERN = /^(nsec1|nostr\+walletconnect:|nostrconnect:|bunker:)/i;
+const SECRET_VALUE_PATTERN = /^(nsec1|nostr\+walletconnect:|nostrconnect:|bunker:|bearer\s+)/i;
+const CREDENTIAL_QUERY_PATTERN = /(^|_)(nsec|secret|private|key|bearer|token|auth|credential|password|bunker)(_|$)/i;
 
 export class AutopilotConnectError extends Error {
   constructor(code, message, options = {}) {
@@ -82,10 +85,28 @@ function exactFipsOrigin(value) {
 
 function exactPath(value, label) {
   const path = text(value);
-  if (!path.startsWith('/') || path.startsWith('//') || path.includes('#')) {
+  if (!path.startsWith('/') || path.startsWith('//') || path.includes('#') || path.includes('\\')
+    || [...path].some((character) => character.codePointAt(0) < 32)) {
     fail('package_invalid', `${label} must be an absolute path on the advertised FIPS endpoint.`);
   }
+  let parsed;
+  try { parsed = new URL(path, 'http://signed-path.invalid'); } catch { fail('package_invalid', `${label} is invalid.`); }
+  if (parsed.origin !== 'http://signed-path.invalid'
+    || [...parsed.searchParams.keys()].some((key) => CREDENTIAL_QUERY_PATTERN.test(key))) {
+    fail('package_secret', `${label} contains an unsafe or credential-like query.`);
+  }
   return path;
+}
+
+function optionalHttpsOrigin(value) {
+  if (value == null || text(value) === '') return null;
+  let endpoint;
+  try { endpoint = new URL(text(value)); } catch { fail('endpoint_invalid', 'The package HTTPS endpoint is invalid.'); }
+  if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.hash
+    || [...endpoint.searchParams.keys()].some((key) => CREDENTIAL_QUERY_PATTERN.test(key))) {
+    fail('endpoint_invalid', 'The package HTTPS endpoint must be public and credential-free.');
+  }
+  return endpoint.toString().replace(/\/$/, '');
 }
 
 function parseInput(input) {
@@ -107,7 +128,7 @@ export function autopilotConnectManifestContent(manifest) {
   return canonicalJson(manifest);
 }
 
-export function verifyAutopilotConnectPackage(input) {
+export function verifyAutopilotConnectPackage(input, { now = new Date(), maxAgeSeconds = AUTOPILOT_CONNECT_MAX_AGE_SECONDS } = {}) {
   const envelope = parseInput(input);
   assertNoSecrets(envelope);
   const manifest = envelope.manifest;
@@ -118,8 +139,8 @@ export function verifyAutopilotConnectPackage(input) {
   if (manifest.kind !== AUTOPILOT_CONNECT_KIND) {
     fail('package_invalid', 'This is not an Autopilot Connect Package.');
   }
-  if (manifest.version !== AUTOPILOT_CONNECT_VERSION) {
-    fail('package_version_unsupported', `Autopilot Connect Package version ${String(manifest.version)} is not supported; expected version ${AUTOPILOT_CONNECT_VERSION}.`);
+  if (![AUTOPILOT_CONNECT_VERSION, AUTOPILOT_CONNECT_TRANSPORT_VERSION].includes(manifest.version)) {
+    fail('package_version_unsupported', `Autopilot Connect Package version ${String(manifest.version)} is not supported.`);
   }
   if (signature.kind !== AUTOPILOT_CONNECT_SIGNATURE_KIND || !verifyEvent(signature)) {
     fail('package_signature_invalid', 'Autopilot Connect Package signature is invalid or the package was tampered with.');
@@ -135,9 +156,25 @@ export function verifyAutopilotConnectPackage(input) {
   if (signature.pubkey !== installationPubkey) {
     fail('installation_mismatch', 'Package signer does not match the advertised Autopilot installation identity.');
   }
+  const generatedAtMs = Date.parse(manifest.generated_at);
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  if (!Number.isFinite(generatedAtMs) || !Number.isFinite(nowMs)
+    || generatedAtMs > nowMs + 15_000 || nowMs - generatedAtMs > Number(maxAgeSeconds) * 1000) {
+    fail('package_expired', 'Autopilot Connect Package generation time is invalid or expired.');
+  }
+  if (Math.abs(Number(signature.created_at) * 1000 - generatedAtMs) >= 1000) {
+    fail('package_tampered', 'Autopilot Connect Package generation time is not bound to its signature.');
+  }
+  if (signature.tags?.find((tag) => tag?.[0] === 'd')?.[1] !== installationId) {
+    fail('package_tampered', 'Autopilot Connect Package installation id is not signed correctly.');
+  }
+  const transportNpub = manifest.version === AUTOPILOT_CONNECT_TRANSPORT_VERSION
+    ? text(manifest.transport?.fips?.npub)
+    : installationNpub;
+  decodeNpub(transportNpub, 'FIPS transport identity');
   const fips = exactFipsOrigin(manifest.endpoints?.fips);
-  if (fips.endpointNpub !== installationNpub) {
-    fail('endpoint_mismatch', 'FIPS endpoint identity does not match the signed Autopilot installation identity.');
+  if (fips.endpointNpub !== transportNpub) {
+    fail('endpoint_mismatch', 'FIPS endpoint identity does not match the signed transport identity.');
   }
   if (manifest.api?.version !== 1) {
     fail('api_version_unsupported', `Autopilot discovery API version ${String(manifest.api?.version)} is not supported; expected version 1.`);
@@ -149,8 +186,9 @@ export function verifyAutopilotConnectPackage(input) {
     generatedAt: text(manifest.generated_at) || null,
     installationId,
     installationNpub,
+    transportNpub,
     fipsEndpoint: fips.endpoint,
-    httpsEndpoint: text(manifest.endpoints?.https) || null,
+    httpsEndpoint: optionalHttpsOrigin(manifest.endpoints?.https),
     apiVersion: manifest.api.version,
     capabilities: Object.freeze([...new Set((manifest.api.capabilities || []).map(text).filter(Boolean))]),
     healthPath: exactPath(manifest.api.health_path, 'Health route'),
@@ -174,12 +212,18 @@ function normalizeAgent(row) {
   const botNpub = text(row.bot_npub);
   if (!agentId || !botNpub) return null;
   try { decodeNpub(botNpub, 'Agent identity'); } catch { return null; }
+  let paths;
+  try {
+    paths = Object.freeze(Object.fromEntries(['overview', 'pipelines', 'schedules', 'triggers']
+      .map((key) => [key, exactPath(row.paths?.[key], `Agent ${key} route`)])));
+  } catch { return null; }
   return Object.freeze({
     agentId,
     botNpub,
     name: text(row.name) || 'Agent',
     description: text(row.description),
     canInstruct: row.can_instruct === true,
+    paths,
   });
 }
 
@@ -188,7 +232,7 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
   authHeader = createNip98AuthHeader,
   timeoutMs = 20_000,
 } = {}) {
-  if (!verifiedPackage?.fipsEndpoint || !verifiedPackage?.installationNpub) {
+  if (!verifiedPackage?.fipsEndpoint || !verifiedPackage?.installationNpub || !verifiedPackage?.transportNpub) {
     fail('package_unverified', 'Verify the Autopilot Connect Package before connecting.');
   }
   if (!bridge || bridge.version !== 2 || bridge.available === false || bridge.pairingIdentity !== 'service-npub'
@@ -196,18 +240,19 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
     fail('fips_unavailable', 'Native FIPS transport is unavailable. Open Flight Deck in a supported, unlocked Wingman app.');
   }
   let connected = false;
+  const advertisedPaths = new Set([verifiedPackage.healthPath, verifiedPackage.agentsPath]);
 
   async function connect() {
     let descriptor;
     try {
       descriptor = await bridge.connect({
         endpoint: verifiedPackage.fipsEndpoint,
-        serviceNpub: verifiedPackage.installationNpub,
+        serviceNpub: verifiedPackage.transportNpub,
       });
     }
     catch (error) { fail('fips_connection_failed', 'Could not connect to the signed Autopilot FIPS endpoint.', { cause: error }); }
     if (descriptor?.version !== 2 || descriptor.endpoint !== verifiedPackage.fipsEndpoint
-      || descriptor.serviceNpub !== verifiedPackage.installationNpub || descriptor.transport !== 'native') {
+      || descriptor.serviceNpub !== verifiedPackage.transportNpub || descriptor.transport !== 'native') {
       await bridge.disconnect?.();
       fail('endpoint_mismatch', 'Native FIPS bridge connected to a different endpoint than the signed package.');
     }
@@ -248,7 +293,7 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
 
   return Object.freeze({
     requestJson(path, options = {}) {
-      if (![verifiedPackage.healthPath, verifiedPackage.agentsPath].includes(path)) {
+      if (!advertisedPaths.has(path)) {
         fail('route_unavailable', 'Request path was not signed into this Autopilot Connect Package.');
       }
       return request(path, 'control API', options);
@@ -272,7 +317,28 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
       if (payload?.installation_id !== verifiedPackage.installationId || !Array.isArray(payload?.agents)) {
         fail('response_invalid', 'Autopilot agent discovery response does not match the signed installation.');
       }
-      return Object.freeze(payload.agents.map(normalizeAgent).filter(Boolean));
+      const agents = payload.agents.map(normalizeAgent).filter(Boolean);
+      agents.flatMap((agent) => Object.values(agent.paths)).forEach((path) => advertisedPaths.add(path));
+      return Object.freeze(agents);
+    },
+    async readAgent(agent, view) {
+      const normalizedView = text(view);
+      if (!['overview', 'pipelines', 'schedules', 'triggers'].includes(normalizedView)) {
+        fail('route_unavailable', 'Unknown Agent Space view.');
+      }
+      const path = agent?.paths?.[normalizedView];
+      if (!path) fail('route_unavailable', `Agent does not advertise a ${normalizedView} route.`);
+      advertisedPaths.add(path);
+      const payload = await request(path, `agent ${normalizedView}`);
+      if (payload?.installation_id !== verifiedPackage.installationId) {
+        fail('installation_mismatch', `Autopilot ${normalizedView} response does not match the signed installation.`);
+      }
+      const responseAgentId = text(payload.agent_id || payload.agent?.agent_id);
+      const responseBotNpub = text(payload.bot_npub || payload.agent?.bot_npub);
+      if (responseAgentId !== agent.agentId || (responseBotNpub && responseBotNpub !== agent.botNpub)) {
+        fail('response_invalid', `Autopilot ${normalizedView} response does not match the selected agent.`);
+      }
+      return payload;
     },
     disconnect() {
       connected = false;

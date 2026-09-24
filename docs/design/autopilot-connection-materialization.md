@@ -6,6 +6,19 @@ validates and writes those records to the `autopilot_connections` and
 `workspace_agents` Dexie tables. Consumers read the tables through the exported
 query helpers inside Dexie `liveQuery`; components do not fetch Tower directly.
 
+Canonical v2 connections retain the public installation signer in metadata,
+Tower's canonical `fips_transport_npub`, and the exact signed
+`http://<fips_transport_npub>.fips:<port>` origin. The origin is never
+rewritten to `fips://`. Installed-agent metadata retains only public display
+data, `can_instruct`, and the four signed read paths; raw packages, discovery
+responses and NIP-98 events are never persisted. One connection may own several
+stable installed-agent rows.
+
+Agent Space cards are projected from Dexie and therefore survive reload and
+offline startup. Opening a card performs a native FIPS read for Overview,
+Pipelines, Schedules or Triggers. `can_instruct` is descriptive only; WP4
+exposes no runtime mutation.
+
 The Tower list envelopes are plural (`autopilot_connections` and
 `workspace_agents`), while delta family names remain singular. Archived rows
 remain as canonical tombstones in the record-delta journal/cache and are removed
