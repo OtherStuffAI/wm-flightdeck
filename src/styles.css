@@ -16290,17 +16290,26 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   }
 
   .mobile-section-switcher {
-    display: grid;
-    grid-template-columns: repeat(5, auto);
+    display: flex;
     position: fixed;
     right: 0;
     bottom: 0;
     left: 0;
     z-index: 145;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    touch-action: pan-x;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
     border-top: 1px solid var(--border);
     padding-bottom: env(safe-area-inset-bottom);
     background: #ffffff;
     box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.08);
+  }
+
+  .mobile-section-switcher::-webkit-scrollbar {
+    display: none;
   }
 
   .mobile-section-switcher-btn {
@@ -16312,9 +16321,14 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
     border-radius: 0;
     background: transparent;
     color: var(--muted);
-    font-size: 0.72rem;
-    font-weight: 550;
-    text-align: center;
+    line-height: 1;
+  }
+
+  .mobile-section-switcher-btn svg {
+    display: block;
+    width: 21px;
+    height: 21px;
+    margin: auto;
   }
 
   .mobile-section-switcher-btn:last-child {
@@ -16329,8 +16343,9 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
   .mobile-section-switcher-item {
     display: flex;
+    flex: 1 0 auto;
     align-items: center;
-    min-width: 0;
+    min-width: 44px;
     border-right: 1px solid var(--border);
   }
   .mobile-section-switcher-item:last-child { border-right: 0; }

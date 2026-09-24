@@ -2029,6 +2029,13 @@
       "notes": [
         "Clear Reconnecting after the active space recovers, and ignore delayed connection events or retries belonging to a previously selected space."
       ]
+    },
+    {
+      "buildNumber": 2069,
+      "label": "Single-row mobile navigation",
+      "notes": [
+        "Use clear icons for the mobile bottom navigation and keep every section on one horizontal row, with scrolling available on especially narrow screens."
+      ]
     }
   ]
 }

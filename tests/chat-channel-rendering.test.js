@@ -309,10 +309,17 @@ describe('Chat channel rendering hooks', () => {
     expect(globalBar).toContain("navigateTo('docs')");
     expect(globalBar).toContain('mobile-section-switcher-btn-active');
     expect(styles).toMatch(/\.mobile-section-switcher\s*\{[\s\S]*display:\s*none;/);
-    expect(styles).toMatch(/\.mobile-section-switcher\s*\{[\s\S]*grid-template-columns:\s*repeat\(5,\s*auto\)/);
+    expect(globalBar.match(/class="mobile-section-switcher-btn"/g)).toHaveLength(6);
+    for (const section of ['Deck', 'Chat', 'Tasks', 'Docs', 'Files', 'Agents']) {
+      expect(globalBar).toContain(`aria-label="${section}" title="${section}"`);
+    }
+    expect(globalBar.match(/class="mobile-section-switcher-btn"[\s\S]*?<svg aria-hidden="true"/g)).toHaveLength(6);
+    expect(styles).toMatch(/\.mobile-section-switcher\s*\{[\s\S]*display:\s*flex;[\s\S]*overflow-x:\s*auto;[\s\S]*overflow-y:\s*hidden;/);
+    expect(styles).toMatch(/\.mobile-section-switcher-item\s*\{[^}]*flex:\s*1 0 auto;[^}]*min-width:\s*44px;/s);
     expect(styles).toMatch(/--mobile-section-switcher-height:\s*68px;/);
     expect(styles).toMatch(/\.mobile-section-switcher\s*\{[\s\S]*position:\s*fixed;[\s\S]*bottom:\s*0;/);
-    expect(styles).toMatch(/\.mobile-section-switcher-btn\s*\{[\s\S]*min-height:\s*var\(--mobile-section-switcher-height\);[\s\S]*font-size:\s*0\.72rem;/);
+    expect(styles).toMatch(/\.mobile-section-switcher-btn\s*\{[\s\S]*min-height:\s*var\(--mobile-section-switcher-height\);/);
+    expect(styles).toMatch(/\.mobile-section-switcher-btn svg\s*\{[^}]*width:\s*21px;[^}]*height:\s*21px;/s);
     expect(styles).toMatch(/\.content-scroll-area\s*\{[\s\S]*padding-bottom:\s*calc\(var\(--mobile-section-switcher-height\) \+ env\(safe-area-inset-bottom\) \+ 0\.75rem\);/);
   });
 
