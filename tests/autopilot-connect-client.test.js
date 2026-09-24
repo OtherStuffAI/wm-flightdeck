@@ -207,7 +207,7 @@ describe('Autopilot NIP-98/FIPS discovery client', () => {
     await client.requestJson(verified.agentsPath, { method: 'POST', body });
     expect(bridge.connect).toHaveBeenCalledWith({
       endpoint: verified.fipsEndpoint,
-      serviceNpub: verified.transportNpub,
+      serviceNpub: verified.installationNpub,
     });
     const exactUrl = `${verified.fipsEndpoint}${verified.agentsPath}`;
     const exactBody = JSON.stringify(body);

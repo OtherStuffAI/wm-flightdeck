@@ -247,12 +247,12 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
     try {
       descriptor = await bridge.connect({
         endpoint: verifiedPackage.fipsEndpoint,
-        serviceNpub: verifiedPackage.transportNpub,
+        serviceNpub: verifiedPackage.installationNpub,
       });
     }
     catch (error) { fail('fips_connection_failed', 'Could not connect to the signed Autopilot FIPS endpoint.', { cause: error }); }
     if (descriptor?.version !== 2 || descriptor.endpoint !== verifiedPackage.fipsEndpoint
-      || descriptor.serviceNpub !== verifiedPackage.transportNpub || descriptor.transport !== 'native') {
+      || descriptor.serviceNpub !== verifiedPackage.installationNpub || descriptor.transport !== 'native') {
       await bridge.disconnect?.();
       fail('endpoint_mismatch', 'Native FIPS bridge connected to a different endpoint than the signed package.');
     }
