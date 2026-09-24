@@ -78,6 +78,7 @@ import {
   replaceTasksForOwner,
   replaceScopesForOwner,
   upsertChannel,
+  migrateLegacyAutopilotLaunchers,
   upsertScope,
   clearResponseActivity,
   upsertAgentActivity,
@@ -1563,6 +1564,11 @@ export async function hydrateTowerPgSyncBundle(store, bundle = {}, deps = {}) {
       return { applied: (bundle.members?.length || 0) + (bundle.groups?.length || 0), cursor: null, hasMore: false };
     }
     if (bundle.reset_authority === true) { const reset = await resetPgRecordAuthority(store); return { applied: 0, cursor: null, hasMore: false, ...reset }; }
+    const context = resolveTowerPgWorkspaceContext(store);
+    await (deps.migrateLegacyAutopilotLaunchers || migrateLegacyAutopilotLaunchers)(
+      context.workspaceId,
+      store.workspaceHarnessAgents || [],
+    );
     const result = await applyPgRecordChanges(store, bundle, bundle.local_apply_options || {});
     // Also retire saved warnings when no new delta for that record arrives.
     await reconcilePgRecordConflicts(store);

@@ -11,6 +11,7 @@ import {
   mapPgFileToLocalDocument, mapPgFileFolderToLocal, mapPgAudioNoteToLocal,
   mapPgDailyNoteToLocal, mapPgPersonalWappToLocal,
 } from './pg-read-hydrator.js';
+import { inboundAutopilotConnection, inboundWorkspaceAgent } from './translators/autopilot-connections.js';
 
 const FAMILY = {
   scope: ['scopes', mapPgScopeToLocal], channel: ['channels', mapPgChannelToLocal],
@@ -20,6 +21,8 @@ const FAMILY = {
   file: ['documents', mapPgFileToLocalDocument], file_folder: ['file_folders', mapPgFileFolderToLocal],
   audio_note: ['audio_notes', mapPgAudioNoteToLocal], daily_note: ['daily_notes', mapPgDailyNoteToLocal],
   personal_wapp: ['wapps', mapPgPersonalWappToLocal],
+  autopilot_connection: ['autopilot_connections', inboundAutopilotConnection],
+  workspace_agent: ['workspace_agents', inboundWorkspaceAgent],
   resource_view_state: ['resource_view_states', (row) => ({ ...row, record_id: `${row.resource_type}:${row.resource_id}`, sync_status: 'synced' })],
 };
 export const PG_RECORD_DELTA_FAMILIES = [...Object.keys(FAMILY), 'task_assignment'];
@@ -236,7 +239,8 @@ export async function applyPgRecordChanges(store, page, options = {}) {
         if (prior) await table.update(localId, { pg_sync_conflict: true });
         return;
       }
-      if (raw.operation === 'delete' || raw.row?.deleted_at) {
+      if (raw.operation === 'delete' || raw.row?.deleted_at
+        || (['autopilot_connection', 'workspace_agent'].includes(raw.family) && raw.row?.archived_at)) {
         if (raw.family === 'thread' && (raw.source_message_id || prior?.pg_source_message_id)) {
           const source = await db.chat_messages.get(raw.source_message_id || prior.pg_source_message_id);
           if (source && !pending(source) && !(await db.pending_writes.where('record_id').equals(source.record_id).count())) await db.chat_messages.delete(source.record_id);

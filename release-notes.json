@@ -1967,6 +1967,12 @@
       "notes": [
         "After discarding a preserved document draft, reload the current Tower document and show whether editing is available or who currently holds edit access."
       ]
+    },
+    {
+      "buildNumber": 2054,
+      "label": "Materialize Autopilot agent authority",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }

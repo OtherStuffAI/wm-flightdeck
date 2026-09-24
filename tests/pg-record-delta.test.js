@@ -10,9 +10,10 @@ const page=(changes,cursor='next')=>({...fixture.one_message_delta, changes, nex
 describe('Tower canonical record-delta v1 consumer',()=>{
   it('accepts every supplied canonical family without inventing row shapes',async()=>{
     const result=await applyPgRecordChanges(store,fixture.canonical_upserts,{expectedCursor:null});
-    expect(result.protocolVersion).toBe(1);expect(await db.pg_record_rows.count()).toBe(15);
+    expect(result.protocolVersion).toBe(1);expect(await db.pg_record_rows.count()).toBe(17);
     expect(await db.tasks.count()).toBe(1);expect(await db.comments.count()).toBe(2);
     expect(await db.resource_view_states.count()).toBe(1);
+    expect(await db.autopilot_connections.count()).toBe(1);expect(await db.workspace_agents.count()).toBe(1);
   });
   it('ignores duplicates and old upserts after a newer explicit tombstone',async()=>{
     const change=fixture.one_message_delta.changes[0];

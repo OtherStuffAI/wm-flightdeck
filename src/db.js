@@ -189,6 +189,11 @@ const WORKSPACE_STORES_V28 = {
   agent_activities: 'record_id, activity_id, turn_id, channel_id, thread_id, trigger_message_id, session_id, agent_npub, state, sequence, lease_health, lease_expires_at, expires_at, created_at, updated_at',
   agent_session_health: 'record_id, session_id, channel_id, thread_id, agent_npub, status, generation, sequence, row_version, lease_health, lease_expires_at, updated_at',
 };
+const WORKSPACE_STORES_V29 = {
+  ...WORKSPACE_STORES_V28,
+  autopilot_connections: '&id, workspace_id, installation_id, archived_at, updated_at',
+  workspace_agents: '&id, workspace_id, connection_id, agent_id, agent_npub, sort_order, is_visible, archived_at, updated_at, [connection_id+sort_order]',
+};
 
 function createWorkspaceDb(workspaceDbKey) {
   const db = new Dexie(`wingman-fd-ws-${workspaceDbKey}`);
@@ -290,6 +295,7 @@ function createWorkspaceDb(workspaceDbKey) {
   });
   db.version(27).stores({ ...WORKSPACE_STORES_V26, drive_shares: '&key, context, id', drive_listings: '&key, context, share_key, fetched_at' });
   db.version(28).stores({ ...WORKSPACE_STORES_V28, drive_shares: '&key, context, id', drive_listings: '&key, context, share_key, fetched_at' });
+  db.version(29).stores({ ...WORKSPACE_STORES_V29, drive_shares: '&key, context, id', drive_listings: '&key, context, share_key, fetched_at' });
   const commentFields = activityIndexFields;
   db.documents.hook('creating', (_key, row) => { Object.assign(row, commentFields(row)); });
   db.documents.hook('updating', (changes, _key, row) => commentFields({ ...row, ...changes }));
@@ -1657,6 +1663,8 @@ export async function runWorkspaceSyncTransaction(callback) {
     db.wapp_publishing_grants,
     db.wapp_activity_items,
     db.wapp_activity_mutes,
+    db.autopilot_connections,
+    db.workspace_agents,
     db.sync_state,
   ], callback);
 }
@@ -1681,9 +1689,99 @@ export async function deleteTowerPgSyncTombstones(tombstones = []) {
       case 'daily_note': await db.daily_notes.delete(entityId); break;
       case 'personal_wapp': await db.wapps.delete(entityId); break;
       case 'wapp_activity_item': await db.wapp_activity_items.delete(entityId); break;
+      case 'autopilot_connection': await db.autopilot_connections.delete(entityId); break;
+      case 'workspace_agent': await db.workspace_agents.delete(entityId); break;
       default: break;
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Autopilot connections and workspace-installed agents — Tower PG cache
+// ---------------------------------------------------------------------------
+
+export async function getAutopilotConnectionsByWorkspace(workspaceId, { includeArchived = false } = {}) {
+  const rows = await wsDb().autopilot_connections.where('workspace_id').equals(String(workspaceId || '')).toArray();
+  return rows.filter(row => includeArchived || !row.archived_at)
+    .sort((left, right) => String(left.display_name || '').localeCompare(String(right.display_name || '')) || String(left.id).localeCompare(String(right.id)));
+}
+
+export async function getWorkspaceAgentsByWorkspace(workspaceId, { includeArchived = false, visibleOnly = false } = {}) {
+  const rows = await wsDb().workspace_agents.where('workspace_id').equals(String(workspaceId || '')).toArray();
+  return rows.filter(row => (includeArchived || !row.archived_at) && (!visibleOnly || row.is_visible === true))
+    .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0)
+      || String(left.display_name || '').localeCompare(String(right.display_name || '')) || String(left.id).localeCompare(String(right.id)));
+}
+
+export async function getWorkspaceAgentsByConnection(connectionId, options = {}) {
+  const rows = await wsDb().workspace_agents.where('connection_id').equals(String(connectionId || '')).toArray();
+  return rows.filter(row => (options.includeArchived || !row.archived_at) && (!options.visibleOnly || row.is_visible === true))
+    .sort((left, right) => Number(left.sort_order || 0) - Number(right.sort_order || 0)
+      || String(left.display_name || '').localeCompare(String(right.display_name || '')) || String(left.id).localeCompare(String(right.id)));
+}
+
+function legacyCompatibilityId(prefix, value) {
+  let hash = 2166136261;
+  for (const character of String(value)) {
+    hash ^= character.codePointAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `legacy-${prefix}-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
+/**
+ * Preserve compatible flat launcher settings as local-only rows. These rows do
+ * not assert a verified installation_id or FIPS endpoint and are replaced by
+ * canonical Tower rows only when later commands establish that authority.
+ */
+export async function migrateLegacyAutopilotLaunchers(workspaceId, entries = []) {
+  const normalizedWorkspaceId = String(workspaceId || '').trim();
+  if (!normalizedWorkspaceId) return { connections: 0, agents: 0 };
+  const normalized = [];
+  for (const [index, entry] of (Array.isArray(entries) ? entries : []).entries()) {
+    const agentNpub = String(entry?.agent_npub || '').trim();
+    const rawUrl = String(entry?.url || '').trim();
+    let endpoint = '';
+    try {
+      const parsed = new URL(rawUrl);
+      if (['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password) endpoint = parsed.toString().replace(/\/+$/, '');
+    } catch { /* incompatible launchers remain in their original settings */ }
+    if (agentNpub && endpoint) normalized.push({ agentNpub, endpoint, index });
+  }
+  const db = wsDb();
+  return db.transaction('rw', db.autopilot_connections, db.workspace_agents, async () => {
+    let connections = 0, agents = 0;
+    const connectionByEndpoint = new Map();
+    for (const entry of normalized) {
+      let connectionId = connectionByEndpoint.get(entry.endpoint);
+      if (!connectionId) {
+        connectionId = legacyCompatibilityId('connection', `${normalizedWorkspaceId}:${entry.endpoint}`);
+        connectionByEndpoint.set(entry.endpoint, connectionId);
+        if (!(await db.autopilot_connections.get(connectionId))) {
+          await db.autopilot_connections.put({
+            id: connectionId, record_id: connectionId, workspace_id: normalizedWorkspaceId, installation_id: null,
+            display_name: new URL(entry.endpoint).hostname, fips_endpoint: null, https_endpoint: entry.endpoint,
+            api_version: null, capabilities: [], metadata: { compatibility_source: 'legacy_launcher', installation_identity_verified: false },
+            row_version: 0, created_by_actor_id: null, updated_by_actor_id: null, archived_by_actor_id: null,
+            created_at: null, updated_at: null, archived_at: null, sync_status: 'local_compatibility', pg_backend: false,
+          });
+          connections++;
+        }
+      }
+      const agentId = legacyCompatibilityId('agent', `${normalizedWorkspaceId}:${connectionId}:${entry.agentNpub}`);
+      const prior = await db.workspace_agents.get(agentId);
+      const row = {
+        id: agentId, record_id: agentId, workspace_id: normalizedWorkspaceId, connection_id: connectionId,
+        agent_id: null, agent_npub: entry.agentNpub, display_name: entry.agentNpub, avatar_url: null,
+        capabilities: [], sort_order: entry.index, is_visible: true,
+        metadata: { compatibility_source: 'legacy_launcher', installation_identity_verified: false, launcher_url: entry.endpoint },
+        row_version: 0, created_by_actor_id: null, updated_by_actor_id: null, archived_by_actor_id: null,
+        created_at: null, updated_at: null, archived_at: null, sync_status: 'local_compatibility', pg_backend: false,
+      };
+      if (!sameLogicalValue(prior, row)) { await db.workspace_agents.put(row); agents++; }
+    }
+    return { connections, agents };
+  });
 }
 
 export async function reconcileTowerPgSnapshot(manifest = {}) {
@@ -2881,6 +2979,8 @@ export async function clearRuntimeData() {
     db.agent_activities.clear(),
     db.agent_activity_commentary.clear(),
     db.agent_session_health.clear(),
+    db.autopilot_connections.clear(),
+    db.workspace_agents.clear(),
     db.audio_notes.clear(),
     db.scopes.clear(),
     db.flows.clear(),

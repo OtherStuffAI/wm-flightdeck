@@ -68,7 +68,9 @@ it('upgrades an ownerless v25 cache without losing messages, commands, drafts or
   await old.document_drafts.put({ draft_key: 'draft', body: 'keep draft' });
   old.close();
   const upgraded = openWorkspaceDb(key); await upgraded.open();
-  expect(upgraded.verno).toBe(28);
+  expect(upgraded.verno).toBe(29);
+  expect(upgraded.autopilot_connections).toBeTruthy();
+  expect(upgraded.workspace_agents).toBeTruthy();
   expect((await getChannelActivityWindow(['channel'])).rows[0].body).toBe('keep');
   expect((await upgraded.chat_messages.get('cached')).owner_npub).toBeUndefined();
   expect(await upgraded.pending_writes.count()).toBe(1);

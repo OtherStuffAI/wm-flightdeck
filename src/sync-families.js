@@ -32,6 +32,18 @@ export const SYNC_FAMILY_OPTIONS = Object.freeze([
   { id: 'opportunity', label: 'Opportunities', hash: opportunityFamilyHash('opportunity'), table: 'opportunities' },
 ]);
 
+// Canonical Tower PG families travel through record-delta, not encrypted
+// record-sync. Keep them in the central registry without adding them to the
+// legacy default pull set or published encrypted schema manifests.
+export const PG_SYNC_FAMILY_OPTIONS = Object.freeze([
+  { id: 'autopilot_connection', envelope: 'autopilot_connections', table: 'autopilot_connections', transport: 'tower_pg' },
+  { id: 'workspace_agent', envelope: 'workspace_agents', table: 'workspace_agents', transport: 'tower_pg' },
+]);
+
+export const PG_SYNC_FAMILY_MAP = Object.freeze(
+  Object.fromEntries(PG_SYNC_FAMILY_OPTIONS.map(family => [family.id, family]))
+);
+
 export const DEFAULT_SYNC_FAMILY_IDS = Object.freeze(SYNC_FAMILY_OPTIONS.map((family) => family.id));
 
 export const SYNC_FAMILY_MAP = Object.freeze(
@@ -44,7 +56,7 @@ export const SYNC_FAMILY_BY_HASH = Object.freeze(
 
 export function getSyncFamily(idOrHash) {
   if (!idOrHash) return null;
-  return SYNC_FAMILY_MAP[idOrHash] || SYNC_FAMILY_BY_HASH[idOrHash] || null;
+  return SYNC_FAMILY_MAP[idOrHash] || SYNC_FAMILY_BY_HASH[idOrHash] || PG_SYNC_FAMILY_MAP[idOrHash] || null;
 }
 
 export function getSyncFamilyHash(id) {
@@ -57,5 +69,5 @@ export function getSyncFamilyHashes(ids = []) {
 
 export function getSyncStateKeyForFamily(idOrHash) {
   const family = getSyncFamily(idOrHash);
-  return family ? `sync_since:${family.hash}` : null;
+  return family?.hash ? `sync_since:${family.hash}` : null;
 }
