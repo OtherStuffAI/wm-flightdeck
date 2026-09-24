@@ -205,7 +205,9 @@ export const syncManagerMixin = {
 
   towerReachabilityState: 'online',
   towerReachabilityReason: '',
+  towerReachabilityConnectionKey: '',
   offlineMessageResyncArmed: false,
+  offlineMessageResyncConnectionKey: '',
   offlineMessageResyncScheduled: false,
   offlineMessageResyncTimer: null,
   offlineMessageResyncIdleHandle: null,
@@ -219,6 +221,12 @@ export const syncManagerMixin = {
   get towerConnectionIndicatorLabel() {
     if (!isTowerPgBackendMode() || !this.isLoggedIn) return '';
     if (isBrowserOffline() || this.towerReachabilityState === 'offline') return 'Offline';
+    const currentConnectionKey = this.buildSSEConnectionKey?.() || '';
+    if (
+      this.towerReachabilityConnectionKey
+      && currentConnectionKey
+      && this.towerReachabilityConnectionKey !== currentConnectionKey
+    ) return '';
     if (this.towerReachabilityState === 'reconnecting') return 'Reconnecting';
     return '';
   },
@@ -235,6 +243,8 @@ export const syncManagerMixin = {
     this.offlineMessageResyncArmed = true;
     this.towerReachabilityState = isBrowserOffline() || state === 'offline' ? 'offline' : 'reconnecting';
     this.towerReachabilityReason = String(reason || 'transport-unreachable');
+    this.towerReachabilityConnectionKey = this.buildSSEConnectionKey?.() || '';
+    this.offlineMessageResyncConnectionKey = this.towerReachabilityConnectionKey;
     return true;
   },
 
@@ -243,9 +253,16 @@ export const syncManagerMixin = {
     if (isBrowserOffline()) {
       return this.markTowerReachabilityDegraded('browser-offline', 'offline');
     }
-    const shouldSchedule = this.offlineMessageResyncArmed === true;
+    const connectionKey = this.buildSSEConnectionKey?.() || '';
+    const shouldSchedule = this.offlineMessageResyncArmed === true
+      && (!this.offlineMessageResyncConnectionKey || this.offlineMessageResyncConnectionKey === connectionKey);
     this.towerReachabilityState = 'online';
     this.towerReachabilityReason = String(reason || 'transport-recovered');
+    this.towerReachabilityConnectionKey = connectionKey;
+    if (!shouldSchedule && this.offlineMessageResyncConnectionKey !== connectionKey) {
+      this.offlineMessageResyncArmed = false;
+      this.offlineMessageResyncConnectionKey = '';
+    }
     if (!shouldSchedule) return false;
     return this.scheduleOfflineMessageResync({
       refresh: options.refresh === true,
@@ -265,6 +282,7 @@ export const syncManagerMixin = {
 
     const delayMs = Math.max(0, Number(options.delayMs ?? OFFLINE_MESSAGE_RESYNC_DELAY_MS) || 0);
     const refresh = options.refresh === true;
+    const connectionKey = this.buildSSEConnectionKey?.() || '';
     this.offlineMessageResyncScheduled = true;
     this.offlineMessageResyncReason = String(options.reason || 'connectivity-recovered');
     this.offlineMessageResyncTimer = setTimeout(() => {
@@ -272,7 +290,15 @@ export const syncManagerMixin = {
       this.offlineMessageResyncIdleHandle = scheduleIdle(async () => {
         this.offlineMessageResyncIdleHandle = null;
         this.offlineMessageResyncScheduled = false;
+        if (connectionKey && connectionKey !== (this.buildSSEConnectionKey?.() || '')) {
+          if (this.offlineMessageResyncConnectionKey === connectionKey) {
+            this.offlineMessageResyncArmed = false;
+            this.offlineMessageResyncConnectionKey = '';
+          }
+          return;
+        }
         this.offlineMessageResyncArmed = false;
+        this.offlineMessageResyncConnectionKey = '';
         try {
           const result = await this.retryUnsyncedOutgoingMessages?.({ refresh });
           this.offlineMessageLastResult = result || null;
@@ -2891,6 +2917,16 @@ export const syncManagerMixin = {
   handleSSEStatus(message) {
     const status = message?.status;
     if (!status) return;
+
+    const messageConnectionKey = String(message?.connectionKey || '');
+    const activeConnectionKey = this.buildSSEConnectionKey(this.getSSEConnectionContext());
+    if (messageConnectionKey && activeConnectionKey && messageConnectionKey !== activeConnectionKey) {
+      this.logSSELifecycle('stale-event-ignored', {
+        ...message,
+        reason: `stale-${status}`,
+      });
+      return;
+    }
 
     if (message?.connectionKey) {
       if (status === 'disconnected') {

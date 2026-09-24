@@ -2022,6 +2022,13 @@
       "notes": [
         "Finish saving selected Autopilot agents without leaking browser storage transaction errors, and offer a safe retry if local persistence is interrupted."
       ]
+    },
+    {
+      "buildNumber": 2068,
+      "label": "Accurate reconnect status",
+      "notes": [
+        "Clear Reconnecting after the active space recovers, and ignore delayed connection events or retries belonging to a previously selected space."
+      ]
     }
   ]
 }

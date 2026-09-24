@@ -577,6 +577,63 @@ describe('handleSSEStatus', () => {
     });
   });
 
+  it('ignores a late reconnect event from the previous workspace after the active stream recovered', () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    const store = createStore({
+      session: { npub: 'npub1viewer' },
+      backendUrl: 'https://tower.example.com',
+      workspaceOwnerNpub: 'npub1active',
+      workspaceDbKey: 'workspace-active',
+      currentWorkspace: { workspaceId: 'active-space' },
+      isEncryptedRecordSyncDisabled: true,
+      isLoggedIn: true,
+      scheduleBackgroundSync: vi.fn(),
+    });
+    const activeConnectionKey = store.buildSSEConnectionKey();
+    store.sseConnectionKey = activeConnectionKey;
+
+    store.handleSSEStatus({ status: 'connected', connectionKey: activeConnectionKey });
+    store.handleSSEStatus({ status: 'reconnecting', connectionKey: 'obsolete-space-stream' });
+
+    expect(store.sseStatus).toBe('connected');
+    expect(store.sseConnectionKey).toBe(activeConnectionKey);
+    expect(store.towerReachabilityState).toBe('online');
+    expect(store.towerConnectionIndicatorLabel).toBe('');
+  });
+
+  it('does not run a delayed recovery retry after switching spaces', async () => {
+    vi.useFakeTimers();
+    isTowerPgBackendMode.mockReturnValue(true);
+    const retryUnsyncedOutgoingMessages = vi.fn();
+    const store = createStore({
+      session: { npub: 'npub1viewer' },
+      backendUrl: 'https://tower.example.com',
+      workspaceOwnerNpub: 'npub1first',
+      workspaceDbKey: 'workspace-first',
+      currentWorkspace: { workspaceId: 'first-space' },
+      isEncryptedRecordSyncDisabled: true,
+      retryUnsyncedOutgoingMessages,
+    });
+
+    try {
+      store.markTowerReachabilityDegraded('sse-disconnected', 'reconnecting');
+      store.markTowerReachabilityRecovered('sse-connected', { delayMs: 25 });
+      store.workspaceOwnerNpub = 'npub1second';
+      store.workspaceDbKey = 'workspace-second';
+      store.currentWorkspace = { workspaceId: 'second-space' };
+
+      await vi.advanceTimersByTimeAsync(25);
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(retryUnsyncedOutgoingMessages).not.toHaveBeenCalled();
+      expect(store.offlineMessageResyncArmed).toBe(false);
+      expect(store.towerConnectionIndicatorLabel).toBe('');
+    } finally {
+      store.cancelScheduledOfflineMessageResync();
+      vi.useRealTimers();
+    }
+  });
+
   it('runs the failed-message scan as one delayed background job after recovery', async () => {
     vi.useFakeTimers();
     isTowerPgBackendMode.mockReturnValue(true);
