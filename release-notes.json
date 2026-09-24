@@ -1928,6 +1928,13 @@
       "notes": [
         "Show saved scopes and channels immediately after refresh while sign-in, access checks, and current workspace updates continue in the background."
       ]
+    },
+    {
+      "buildNumber": 2045,
+      "label": "Clear finished agent status",
+      "notes": [
+        "Remove obsolete Agent Direct status cards when work finishes or a newer turn supersedes them, while keeping current and queued activity visible."
+      ]
     }
   ]
 }

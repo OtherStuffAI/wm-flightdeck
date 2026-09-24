@@ -1240,10 +1240,13 @@ export const chatMessageManagerMixin = {
     return activity.label || activity.state || 'Activity';
   },
   getAgentSessionHealth(activity = {}) {
-    const candidates = (Array.isArray(this.agentSessionHealth) ? this.agentSessionHealth : [])
-      .filter((health) => health.session_id === activity.session_id
-        || (health.agent_npub === activity.agent_npub && health.channel_id === activity.channel_id
-          && (!activity.thread_id || health.thread_id === activity.thread_id)))
+    const sessions = Array.isArray(this.agentSessionHealth) ? this.agentSessionHealth : [];
+    const exact = activity.session_id
+      ? sessions.filter((health) => health.session_id === activity.session_id)
+      : [];
+    const candidates = (exact.length > 0 ? exact : sessions.filter((health) => !activity.session_id
+      && health.agent_npub === activity.agent_npub && health.channel_id === activity.channel_id
+      && (!activity.thread_id || !health.thread_id || health.thread_id === activity.thread_id)))
       .sort((left, right) => Number(right.row_version) - Number(left.row_version));
     return candidates[0] || null;
   },
@@ -1303,7 +1306,23 @@ export const chatMessageManagerMixin = {
   },
   isCurrentAgentActivityWorking(activity = {}) {
     void this.responseActivityTick;
-    return String(activity.state || '').toLowerCase() !== 'completed';
+    if (isTerminalAgentActivity(activity)) return false;
+    const session = this.getAgentSessionHealth(activity);
+    if (!session) return true;
+    const activeTurnId = String(session.active_turn_id || '').trim();
+    const turnId = String(activity.turn_id || '').trim();
+    const state = String(activity.state || '').toLowerCase();
+    // Queued work belongs to a future turn and must remain visible while the
+    // session reports the turn currently ahead of it.
+    if (state !== 'queued' && activeTurnId && turnId && activeTurnId !== turnId) return false;
+    if (state === 'queued') return true;
+    if (activeTurnId) return true;
+    if (!['idle', 'errored', 'stopped'].includes(String(session.status || '').toLowerCase())) return true;
+    // Ignore health left behind by an earlier lifecycle when a newer activity
+    // snapshot has already arrived.
+    const healthAt = Date.parse(session.updated_at || '');
+    const activityAt = Date.parse(activity.updated_at || activity.created_at || '');
+    return Number.isFinite(healthAt) && Number.isFinite(activityAt) && healthAt < activityAt;
   },
   getAgentActivityConnectionSummary() {
     const health = this.getAgentActivityHealth({ state: 'working', expires_at: '2999-01-01' });

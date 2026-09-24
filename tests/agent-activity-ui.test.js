@@ -152,6 +152,41 @@ describe('retained run grouping', () => {
       agent_npub: stale.agent_npub, status: 'errored', error_summary: 'Runtime exited', row_version: 2 }]);
     expect(target.getAgentSessionStatusLabel(stale)).toBe('Session errored — Runtime exited');
   });
+
+  it.each(['completed', 'failed', 'cancelled'])('removes %s activity from the live card slot', (state) => {
+    const target = store();
+    const row = run('1', { state });
+    target.applyAgentActivities([row]);
+    expect(target.isCurrentAgentActivityWorking(row)).toBe(false);
+    expect(target.agentActivities).toEqual([expect.objectContaining({ state })]);
+  });
+
+  it('supersedes an older working card when session health names the current turn', () => {
+    const target = store();
+    const prior = run('1', { session_id: 'session-1', state: 'working' });
+    const current = run('2', { session_id: 'session-1', state: 'working' });
+    target.applyAgentActivities([prior, current]);
+    target.applyAgentSessionHealth([{ record_id: 'health-1', session_id: 'session-1', channel_id: 'channel-a',
+      agent_npub: 'agent-a', status: 'busy', active_turn_id: '2', row_version: 2 }]);
+    expect(target.isCurrentAgentActivityWorking(prior)).toBe(false);
+    expect(target.isCurrentAgentActivityWorking(current)).toBe(true);
+  });
+
+  it('removes a working card on terminal session health while retaining newer and queued work', () => {
+    const target = store();
+    const finished = run('1', { session_id: 'session-1', updated_at: '2026-09-08T01:00:00Z' });
+    const newer = run('2', { session_id: 'session-2', updated_at: '2026-09-08T03:00:00Z' });
+    const queued = run('3', { session_id: 'session-1', state: 'queued', updated_at: '2026-09-08T01:00:00Z' });
+    target.applyAgentSessionHealth([
+      { record_id: 'health-1', session_id: 'session-1', channel_id: 'channel-a', agent_npub: 'agent-a',
+        status: 'idle', active_turn_id: null, row_version: 2, updated_at: '2026-09-08T02:00:00Z' },
+      { record_id: 'health-2', session_id: 'session-2', channel_id: 'channel-a', agent_npub: 'agent-a',
+        status: 'idle', active_turn_id: null, row_version: 1, updated_at: '2026-09-08T02:00:00Z' },
+    ]);
+    expect(target.isCurrentAgentActivityWorking(finished)).toBe(false);
+    expect(target.isCurrentAgentActivityWorking(newer)).toBe(true);
+    expect(target.isCurrentAgentActivityWorking(queued)).toBe(true);
+  });
 });
 
 describe('menu-only activity details', () => {
