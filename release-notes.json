@@ -1960,6 +1960,13 @@
       "label": "Revoke incompatible native pairing",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2051,
+      "label": "Clear discarded document drafts",
+      "notes": [
+        "After discarding a preserved document draft, reload the current Tower document and show whether editing is available or who currently holds edit access."
+      ]
     }
   ]
 }
