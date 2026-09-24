@@ -2240,6 +2240,7 @@ export function initApp() {
     // --- lifecycle ---
 
     async init() {
+      this.initDocEditLeaseLifecycle?.();
       this.initReadAloud();
       if (typeof window !== 'undefined' && !this.chatImagePreviewCleanupHandler) {
         this.chatImagePreviewCleanupHandler = () => this.cleanupChatImagePreviews();
@@ -3217,6 +3218,9 @@ export function initApp() {
         section = enabledSection;
       }
       const previousSection = this.navSection;
+      if (previousSection === 'docs' && section !== 'docs' && this.selectedDocId) {
+        this.closeDocEditor?.({ syncRoute: false });
+      }
       if (previousSection !== section) this.stopReadAloud();
       const pgTaskBoardFromChat = section === 'tasks'
         && this.navSection === 'chat'

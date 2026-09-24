@@ -104,6 +104,62 @@ test('opening a document mounts the native Tiptap surface without acquiring edit
   expect(access).toEqual({ mode: 'rich', state: 'ready' });
 });
 
+test('leaving Docs closes the selected editor before section data is cleared', async ({ page }) => {
+  await page.goto('/');
+  await seedSelectedDocument(page, { enterEdit: false });
+
+  const result = await page.evaluate(() => {
+    const store = window.Alpine.store('chat');
+    const released = [];
+    store.releaseSelectedDocLeaseWhenSafe = async (record) => {
+      released.push(record.record_id);
+      return true;
+    };
+    store.navigateTo('tasks', { syncRoute: false });
+    return {
+      navSection: store.navSection,
+      selectedDocId: store.selectedDocId,
+      documents: store.documents.length,
+      released,
+    };
+  });
+
+  expect(result).toEqual({
+    navSection: 'tasks',
+    selectedDocId: null,
+    documents: 0,
+    released: ['doc-rich-default'],
+  });
+});
+
+test('page lifecycle cleanup checkpoints a dirty document and schedules lease release', async ({ page }) => {
+  await page.goto('/');
+  await seedSelectedDocument(page, { enterEdit: false });
+
+  const result = await page.evaluate(async () => {
+    const store = window.Alpine.store('chat');
+    const calls = [];
+    store.docEditDraftDirty = true;
+    store.persistSelectedDocDraft = async (options) => {
+      calls.push(['draft', options]);
+      return { document_id: store.selectedDocId };
+    };
+    store.releaseSelectedDocLeaseWhenSafe = async (record, options) => {
+      await options.draftPromise;
+      calls.push(['release', record.record_id]);
+      return true;
+    };
+    window.dispatchEvent(new Event('pagehide'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return calls;
+  });
+
+  expect(result).toEqual([
+    ['draft', { immediate: true }],
+    ['release', 'doc-rich-default'],
+  ]);
+});
+
 test('short rich timeline preserves whitespace and list structure through browser reopen', async ({ page }) => {
   test.setTimeout(45_000);
   const { shortRichDocumentFixture } = require('../fixtures/short-rich-document.js');

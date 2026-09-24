@@ -471,6 +471,7 @@ export function createShellState(options = {}) {
     // ── Lifecycle methods ─────────────────────────────────────
 
     async init() {
+      this.initDocEditLeaseLifecycle?.();
       this.startExtensionSignerWatch();
       this.initCommandPaletteShortcuts?.();
       this.initRouteSync();
@@ -963,6 +964,9 @@ export function createShellState(options = {}) {
     navigateTo(section, options = {}) {
       section = normalizeEnabledFlightDeckSection(section);
       const previousSection = this.navSection;
+      if (previousSection === 'docs' && section !== 'docs' && this.selectedDocId) {
+        this.closeDocEditor?.({ syncRoute: false });
+      }
       if(previousSection==='files' && section!=='files') this.stopDrive?.();
       if (section === 'status' && options.preserveDeckMobileCard !== true) {
         this.resetDeckMobileEntry?.();

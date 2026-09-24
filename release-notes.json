@@ -1935,6 +1935,13 @@
       "notes": [
         "Remove obsolete Agent Direct status cards when work finishes or a newer turn supersedes them, while keeping current and queued activity visible."
       ]
+    },
+    {
+      "buildNumber": 2046,
+      "label": "Release document edit access",
+      "notes": [
+        "Release document edit access when you leave Docs or background the page, while preserving unsaved changes as a local recovery draft."
+      ]
     }
   ]
 }

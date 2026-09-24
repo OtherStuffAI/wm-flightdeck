@@ -176,6 +176,23 @@ describe('shell navigation data retention', () => {
     expect(shell.refreshStatusRecentChanges).toHaveBeenCalledWith({ force: true });
   });
 
+  it('closes the selected document before clearing Docs data', () => {
+    const shell = buildNavigableShell();
+    const order = [];
+    shell.navSection = 'docs';
+    shell.selectedDocId = 'doc-1';
+    shell.closeDocEditor = vi.fn(() => {
+      order.push('close');
+      shell.selectedDocId = null;
+    });
+    shell.clearInactiveSectionData = vi.fn(() => order.push('clear'));
+
+    shell.navigateTo('tasks');
+
+    expect(shell.closeDocEditor).toHaveBeenCalledWith({ syncRoute: false });
+    expect(order).toEqual(['close', 'clear']);
+  });
+
   it('uses a page route for active workroom detail state', () => {
     const shell = buildNavigableShell();
     Object.defineProperty(shell, 'currentWorkspaceSlug', { value: 'be-free' });

@@ -230,4 +230,23 @@ describe('PG edit sessions', () => {
     expect(target.pgEditLeaseSessions['document:doc-1']).toBeUndefined();
     expect(target.pgEditLeaseRenewalTimers['document:doc-1']).toBeUndefined();
   });
+
+  it('deduplicates concurrent release attempts for the same PG lease', async () => {
+    const api = await import('../src/api.js');
+    let finishRelease;
+    api.releaseTowerPgEditLease.mockReturnValueOnce(new Promise((resolve) => { finishRelease = resolve; }));
+    const target = store({
+      pgEditLeaseSessions: {
+        'document:doc-1': { lease: { id: 'lease-doc-1', lease_token: 'doc-token-1' } },
+      },
+    });
+    const record = { record_id: 'doc-1', pg_backend: true, sync_status: 'synced' };
+
+    const first = releasePgEditLeaseForRecord(target, record, 'document');
+    const second = releasePgEditLeaseForRecord(target, record, 'document');
+    finishRelease({ released: true });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
+    expect(api.releaseTowerPgEditLease).toHaveBeenCalledTimes(1);
+  });
 });

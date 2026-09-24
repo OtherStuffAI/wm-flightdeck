@@ -276,28 +276,41 @@ export async function releasePgEditLeaseForRecord(store, record, entityType, opt
   stopPgEditLeaseRenewal(store, record, entityType, options);
   const session = getPgEditLeaseSession(store, entityType, recordId);
   if (!session?.lease?.id || !session?.lease?.lease_token) return false;
-  if (options.clearLocalBeforeRelease) {
-    clearPgEditLeaseSession(store, entityType, recordId);
-  }
-  try {
-    const context = resolveTowerPgWorkspaceContext(store);
-    await releaseTowerPgEditLease(context.workspaceId, session.lease.id, {
-      lease_token: session.lease.lease_token,
-    }, {
-      baseUrl: context.baseUrl,
-      appNpub: context.appNpub,
-    });
-    if (!options.clearLocalBeforeRelease) {
+  const key = pgEditLeaseSessionKey(entityType, recordId);
+  store.pgEditLeaseReleasePromises = store.pgEditLeaseReleasePromises || {};
+  if (store.pgEditLeaseReleasePromises[key]) return store.pgEditLeaseReleasePromises[key];
+
+  let promise;
+  promise = (async () => {
+    if (options.clearLocalBeforeRelease) {
       clearPgEditLeaseSession(store, entityType, recordId);
     }
-    return true;
-  } catch (error) {
-    if (options.reportError && store) store.error = error?.message || 'Unable to release Tower PG edit lease.';
-    if (!options.clearLocalBeforeRelease) {
-      clearPgEditLeaseSession(store, entityType, recordId);
+    try {
+      const context = resolveTowerPgWorkspaceContext(store);
+      await releaseTowerPgEditLease(context.workspaceId, session.lease.id, {
+        lease_token: session.lease.lease_token,
+      }, {
+        baseUrl: context.baseUrl,
+        appNpub: context.appNpub,
+      });
+      if (!options.clearLocalBeforeRelease) {
+        clearPgEditLeaseSession(store, entityType, recordId);
+      }
+      return true;
+    } catch (error) {
+      if (options.reportError && store) store.error = error?.message || 'Unable to release Tower PG edit lease.';
+      if (!options.clearLocalBeforeRelease) {
+        clearPgEditLeaseSession(store, entityType, recordId);
+      }
+      return false;
+    } finally {
+      if (store.pgEditLeaseReleasePromises?.[key] === promise) {
+        delete store.pgEditLeaseReleasePromises[key];
+      }
     }
-    return false;
-  }
+  })();
+  store.pgEditLeaseReleasePromises[key] = promise;
+  return promise;
 }
 
 export function addPgEditLeaseToSaveBody(store, record, entityType, body = {}) {

@@ -99,6 +99,7 @@ import {
   isUnsyncedLocalPgRecord,
   releasePgEditLeaseForRecord,
   startPgEditLeaseRenewal,
+  stopPgEditLeaseRenewal,
 } from './pg-edit-session.js';
 import { diffLines } from 'diff';
 import { loadTiptapEditorAdapter } from './docs/editor/lazy-tiptap-editor.js';
@@ -998,15 +999,66 @@ export const docsManagerMixin = {
     this.navigateTo('docs');
   },
 
+  async releaseSelectedDocLeaseWhenSafe(record, options = {}) {
+    if (!record?.record_id) return false;
+    await Promise.resolve(options.draftPromise).catch((error) => {
+      this.docEditAccessMessage = `Local draft could not be saved: ${error?.message || error}`;
+    });
+    // A PG save owns the lease until Tower has accepted or rejected it. Wait for
+    // the final save chained for this record before releasing the token.
+    let pendingSave = this.pgDocSavePromises?.[record.record_id] || null;
+    while (pendingSave) {
+      await pendingSave.catch(() => {});
+      const nextSave = this.pgDocSavePromises?.[record.record_id] || null;
+      if (!nextSave || nextSave === pendingSave) break;
+      pendingSave = nextSave;
+    }
+    if (isTowerPgBackendMode()) {
+      return releasePgEditLeaseForRecord(this, record, 'document', {
+        reportError: options.reportError === true,
+      });
+    }
+    return this.releaseLockManagedCheckout(record, recordFamilyHash('document'), {
+      reportError: options.reportError === true,
+    });
+  },
+
+  handleDocEditLeaseLifecycleExit() {
+    const record = this.selectedDocument;
+    if (!record?.record_id) return false;
+    const draftPromise = this.docEditDraftDirty
+      ? this.persistSelectedDocDraft({ immediate: true })
+      : null;
+    this.cancelDocAutosave();
+    this.cancelDocLocalDraftPersistence();
+    if (isTowerPgBackendMode()) {
+      // Stop renewal synchronously. If the authenticated request cannot finish
+      // during a hard exit, Tower will expire the last 120-second lease.
+      stopPgEditLeaseRenewal(this, record, 'document');
+      this.docEditAccessState = 'ready';
+      this.docRichEditorAdapter?.setEditable?.(false);
+    }
+    void this.releaseSelectedDocLeaseWhenSafe(record, { draftPromise, reportError: false });
+    return true;
+  },
+
+  initDocEditLeaseLifecycle() {
+    if (typeof window === 'undefined' || typeof document === 'undefined' || this.docEditLeaseLifecycleHandler) return;
+    this.docEditLeaseLifecycleHandler = (event) => {
+      if (event?.type === 'visibilitychange' && document.visibilityState !== 'hidden') return;
+      this.handleDocEditLeaseLifecycleExit();
+    };
+    window.addEventListener('pagehide', this.docEditLeaseLifecycleHandler);
+    document.addEventListener('visibilitychange', this.docEditLeaseLifecycleHandler, { passive: true });
+  },
+
   closeDocEditor(options = {}) {
     const selectedRecord = this.selectedDocument;
-    if (this.docEditDraftDirty) void this.persistSelectedDocDraft({ immediate: true });
+    const draftPromise = this.docEditDraftDirty
+      ? this.persistSelectedDocDraft({ immediate: true })
+      : null;
     if (selectedRecord?.record_id) {
-      if (isTowerPgBackendMode()) {
-        void releasePgEditLeaseForRecord(this, selectedRecord, 'document');
-      } else {
-        void this.releaseLockManagedCheckout(selectedRecord, recordFamilyHash('document'), { reportError: false });
-      }
+      void this.releaseSelectedDocLeaseWhenSafe(selectedRecord, { draftPromise, reportError: false });
     }
     this.stopDocCommentsLiveQuery();
     this.cancelDocAutosave();

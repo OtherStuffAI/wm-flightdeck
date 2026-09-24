@@ -1150,6 +1150,72 @@ describe('docsManagerMixin checkout orchestration', () => {
     expect(store.currentFolderId).toBe('dir-b');
   });
 
+  it('persists a recovery draft and waits for an in-flight PG save before releasing on close', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    releaseTowerPgEditLeaseMock.mockResolvedValueOnce({ released: true });
+    let finishSave;
+    const pendingSave = new Promise((resolve) => { finishSave = resolve; });
+    const record = { record_id: 'doc-leaving', pg_backend: true, sync_status: 'synced' };
+    const persistSelectedDocDraft = vi.fn(async () => ({ document_id: record.record_id }));
+    const store = createStore({
+      documents: [record],
+      selectedDocType: 'document',
+      selectedDocId: record.record_id,
+      docEditDraftDirty: true,
+      persistSelectedDocDraft,
+      pgDocSavePromises: { [record.record_id]: pendingSave },
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+      },
+      pgEditLeaseSessions: {
+        [`document:${record.record_id}`]: { lease: { id: 'lease-leaving', lease_token: 'token-leaving' } },
+      },
+    });
+
+    store.closeDocEditor({ syncRoute: false });
+    await vi.waitFor(() => expect(persistSelectedDocDraft).toHaveBeenCalledWith({ immediate: true }));
+    expect(store.selectedDocId).toBeNull();
+    expect(releaseTowerPgEditLeaseMock).not.toHaveBeenCalled();
+
+    delete store.pgDocSavePromises[record.record_id];
+    finishSave(record);
+    await vi.waitFor(() => expect(releaseTowerPgEditLeaseMock).toHaveBeenCalledTimes(1));
+  });
+
+  it('releases on hidden lifecycle after checkpointing the draft and stops editing', async () => {
+    isTowerPgBackendModeMock.mockReturnValue(true);
+    releaseTowerPgEditLeaseMock.mockResolvedValueOnce({ released: true });
+    const record = { record_id: 'doc-hidden', pg_backend: true, sync_status: 'synced' };
+    const adapter = { setEditable: vi.fn() };
+    const store = createStore({
+      documents: [record],
+      selectedDocType: 'document',
+      selectedDocId: record.record_id,
+      docEditDraftDirty: true,
+      docRichEditorAdapter: adapter,
+      persistSelectedDocDraft: vi.fn(async () => ({ document_id: record.record_id })),
+      currentWorkspace: {
+        workspaceId: 'workspace-1',
+        directHttpsUrl: 'https://tower.example',
+        appNpub: 'flightdeck_pg',
+      },
+      pgEditLeaseSessions: {
+        [`document:${record.record_id}`]: { lease: { id: 'lease-hidden', lease_token: 'token-hidden' } },
+      },
+      pgEditLeaseRenewalTimers: { [`document:${record.record_id}`]: 99 },
+    });
+
+    expect(store.handleDocEditLeaseLifecycleExit()).toBe(true);
+
+    await vi.waitFor(() => expect(releaseTowerPgEditLeaseMock).toHaveBeenCalledTimes(1));
+    expect(store.persistSelectedDocDraft).toHaveBeenCalledWith({ immediate: true });
+    expect(store.pgEditLeaseRenewalTimers[`document:${record.record_id}`]).toBeUndefined();
+    expect(store.docEditAccessState).toBe('ready');
+    expect(adapter.setEditable).toHaveBeenCalledWith(false);
+  });
+
   it('does not release a held checkout while a local write is still pending', async () => {
     const store = createStore();
     store.setLockManagedCheckoutSession('doc-a', documentFamilyHash, {
