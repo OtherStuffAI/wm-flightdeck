@@ -577,6 +577,62 @@ describe('handleSSEStatus', () => {
     });
   });
 
+  it('keeps a mobile session usable after fallback sync while SSE probes continue reconnecting', async () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    const store = createStore({
+      session: { npub: 'npub1viewer' },
+      backendUrl: 'https://tower.example.com',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceDbKey: 'workspace-mobile',
+      currentWorkspace: { workspaceId: 'mobile-space' },
+      isEncryptedRecordSyncDisabled: true,
+      isLoggedIn: true,
+      requestTowerSyncFamily: vi.fn().mockResolvedValue({ ok: true }),
+      recoverVisibleAgentActivities: vi.fn().mockResolvedValue(undefined),
+      scheduleBackgroundSync: vi.fn(),
+    });
+    const connectionKey = store.buildSSEConnectionKey();
+
+    store.handleSSEStatus({ status: 'reconnecting', connectionKey, reason: 'eventsource-error' });
+    expect(store.towerConnectionIndicatorLabel).toBe('Reconnecting');
+
+    await store.backgroundSyncTick();
+    expect(store.towerFallbackReachable).toBe(true);
+    expect(store.towerConnectionIndicatorLabel).toBe('');
+
+    store.handleSSEStatus({ status: 'fallback-polling', connectionKey, reason: 'reconnect-exhausted' });
+    store.handleSSEStatus({ status: 'reconnecting', connectionKey, reason: 'fallback-probe' });
+
+    expect(store.sseStatus).toBe('reconnecting');
+    expect(store.towerReachabilityState).toBe('online');
+    expect(store.towerConnectionIndicatorLabel).toBe('');
+  });
+
+  it('shows reconnecting again when Tower fallback fails after a usable mobile recovery', () => {
+    isTowerPgBackendMode.mockReturnValue(true);
+    const store = createStore({
+      session: { npub: 'npub1viewer' },
+      backendUrl: 'https://tower.example.com',
+      workspaceOwnerNpub: 'npub1owner',
+      workspaceDbKey: 'workspace-mobile',
+      currentWorkspace: { workspaceId: 'mobile-space' },
+      isEncryptedRecordSyncDisabled: true,
+      isLoggedIn: true,
+      sseStatus: 'reconnecting',
+      towerReachabilityState: 'online',
+      towerReachabilityReason: 'background-sync-success',
+      towerReachabilityConnectionKey: '',
+      towerFallbackReachable: true,
+    });
+    store.towerReachabilityConnectionKey = store.buildSSEConnectionKey();
+
+    store.markTowerReachabilityOperationFailed('background-sync-failed');
+
+    expect(store.towerFallbackReachable).toBe(false);
+    expect(store.towerReachabilityState).toBe('reconnecting');
+    expect(store.towerConnectionIndicatorLabel).toBe('Reconnecting');
+  });
+
   it('ignores a late reconnect event from the previous workspace after the active stream recovered', () => {
     isTowerPgBackendMode.mockReturnValue(true);
     const store = createStore({

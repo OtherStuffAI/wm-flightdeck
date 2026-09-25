@@ -206,6 +206,7 @@ export const syncManagerMixin = {
   towerReachabilityState: 'online',
   towerReachabilityReason: '',
   towerReachabilityConnectionKey: '',
+  towerFallbackReachable: false,
   offlineMessageResyncArmed: false,
   offlineMessageResyncConnectionKey: '',
   offlineMessageResyncScheduled: false,
@@ -240,6 +241,7 @@ export const syncManagerMixin = {
 
   markTowerReachabilityDegraded(reason = 'transport-unreachable', state = 'reconnecting') {
     if (!isTowerPgBackendMode()) return false;
+    this.towerFallbackReachable = false;
     this.offlineMessageResyncArmed = true;
     this.towerReachabilityState = isBrowserOffline() || state === 'offline' ? 'offline' : 'reconnecting';
     this.towerReachabilityReason = String(reason || 'transport-unreachable');
@@ -271,6 +273,7 @@ export const syncManagerMixin = {
     this.towerReachabilityState = 'online';
     this.towerReachabilityReason = String(reason || 'transport-recovered');
     this.towerReachabilityConnectionKey = connectionKey;
+    this.towerFallbackReachable = options.fallbackUsable === true;
     if (!shouldSchedule && this.offlineMessageResyncConnectionKey !== connectionKey) {
       this.offlineMessageResyncArmed = false;
       this.offlineMessageResyncConnectionKey = '';
@@ -2998,20 +3001,30 @@ export const syncManagerMixin = {
       const pgHydration = this.isEncryptedRecordSyncDisabled
         ? this.queueTowerPgSSEHydration([])
         : null;
-      this.markTowerReachabilityRecovered?.('sse-connected', { refresh: false });
+      this.markTowerReachabilityRecovered?.('sse-connected', { refresh: false, fallbackUsable: false });
       // Widen heartbeat polling now that SSE is live
       this.scheduleBackgroundSync();
       return pgHydration;
     }
 
     if (status === 'reconnecting' || status === 'disconnected') {
-      this.markTowerReachabilityDegraded?.(`sse-${status}`, 'reconnecting');
+      const currentConnectionKey = this.buildSSEConnectionKey?.() || '';
+      const fallbackIsUsable = this.towerFallbackReachable === true
+        && (!this.towerReachabilityConnectionKey || this.towerReachabilityConnectionKey === currentConnectionKey);
+      if (!fallbackIsUsable) {
+        this.markTowerReachabilityDegraded?.(`sse-${status}`, 'reconnecting');
+      }
       this.scheduleBackgroundSync(50);
       return;
     }
 
     if (status === 'fallback-polling') {
-      this.markTowerReachabilityDegraded?.('sse-fallback-polling', 'reconnecting');
+      const currentConnectionKey = this.buildSSEConnectionKey?.() || '';
+      const fallbackIsUsable = this.towerFallbackReachable === true
+        && (!this.towerReachabilityConnectionKey || this.towerReachabilityConnectionKey === currentConnectionKey);
+      if (!fallbackIsUsable) {
+        this.markTowerReachabilityDegraded?.('sse-fallback-polling', 'reconnecting');
+      }
       // SSE gave up reconnecting — tighten polling back to normal cadence
       this.scheduleBackgroundSync();
       return;
@@ -3296,7 +3309,10 @@ export const syncManagerMixin = {
         this.markEncryptedRecordSyncDisabled();
         await this.recoverVisibleAgentActivities();
         await (this.requestTowerSyncFamily?.('workspace-bootstrap') ?? this.runTowerPgWorkspaceSync());
-        this.markTowerReachabilityRecovered?.('background-sync-success', { refresh: false });
+        this.markTowerReachabilityRecovered?.('background-sync-success', {
+          refresh: false,
+          fallbackUsable: this.sseStatus !== 'connected',
+        });
       } else {
         await this.performSync({ silent: true });
       }
@@ -3660,7 +3676,10 @@ export const syncManagerMixin = {
       if (this.canAdminWorkspace && typeof this.refreshWappPublishingGrants === 'function') {
         await this.refreshWappPublishingGrants();
       }
-      this.markTowerReachabilityRecovered?.('full-sync-success', { refresh: false });
+      this.markTowerReachabilityRecovered?.('full-sync-success', {
+        refresh: false,
+        fallbackUsable: this.sseStatus !== 'connected',
+      });
       this.markSyncFamilyProgress(step.id, 'done');
       this.updateSyncSession({
         phase: 'pulling',

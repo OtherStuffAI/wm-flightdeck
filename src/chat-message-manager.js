@@ -1196,8 +1196,10 @@ export const chatMessageManagerMixin = {
   },
   getAgentActivityHealth(activity = {}) {
     void this.responseActivityTick;
-    return getAgentActivityHealth(activity, this.sseStatus, Date.now(), {
-      startedAt: this.agentActivityRecoveryStartedAt,
+    const fallbackIsUsable = this.towerFallbackReachable === true
+      && this.towerReachabilityState === 'online';
+    return getAgentActivityHealth(activity, fallbackIsUsable ? 'fallback-polling' : this.sseStatus, Date.now(), {
+      startedAt: fallbackIsUsable ? 0 : this.agentActivityRecoveryStartedAt,
       error: this.agentActivityRecoveryError,
     });
   },

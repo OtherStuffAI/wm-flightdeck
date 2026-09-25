@@ -2118,6 +2118,13 @@
       "label": "Validate mobile connection indicator",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2091,
+      "label": "Accurate mobile connection feedback",
+      "notes": [
+        "Keep mobile connection and agent activity controls live when Tower fallback sync is usable during SSE recovery, while still showing reconnecting feedback after a real Tower failure."
+      ]
     }
   ]
 }

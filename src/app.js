@@ -674,6 +674,7 @@ export function initApp() {
     syncBackoffMs: 0,
     sseStatus: 'disconnected',
     towerReachabilityState: 'online',
+    towerFallbackReachable: false,
     towerReachabilityReason: '',
     towerReachabilityConnectionKey: '',
     offlineMessageResyncArmed: false,

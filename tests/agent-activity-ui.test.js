@@ -153,6 +153,21 @@ describe('retained run grouping', () => {
     expect(target.getAgentSessionStatusLabel(stale)).toBe('Session errored — Runtime exited');
   });
 
+  it('keeps the working control live when mobile fallback sync is usable during SSE probes', () => {
+    const target = store();
+    const current = run('1');
+    target.sseStatus = 'reconnecting';
+    target.agentActivityRecoveryStartedAt = Date.now();
+    target.towerReachabilityState = 'online';
+    target.towerFallbackReachable = true;
+
+    expect(target.getAgentActivityStatusLabel(current)).toBe('Working');
+
+    target.towerFallbackReachable = false;
+    target.towerReachabilityState = 'reconnecting';
+    expect(target.getAgentActivityStatusLabel(current)).toBe('Reconnecting');
+  });
+
   it.each(['completed', 'failed', 'cancelled'])('removes %s activity from the live card slot', (state) => {
     const target = store();
     const row = run('1', { state });
