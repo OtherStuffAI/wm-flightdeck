@@ -992,6 +992,48 @@ describe('autopilot overview manager', () => {
     expect(store.activeThreadId).toBeNull();
   });
 
+  it('hydrates a missing Deck thread channel and reaches reply-ready state', async () => {
+    const channel = { record_id: 'chan-a', title: 'Implementation', record_state: 'active' };
+    const store = {
+      ...autopilotOverviewManagerMixin,
+      activeThreadId: 'root-a',
+      deckThreadChannelId: 'chan-a',
+      channels: [],
+      requestTowerSyncFamily: vi.fn(async () => {
+        store.channels = [channel];
+      }),
+    };
+
+    await store.resolveDeckThreadChannel('chan-a');
+
+    expect(store.requestTowerSyncFamily).toHaveBeenCalledWith('channels', '', { force: true });
+    expect(store.deckThreadChannelState).toBe('ready');
+    expect(store.deckThreadChannelRecord).toBe(channel);
+    expect(store.deckThreadChannelError).toBe('');
+  });
+
+  it('keeps a failed Deck channel refresh visible and retryable', async () => {
+    const store = {
+      ...autopilotOverviewManagerMixin,
+      activeThreadId: 'root-a',
+      deckThreadChannelId: 'chan-a',
+      channels: [],
+      requestTowerSyncFamily: vi.fn()
+        .mockRejectedValueOnce(new Error('Tower is offline'))
+        .mockImplementationOnce(async () => {
+          store.channels = [{ record_id: 'chan-a', record_state: 'active' }];
+        }),
+    };
+
+    expect(await store.resolveDeckThreadChannel('chan-a')).toBe(false);
+    expect(store.deckThreadChannelState).toBe('error');
+    expect(store.deckThreadChannelError).toBe('Tower is offline');
+
+    expect(await store.retryDeckThreadChannel()).toBe(true);
+    expect(store.deckThreadChannelState).toBe('ready');
+    expect(store.deckThreadChannelError).toBe('');
+  });
+
   it('opens a reply-only Inbox row over Deck and closes back to its exact context', async () => {
     const originalDocument = globalThis.document;
     const originalAnimationFrame = globalThis.requestAnimationFrame;

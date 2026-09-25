@@ -2709,6 +2709,7 @@ export const channelsManagerMixin = {
     ].join('|'))) {
       this.channels = nextChannels;
     }
+    if (activeDeckThreadChannel) this.setDeckThreadChannelReady?.(activeDeckThreadChannel);
 
     if (deckThreadAccessLost) {
       if (typeof this.closeDeckThread === 'function') {

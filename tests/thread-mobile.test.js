@@ -220,16 +220,19 @@ describe('Thread mobile responsive behavior', () => {
       expect(chatInputDecl).toMatch(/min-width\s*:\s*0/);
 
       const threadInputBarDecl = extractDeclarations(mobileBlock, '.thread-input-bar');
-      expect(threadInputBarDecl).toMatch(/flex-direction\s*:\s*row/);
-      expect(threadInputBarDecl).toMatch(/align-items\s*:\s*flex-end/);
+      expect(threadInputBarDecl).toMatch(/padding\s*:\s*0\.55rem 0\.65rem/);
+
+      const threadComposerBodyDecl = extractDeclarations(css, '.thread-composer-body');
+      expect(threadComposerBodyDecl).toMatch(/grid-template-columns\s*:\s*minmax\(0,\s*1fr\) auto/);
 
       const threadInputActionsDecl = extractDeclarations(mobileBlock, '.thread-input-actions');
-      expect(threadInputActionsDecl).toMatch(/flex-direction\s*:\s*column/);
-      expect(threadInputActionsDecl).toMatch(/align-self\s*:\s*flex-end/);
+      expect(threadInputActionsDecl).toMatch(/flex-direction\s*:\s*row/);
+      expect(threadInputActionsDecl).toMatch(/gap\s*:\s*0\.35rem/);
 
       const threadInputDecl = extractDeclarations(mobileBlock, '.thread-input-bar .chat-input');
       expect(threadInputDecl).toMatch(/align-self\s*:\s*flex-end/);
       expect(threadInputDecl).toMatch(/min-width\s*:\s*0/);
+      expect(threadInputDecl).toMatch(/min-height\s*:\s*calc\(\(1\.4em\) \+ 1\.2rem \+ 2px\)/);
     });
   });
 

@@ -4649,8 +4649,9 @@
                     </div>
                   </template>
                 </div>
-                <div
-                  class="chat-input"
+                <div class="thread-composer-body">
+                  <div
+                    class="chat-input"
                   data-chat-composer="thread"
                   data-channel-visible-mentions="true"
                   :contenteditable="$store.chat.canComposeInThreadDestination.toString()"
@@ -4665,9 +4666,12 @@
                   @paste="$store.chat.handleMentionComposerPaste($event, 'thread')"
                   @dragover.prevent
                   @drop.prevent="$store.chat.handleChatFileDrop($event, 'thread')"
-                ></div>
-                <p class="error-text" role="status" x-show="!$store.chat.canComposeInThreadDestination" x-cloak x-text="$store.chat.threadComposerDisabledReason"></p>
-                <div class="thread-input-actions">
+                  ></div>
+                  <div class="thread-composer-status" x-show="!$store.chat.canComposeInThreadDestination" x-cloak>
+                    <p class="error-text" :role="$store.chat.deckThreadChannelState === 'error' ? 'alert' : 'status'" x-text="$store.chat.threadComposerDisabledReason"></p>
+                    <button type="button" class="thread-channel-retry" x-show="$store.chat.deckThreadChannelState === 'error'" :disabled="$store.chat.deckThreadChannelState === 'loading'" @click="$store.chat.retryDeckThreadChannel()">Retry</button>
+                  </div>
+                  <div class="thread-input-actions">
                   <div class="chat-composer-menu" x-data="{ open: false }" @click.outside="open = false">
                     <button class="chat-composer-menu-trigger" type="button" @click="open = !open" :aria-expanded="open" aria-haspopup="menu">Menu</button>
                     <div class="chat-composer-menu-popover" x-show="open" x-cloak x-transition role="menu">
@@ -4682,6 +4686,7 @@
                     </div>
                   </div>
                   <button class="thread-reply-btn" @click="$store.chat.deckThreadComposerOpen ? $store.chat.sendDeckThread() : $store.chat.sendThreadReply()" :disabled="!$store.chat.canComposeInThreadDestination || $store.chat.deckThreadComposerBusy || $store.chat.composerSendPending.thread || ((!$store.chat.hasMentionComposerDraftText('thread') && $store.chat.threadAudioDrafts.length === 0 && $store.chat.threadFileDrafts.length === 0) || $store.chat.threadImageUploadCount > 0 || $store.chat.threadFileDrafts.some(d => d.status !== 'ready') || $store.chat.messageEdit.submitting)" :aria-busy="($store.chat.deckThreadComposerBusy || $store.chat.composerSendPending.thread).toString()" x-text="$store.chat.deckThreadComposerOpen ? (($store.chat.deckThreadComposerBusy || $store.chat.composerSendPending.thread) ? 'Starting…' : 'Start thread') : ($store.chat.isEditingMessage('thread') ? ($store.chat.messageEdit.submitting ? 'Saving…' : 'Save') : ($store.chat.composerSendPending.thread ? 'Sending…' : 'Reply'))"></button>
+                  </div>
                 </div>
               </div>
               <p class="error-text thread-create-error" role="alert" x-show="$store.chat.deckThreadComposerOpen && $store.chat.error" x-text="$store.chat.error"></p>

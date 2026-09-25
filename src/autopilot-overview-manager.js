@@ -19,6 +19,7 @@ import {
   resolveVisibleThreadNeighbour,
   shouldSuppressThreadNavigation,
 } from './thread-navigation.js';
+import { getChannelById } from './db.js';
 
 const UNSCOPED_SCOPE_ID = '__unscoped__';
 const ALL_SCOPE_ID = 'all';
@@ -814,6 +815,10 @@ export const autopilotOverviewManagerMixin = {
   deckThreadNavigationRows: [],
   deckThreadSwipeStart: null,
   deckThreadChannelId: '',
+  deckThreadChannelRecord: null,
+  deckThreadChannelState: 'idle',
+  deckThreadChannelError: '',
+  deckThreadChannelRequestId: 0,
   deckThreadTowerId: '',
   deckMobileColumn: 'inbox',
   deckMobileCards: DECK_MOBILE_CARDS,
@@ -1080,6 +1085,9 @@ export const autopilotOverviewManagerMixin = {
       this.deckThreadReturnContext = this.captureDeckReturnContext();
     }
     this.deckThreadChannelId = normalizedChannelId;
+    this.deckThreadChannelRecord = null;
+    this.deckThreadChannelState = 'loading';
+    this.deckThreadChannelError = '';
     const channelMessages = (Array.isArray(this.fileMessages) ? this.fileMessages : [])
       .filter((message) => normalizeString(message?.channel_id) === normalizedChannelId);
     const matchingMessage = channelMessages.find((message) => (
@@ -1100,8 +1108,60 @@ export const autopilotOverviewManagerMixin = {
       syncRoute: false,
       preserveChannelContext: true,
     });
+    void (this.resolveDeckThreadChannel || autopilotOverviewManagerMixin.resolveDeckThreadChannel)
+      .call(this, normalizedChannelId);
     if (options.syncRoute !== false) this.syncRoute?.(options.replaceRoute === true);
     return true;
+  },
+
+  setDeckThreadChannelReady(channel) {
+    if (!channel || normalizeString(channel.record_id) !== normalizeString(this.deckThreadChannelId)) return false;
+    if (channel.record_state === 'deleted' || channel.can_read === false || channel.readable === false) {
+      this.deckThreadChannelRecord = null;
+      this.deckThreadChannelState = 'error';
+      this.deckThreadChannelError = 'This thread channel is no longer available.';
+      return false;
+    }
+    this.deckThreadChannelRecord = channel;
+    this.deckThreadChannelState = 'ready';
+    this.deckThreadChannelError = '';
+    return true;
+  },
+
+  async resolveDeckThreadChannel(channelId = this.deckThreadChannelId, { force = false } = {}) {
+    const normalizedChannelId = normalizeString(channelId);
+    if (!normalizedChannelId || normalizedChannelId !== normalizeString(this.deckThreadChannelId)) return false;
+    const requestId = Number(this.deckThreadChannelRequestId || 0) + 1;
+    this.deckThreadChannelRequestId = requestId;
+    this.deckThreadChannelState = 'loading';
+    this.deckThreadChannelError = '';
+    const isCurrent = () => requestId === this.deckThreadChannelRequestId
+      && normalizedChannelId === normalizeString(this.deckThreadChannelId)
+      && Boolean(this.activeThreadId);
+    const findChannel = async () => (this.channels || []).find((channel) => normalizeString(channel?.record_id) === normalizedChannelId)
+      || await getChannelById(normalizedChannelId).catch(() => null);
+    try {
+      let channel = await findChannel();
+      if (!isCurrent()) return false;
+      if (channel && this.setDeckThreadChannelReady(channel)) return true;
+      if (typeof this.requestTowerSyncFamily !== 'function') throw new Error('Channel refresh is unavailable.');
+      await this.requestTowerSyncFamily('channels', '', { force: true });
+      if (!isCurrent()) return false;
+      channel = await findChannel();
+      if (!isCurrent()) return false;
+      if (channel && this.setDeckThreadChannelReady(channel)) return true;
+      throw new Error('The thread channel could not be loaded.');
+    } catch (error) {
+      if (!isCurrent()) return false;
+      this.deckThreadChannelRecord = null;
+      this.deckThreadChannelState = 'error';
+      this.deckThreadChannelError = error?.message || 'The thread channel could not be loaded.';
+      return false;
+    }
+  },
+
+  retryDeckThreadChannel() {
+    return this.resolveDeckThreadChannel(this.deckThreadChannelId, { force: true });
   },
 
   captureDeckThreadNavigationRows(thread = {}) {
@@ -1197,6 +1257,10 @@ export const autopilotOverviewManagerMixin = {
     this.restoreDeckReturnContext(returnContext);
     this.deckThreadReturnContext = null;
     this.deckThreadChannelId = '';
+    this.deckThreadChannelRecord = null;
+    this.deckThreadChannelState = 'idle';
+    this.deckThreadChannelError = '';
+    this.deckThreadChannelRequestId = Number(this.deckThreadChannelRequestId || 0) + 1;
     this.deckThreadTowerId = '';
     this.deckThreadNavigationRows = [];
     this.deckThreadSwipeStart = null;

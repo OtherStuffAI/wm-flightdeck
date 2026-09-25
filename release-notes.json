@@ -2090,6 +2090,13 @@
       "label": "Activate faster channel conversations",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2084,
+      "label": "Reliable mobile thread replies",
+      "notes": [
+        "Load the owning channel reliably when opening a thread from Inbox, keep failures retryable, and use a compact mobile reply composer with aligned actions."
+      ]
     }
   ]
 }

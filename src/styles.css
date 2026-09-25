@@ -10662,6 +10662,43 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   flex-wrap: wrap;
 }
 
+.thread-composer-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  gap: 0.4rem 0.5rem;
+  min-width: 0;
+  width: 100%;
+}
+
+.thread-composer-body > .chat-input {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.thread-composer-status {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.thread-composer-status .error-text { margin: 0; }
+
+.thread-channel-retry {
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
 .chat-editing-banner {
   flex: 0 0 100%;
   display: flex;
@@ -10722,6 +10759,9 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   gap: 0.5rem;
   align-items: flex-end;
   flex-shrink: 0;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: end;
 }
 
 .thread-reply-btn {
@@ -16498,21 +16538,19 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   }
 
   .thread-input-bar {
-    flex-direction: row;
-    align-items: flex-end;
-    padding: 0.75rem 0.85rem calc(0.75rem + env(safe-area-inset-bottom));
-    gap: 0.5rem;
+    padding: 0.55rem 0.65rem calc(0.55rem + env(safe-area-inset-bottom));
+    gap: 0.35rem;
   }
 
   .thread-input-actions {
-    flex-direction: column;
-    align-self: flex-end;
+    flex-direction: row;
     justify-content: flex-end;
+    gap: 0.35rem;
   }
 
   .thread-input-actions .chat-composer-menu-trigger,
   .thread-input-actions .thread-reply-btn {
-    min-height: 34px;
+    min-height: 44px;
     min-width: 48px;
     padding-left: 0.65rem;
     padding-right: 0.65rem;
@@ -16521,7 +16559,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   .thread-input-bar .chat-input {
     align-self: flex-end;
     min-width: 0;
-    min-height: calc((2 * 1.4em) + 1.2rem + 2px);
+    min-height: calc((1.4em) + 1.2rem + 2px);
     width: auto;
     max-height: calc((5 * 1.4em) + 1.2rem + 2px);
     resize: none;

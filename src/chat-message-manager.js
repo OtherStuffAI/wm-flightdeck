@@ -478,7 +478,8 @@ export const chatMessageManagerMixin = {
   },
 
   get activeThreadChannel() {
-    return this.channels.find((channel) => channel.record_id === this.activeThreadChannelId) ?? null;
+    return this.channels.find((channel) => channel.record_id === this.activeThreadChannelId)
+      ?? (this.deckThreadChannelRecord?.record_id === this.activeThreadChannelId ? this.deckThreadChannelRecord : null);
   },
 
   get canComposeInThreadDestination() {
@@ -487,9 +488,11 @@ export const chatMessageManagerMixin = {
   },
 
   get threadComposerDisabledReason() {
-    return this.canComposeInThreadDestination
-      ? ''
-      : 'Thread channel is still loading. Attachments and replies will be available when it is ready.';
+    if (this.canComposeInThreadDestination) return '';
+    if (this.deckThreadChannelState === 'error') {
+      return this.deckThreadChannelError || 'The thread channel could not be loaded.';
+    }
+    return 'Thread channel is still loading. Attachments and replies will be available when it is ready.';
   },
 
   get canComposeInChatDestination() {
