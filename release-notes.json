@@ -2125,6 +2125,19 @@
       "notes": [
         "Keep mobile connection and agent activity controls live when Tower fallback sync is usable during SSE recovery, while still showing reconnecting feedback after a real Tower failure."
       ]
+    },
+    {
+      "buildNumber": 2092,
+      "label": "Independent FIPS service connections",
+      "notes": [
+        "Keep Tower, Autopilot, live agent activity, and Drive connected through independent identity-pinned WMapp transport handles."
+      ]
+    },
+    {
+      "buildNumber": 2093,
+      "label": "Validate scoped FIPS transport",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }

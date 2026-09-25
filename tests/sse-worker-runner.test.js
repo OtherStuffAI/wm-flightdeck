@@ -111,8 +111,10 @@ describe('sync worker SSE handshake integration', () => {
     const endpoint = `http://${nip19.npubEncode('12'.repeat(32))}.fips:41080`;
     const streams = [];
     const nativeFetch = vi.fn(async () => new Response(new ReadableStream({ start(controller) { streams.push(controller); } }), { headers: { 'content-type': 'text/event-stream' } }));
-    vi.stubGlobal('window', { wingmanTowerTransport: { version: 2, fetch: nativeFetch } });
-    dispatch({ type: 'sync-worker:bootstrap-keys', towerTransports: [{ logicalTower: 'https://tower.example.com', mode: 'fips', transport: 'native', endpoint }] });
+    dispatch({ type: 'sync-worker:bootstrap-keys', towerTransports: [{
+      logicalTower: 'https://tower.example.com', mode: 'fips', transport: 'native', endpoint,
+      handle: { fetch: nativeFetch },
+    }] });
     dispatch({
       type: 'sync-worker:sse-connect', ownerNpub: 'npub1owner', viewerNpub: 'npub1viewer',
       backendUrl: 'https://tower.example.com', workspaceDbKey: 'workspace-db',

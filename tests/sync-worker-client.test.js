@@ -139,7 +139,7 @@ describe('worker-only sync enforcement', () => {
   it('detaches native requests before terminating a sync worker', () => {
     const originalWindow = globalThis.window;
     const order = [];
-    globalThis.window = { wingmanTowerTransport: { version: 2, available: true,
+    globalThis.window = { fipsTransport: { version: 2, available: true,
       attachWorker: () => order.push('attach'), detachWorker: () => order.push('detach'),
     } };
     globalThis.Worker = class {

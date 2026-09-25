@@ -439,8 +439,8 @@ export const connectSettingsManagerMixin = {
   },
 
   get towerFipsSupported() {
-    const bridge = globalThis.window?.wingmanTowerTransport;
-    return bridge?.version === 2 && bridge.available !== false && bridge.pairingIdentity === 'service-npub';
+    const transport = globalThis.window?.fipsTransport;
+    return transport?.version >= 2 && transport.available !== false && typeof transport.connect === 'function';
   },
 
   get towerTransportStatus() {
@@ -487,7 +487,7 @@ export const connectSettingsManagerMixin = {
           await verifyPairedTowerWorkspace(preference, workspaceId, ownerNpub);
           assertCurrent();
         } catch (error) {
-          await globalThis.window?.wingmanTowerTransport?.disconnect?.();
+          await preference.handle?.disconnect?.();
           throw error;
         }
       }
@@ -495,7 +495,7 @@ export const connectSettingsManagerMixin = {
       try {
         await saveTowerTransportPreference(logicalTower, preference);
       } catch (error) {
-        if (preference.mode === 'fips') await globalThis.window?.wingmanTowerTransport?.disconnect?.();
+        if (preference.mode === 'fips') await preference.handle?.disconnect?.();
         throw error;
       }
       // Reload the same page origin. Stable backend, workspace keys, cursor and

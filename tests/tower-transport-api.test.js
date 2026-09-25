@@ -18,10 +18,10 @@ const publicNpub = nip19.npubEncode('12'.repeat(32));
 const endpoint = `http://${publicNpub}.fips:41080`;
 let native;
 beforeEach(() => {
-  importTowerTransports([{ logicalTower, mode: 'fips', endpoint, transport: 'native' }]);
   api.setBaseUrl(logicalTower);
   native = { version: 2, fetch: vi.fn(async () => Response.json({ ok: true })) };
-  vi.stubGlobal('window', { wingmanTowerTransport: native });
+  importTowerTransports([{ logicalTower, mode: 'fips', endpoint, transport: 'native', handle: native }]);
+  vi.stubGlobal('window', { fipsTransport: native });
   vi.stubGlobal('fetch', vi.fn(() => { throw new Error('Unexpected public request'); }));
   vi.clearAllMocks();
 });

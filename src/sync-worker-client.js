@@ -34,10 +34,10 @@ function createWorkerInstance() {
   if (!supportsWorker()) return null;
   try {
     const worker = new Worker(new URL('./worker/sync-worker-runner.js', import.meta.url), { type: 'module' });
-    const nativeBridge = globalThis.window?.wingmanTowerTransport;
-    if (nativeBridge?.version === 2 && nativeBridge.available !== false) {
-      nativeBridge.attachWorker(worker);
-      detachNativeWorker = () => nativeBridge.detachWorker?.(worker);
+    const nativeTransport = globalThis.window?.fipsTransport;
+    if (nativeTransport?.version >= 2 && nativeTransport.available !== false) {
+      nativeTransport.attachWorker(worker);
+      detachNativeWorker = () => nativeTransport.detachWorker?.(worker);
     }
     worker.addEventListener('message', handleWorkerMessage);
     worker.addEventListener('error', handleWorkerError);

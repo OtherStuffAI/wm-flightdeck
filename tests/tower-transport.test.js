@@ -10,20 +10,24 @@ import { NativeTowerEventSource } from '../src/tower-event-source.js';
 import { TowerSyncService } from '../src/tower-sync-service.js';
 
 const logicalTower = 'https://tower.example';
-const endpoint = `http://${nip19.npubEncode('12'.repeat(32))}.fips:41080`;
+const peerNpub = nip19.npubEncode('12'.repeat(32));
+const endpoint = `http://${peerNpub}.fips:41080`;
 const serviceNpub = nip19.npubEncode('34'.repeat(32));
 const connection = { mode: 'fips', transport: 'native', endpoint, serviceNpub };
 const storage = () => {
   const values = new Map();
   return { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), values };
 };
-const bridge = () => ({
-  version: 2, pairingIdentity: 'service-npub',
-  available: true,
-  disconnect: vi.fn(),
-  connect: vi.fn(async (input) => ({ version: 2, pairingIdentity: 'service-npub', transport: 'native', ...input })),
-  fetch: vi.fn(async () => Response.json({ status: 'ok', service_npub: serviceNpub })),
-});
+const bridge = () => {
+  const fetch = vi.fn(async () => Response.json({ status: 'ok', service_npub: serviceNpub }));
+  const disconnect = vi.fn();
+  return {
+    version: 2, available: true, fetch, disconnect,
+    connect: vi.fn(async ({ endpoint: selectedEndpoint, peerNpub, purpose }) => ({
+      version: 2, endpoint: selectedEndpoint, peerNpub, purpose, fetch, disconnect,
+    })),
+  };
+};
 
 beforeEach(async () => {
   importTowerTransports([]);
@@ -41,8 +45,8 @@ describe('paired Tower transport', () => {
 
   it('verifies Tower identity through the native bridge before persisting only a preference', async () => {
     const native = bridge();
-    const paired = await connectTowerBridge(logicalTower, endpoint, serviceNpub, { bridge: native });
-    expect(native.connect).toHaveBeenCalledWith({ serviceNpub, endpoint });
+    const paired = await connectTowerBridge(logicalTower, endpoint, serviceNpub, { transport: native });
+    expect(native.connect).toHaveBeenCalledWith({ endpoint, peerNpub, purpose: 'tower' });
     expect(native.fetch).toHaveBeenCalledWith(`${endpoint}/health`, expect.objectContaining({ credentials: 'omit', redirect: 'error' }));
     const local = storage();
     await saveTowerTransportPreference(logicalTower, paired);
@@ -50,8 +54,8 @@ describe('paired Tower transport', () => {
       logicalTower, mode: 'fips', endpoint, serviceNpub,
     });
     expect(getTowerTransport(logicalTower)).toEqual({ mode: 'https' });
-    await initializeTowerTransports({ storage: local, bridge: native });
-    expect(getTowerTransport(logicalTower)).toEqual(connection);
+    await initializeTowerTransports({ storage: local, transport: native });
+    expect(getTowerTransport(logicalTower)).toMatchObject(connection);
     expect(exportTowerTransports()[0].logicalTower).toBe(logicalTower);
     expect(resolveTowerSigningUrl(`${logicalTower}/api/v4/read?cursor=123`)).toBe(`${endpoint}/api/v4/read?cursor=123`);
     await saveTowerTransportPreference(logicalTower, { mode: 'https' });
@@ -61,10 +65,10 @@ describe('paired Tower transport', () => {
 
   it('rejects wrong Tower, incompatible bridge and unsupported clients', async () => {
     const native = bridge();
-    await expect(connectTowerBridge(logicalTower, endpoint, 'wrong', { bridge: native })).rejects.toThrow('does not identify');
-    await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { bridge: { version: 1 } })).rejects.toThrow('requires WMapp');
+    await expect(connectTowerBridge(logicalTower, endpoint, 'wrong', { transport: native })).rejects.toThrow('does not identify');
+    await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { transport: { version: 1 } })).rejects.toThrow('requires WMapp');
     native.available = false;
-    await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { bridge: native })).rejects.toThrow('requires WMapp');
+    await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { transport: native })).rejects.toThrow('requires WMapp');
   });
 
   it('preserves a saved FIPS selection on unavailable reload and never issues public requests', async () => {
@@ -72,17 +76,17 @@ describe('paired Tower transport', () => {
     await saveTowerTransportPreference(logicalTower, connection);
     const publicFetch = vi.fn();
     vi.stubGlobal('fetch', publicFetch);
-    await initializeTowerTransports({ storage: local, bridge: null });
+    await initializeTowerTransports({ storage: local, transport: null });
     expect(getTowerTransport(logicalTower).mode).toBe('fips');
     await expect(towerFetch(`${logicalTower}/api/v4/read`)).rejects.toThrow('FIPS unavailable');
     expect(publicFetch).not.toHaveBeenCalled();
   });
 
   it('routes mapped reads/writes through native bytes without cookies, redirects or public fallback', async () => {
-    importTowerTransports([{ logicalTower, ...connection }]);
     const native = bridge();
+    importTowerTransports([{ logicalTower, ...connection, handle: { fetch: native.fetch } }]);
     const publicFetch = vi.fn();
-    vi.stubGlobal('window', { wingmanTowerTransport: native });
+    vi.stubGlobal('window', { fipsTransport: native });
     vi.stubGlobal('fetch', publicFetch);
     const body = new Uint8Array([0, 255, 10]);
     await towerFetch(`${logicalTower}/api/v4/storage/id`, { method: 'PUT', body, headers: { Authorization: 'exact-signature' }, credentials: 'include' });
@@ -103,12 +107,12 @@ describe('paired Tower transport', () => {
 });
 
 it('parses native SSE across arbitrary UTF-8/CRLF boundaries and closes upstream on cancellation', async () => {
-  importTowerTransports([{ logicalTower, ...connection }]);
   let upstream;
   const cancel = vi.fn();
   const native = bridge();
+  importTowerTransports([{ logicalTower, ...connection, handle: { fetch: native.fetch } }]);
   native.fetch.mockImplementation(async () => new Response(new ReadableStream({ start(c) { upstream = c; }, cancel }), { headers: { 'Content-Type': 'text/event-stream' } }));
-  vi.stubGlobal('window', { wingmanTowerTransport: native });
+  vi.stubGlobal('window', { fipsTransport: native });
   const source = new NativeTowerEventSource(`${logicalTower}/api/events?cursor=42&token=auth`);
   const received = new Promise((resolve) => source.addEventListener('flightdeck_pg.event', resolve, { once: true }));
   await vi.waitFor(() => expect(upstream).toBeTruthy());
@@ -151,7 +155,7 @@ it('retains local rows, queued writes and cursors across FIPS reload and HTTPS s
     await setSyncState('logical-cursor', 'committed-42');
     const writes = await getPendingWrites();
     await saveTowerTransportPreference(logicalTower, connection);
-    await initializeTowerTransports({ storage: local, bridge: bridge() });
+    await initializeTowerTransports({ storage: local, transport: bridge() });
     expect(getCurrentWorkspaceDbKey()).toBe(workspaceKey);
     expect(await db.tasks.get('local-task')).toMatchObject({ title: 'Pending edit', version: 7 });
     expect(await getPendingWrites()).toEqual(writes);
@@ -169,18 +173,18 @@ it('waits for WMapp page-finished injection on saved FIPS reload', async () => {
   const window = new EventTarget();
   vi.stubGlobal('window', window);
   const initializing = initializeTowerTransports({ storage: local });
-  window.wingmanTowerTransport = bridge();
-  window.dispatchEvent(new Event('wingman-tower-transport-ready'));
+  window.fipsTransport = bridge();
+  window.dispatchEvent(new Event('wingman-fips-transport-ready'));
   await initializing;
   expect(getTowerTransport(logicalTower).transport).toBe('native');
 });
 
 it.each(['AbortError', 'TimeoutError'])('preserves %s through page fetch cancellation', async (name) => {
-  importTowerTransports([{ logicalTower, ...connection }]);
   const native = bridge();
+  importTowerTransports([{ logicalTower, ...connection, handle: { fetch: native.fetch } }]);
   const abort = new AbortController();
   native.fetch.mockImplementation(() => new Promise((_, reject) => abort.signal.addEventListener('abort', () => reject(new Error('native canceled')))));
-  vi.stubGlobal('window', { wingmanTowerTransport: native });
+  vi.stubGlobal('window', { fipsTransport: native });
   const request = towerFetch(`${logicalTower}/api/read`, { signal: abort.signal });
   abort.abort(new DOMException('canceled', name));
   await expect(request).rejects.toMatchObject({ name });
@@ -190,18 +194,17 @@ it('service identity is the native authority even when compatibility URL changes
   const native = bridge();
   const publicFetch = vi.fn(() => { throw new Error('HTTPS unavailable'); });
   vi.stubGlobal('fetch', publicFetch);
-  await connectTowerBridge('https://unreachable.invalid', endpoint, serviceNpub, { bridge: native });
-  expect(native.connect).toHaveBeenCalledWith({ endpoint, serviceNpub });
+  await connectTowerBridge('https://unreachable.invalid', endpoint, serviceNpub, { transport: native });
+  expect(native.connect).toHaveBeenCalledWith({ endpoint, peerNpub, purpose: 'tower' });
   expect(publicFetch).not.toHaveBeenCalled();
   native.fetch.mockResolvedValue(Response.json({ service_npub: 'mismatch' }));
-  await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { bridge: native })).rejects.toThrow('does not identify');
+  await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { transport: native })).rejects.toThrow('does not identify');
   expect(native.disconnect).toHaveBeenCalledOnce();
 });
 
-it('recognizes older native v2 before approval and asks for an update', async () => {
+it('rejects a v2 provider that does not return a scoped handle', async () => {
   const native = bridge();
-  delete native.pairingIdentity;
-  await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { bridge: native })).rejects.toThrow('Update WMapp');
-  expect(native.connect).not.toHaveBeenCalled();
-  expect(native.fetch).not.toHaveBeenCalled();
+  native.connect.mockResolvedValue({ version: 2, endpoint, peerNpub, purpose: 'tower' });
+  await expect(connectTowerBridge(logicalTower, endpoint, serviceNpub, { transport: native })).rejects.toThrow('transport handle');
+  expect(native.connect).toHaveBeenCalledOnce();
 });

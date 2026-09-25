@@ -2631,7 +2631,8 @@ export async function fetchRecords({ owner_npub, viewer_npub, record_family_hash
 // Transport pairing is a connection/identity check, not workspace hydration.
 export async function verifyPairedTowerWorkspace(connection, workspaceId, ownerNpub, appNpub = FLIGHT_DECK_PG_APP_NPUB) {
   const path = `/api/v4/flightdeck-pg/workspaces/${encodeURIComponent(workspaceId)}/descriptor`;
-  const response = await nativeTowerFetch(`${connection.endpoint}${path}`, {
+  if (!connection?.handle?.fetch) throw new Error('Paired Tower transport handle is unavailable.');
+  const response = await connection.handle.fetch(`${connection.endpoint}${path}`, {
     headers: {
       Authorization: await createAuthHeaderForIntendedUrl(`${connection.endpoint}${path}`, 'GET'),
       'x-flightdeck-pg-app-npub': appNpub,

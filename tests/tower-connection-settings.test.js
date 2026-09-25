@@ -9,10 +9,12 @@ vi.mock('../src/tower-transport.js', async (original) => ({
 vi.mock('../src/api.js', async (original) => ({ ...await original(), verifyPairedTowerWorkspace: vi.fn() }));
 let store;
 let reload;
+let handleDisconnect;
 beforeEach(() => {
   vi.clearAllMocks();
   reload = vi.fn();
-  vi.stubGlobal('window', { wingmanTowerTransport: { version: 2, pairingIdentity: 'service-npub', available: true, disconnect: vi.fn() }, location: { reload } });
+  handleDisconnect = vi.fn();
+  vi.stubGlobal('window', { fipsTransport: { version: 2, available: true, connect: vi.fn() }, location: { reload } });
   store = Object.create(connectSettingsManagerMixin);
   Object.defineProperty(store, 'isTowerPgMode', { value: true });
   Object.assign(store, {
@@ -37,7 +39,7 @@ it('rejects a workspace change during native approval before signing or saving t
 });
 
 it('reports an unsupported client before attempting a signed identity probe', async () => {
-  window.wingmanTowerTransport = undefined;
+  window.fipsTransport = undefined;
   await store.saveTowerTransportSettings();
   expect(store.towerTransportError).toContain('FIPS requires WMapp');
   expect(connectTowerBridge).not.toHaveBeenCalled();
@@ -136,7 +138,7 @@ it('uses only selected workspace identity with public HTTPS unavailable', async 
   const publicFetch = vi.fn(() => { throw new Error('HTTPS unavailable'); });
   vi.stubGlobal('fetch', publicFetch);
   store.superbasedConnectionConfig = null;
-  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service' });
+  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service', handle: { disconnect: handleDisconnect } });
   await store.saveTowerTransportSettings();
   expect(connectTowerBridge).toHaveBeenCalledWith('https://tower.example', 'paired-endpoint', 'service');
   expect(publicFetch).not.toHaveBeenCalled();
@@ -144,10 +146,10 @@ it('uses only selected workspace identity with public HTTPS unavailable', async 
 });
 
 it('revokes native signing capability on workspace identity mismatch', async () => {
-  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service' });
+  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service', handle: { disconnect: handleDisconnect } });
   verifyPairedTowerWorkspace.mockRejectedValueOnce(new Error('Workspace identity mismatch'));
   await store.saveTowerTransportSettings();
-  expect(window.wingmanTowerTransport.disconnect).toHaveBeenCalledOnce();
+  expect(handleDisconnect).toHaveBeenCalledOnce();
   expect(saveTowerTransportPreference).not.toHaveBeenCalled();
   expect(reload).not.toHaveBeenCalled();
 });
@@ -177,11 +179,11 @@ it('waits for the database commit before draining sync or reloading', async () =
 });
 
 it('revokes the new pairing if its database save fails and leaves the draft available', async () => {
-  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service' });
+  connectTowerBridge.mockResolvedValue({ mode: 'fips', endpoint: 'paired-endpoint', serviceNpub: 'service', handle: { disconnect: handleDisconnect } });
   saveTowerTransportPreference.mockRejectedValueOnce(new Error('database unavailable'));
   await store.saveTowerTransportSettings();
   expect(store.towerTransportError).toBe('database unavailable');
   expect(store.towerFipsEndpoint).toBe('paired-endpoint');
-  expect(window.wingmanTowerTransport.disconnect).toHaveBeenCalledOnce();
+  expect(handleDisconnect).toHaveBeenCalledOnce();
   expect(reload).not.toHaveBeenCalled();
 });

@@ -27,6 +27,24 @@ const share = {
   host_npub: 'host-a',
   revision: 1,
 };
+function scopedTransport(provider) {
+  return {
+    ...provider,
+    version: 2,
+    available: true,
+    async connect(options) {
+      const grant = await provider.connect(options);
+      return {
+        ...grant,
+        version: 2,
+        endpoint: options.endpoint,
+        peerNpub: options.peerNpub,
+        purpose: 'drive',
+        disconnect: grant?.disconnect || vi.fn(),
+      };
+    },
+  };
+}
 describe('Drive boundaries', () => {
   it('keeps 30 minute listing TTL distinct and does not refresh age on failure', () => {
     const row = { fetched_at: 1000 };
@@ -64,12 +82,12 @@ describe('Drive boundaries', () => {
       return { saved: true };
     });
     const transport = {
-      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      connect: vi.fn(async () => ({ fetch: grantFetch })),
       fetch: rootFetch,
       save,
     };
     const client = new DriveClient({
-      transport,
+      transport: scopedTransport(transport),
       sign: async (e) => {
         events.push(e);
         return e;
@@ -81,7 +99,7 @@ describe('Drive boundaries', () => {
       name: 'file',
       onProgress: () => {},
     });
-    expect(transport.connectDrive.mock.calls.map((c) => c[0].endpoint)).toEqual([
+    expect(transport.connect.mock.calls.map((c) => c[0].endpoint)).toEqual([
       share.endpoint,
       'http://host-b.fips:7345',
     ]);
@@ -107,13 +125,13 @@ describe('Drive boundaries', () => {
       throw new TypeError('leaked /private/root capability-secret file-name.txt');
     });
     const transport = {
-      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      connect: vi.fn(async () => ({ fetch: grantFetch })),
       fetch: vi.fn(async () => {
         throw new Error('root fetch must not be used');
       }),
     };
     const sign = vi.fn(async () => ({ id: 'signed-secret', sig: 'signature-secret' }));
-    const client = new DriveClient({ transport, sign, diagnostics: (row) => diagnostics.push(row) });
+    const client = new DriveClient({ transport: scopedTransport(transport), sign, diagnostics: (row) => diagnostics.push(row) });
     await expect(
       client.listing(
         {
@@ -167,13 +185,13 @@ describe('Drive boundaries', () => {
       },
     }));
     const transport = {
-      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      connect: vi.fn(async () => ({ fetch: grantFetch })),
       fetch: vi.fn(async () => {
         throw new Error('root fetch must not be used');
       }),
     };
     const client = new DriveClient({
-      transport,
+      transport: scopedTransport(transport),
       sign: async (e) => e,
       diagnostics: (row) => streamDiagnostics.push(row),
     });
@@ -190,16 +208,16 @@ describe('Drive boundaries', () => {
     globalThis.window = {};
     const grantFetch = vi.fn(async () => new Response('[]'));
     const transport = {
-      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      connect: vi.fn(async () => ({ fetch: grantFetch })),
       fetch: vi.fn(async () => {
         throw new Error('root fetch must not be used');
       }),
     };
     const client = new DriveClient({ sign: async (e) => e });
     try {
-      globalThis.window.fipsTransport = transport;
+      globalThis.window.fipsTransport = scopedTransport(transport);
       await client.listing(share, '');
-      expect(transport.connectDrive).toHaveBeenCalledWith({ endpoint: share.endpoint });
+      expect(transport.connect).toHaveBeenCalledWith({ endpoint: share.endpoint, peerNpub: 'host-a', purpose: 'drive' });
     } finally {
       globalThis.window = oldWindow;
     }
@@ -210,12 +228,12 @@ describe('Drive boundaries', () => {
       throw new Error('ordinary browser fetch must not be used');
     });
     const transport = {
-      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      connect: vi.fn(async () => ({ fetch: grantFetch })),
       fetch: browserFetch,
     };
     const events = [];
     const client = new DriveClient({
-      transport,
+      transport: scopedTransport(transport),
       sign: async (event) => {
         events.push(event);
         return event;
@@ -232,7 +250,7 @@ describe('Drive boundaries', () => {
       'http://host-a.fips:7345/drive/v1/share-a/list?path=mobile-folder',
     ]);
   });
-  it('uses the paired WMapp GRASP fetch when connectDrive returns only a pair', async () => {
+  it('rejects a provider result that is not a scoped Drive handle', async () => {
     const nativeFetch = vi.fn(async () => new Response(JSON.stringify({ entries: [], revision: 'r' })));
     const save = vi.fn();
     const transport = {
@@ -240,35 +258,28 @@ describe('Drive boundaries', () => {
       available: true,
       capabilities: Object.freeze({
         connect: true,
-        connectDrive: true,
+        connect: true,
         fetch: true,
         save: false,
         WebSocket: true,
       }),
       connect: vi.fn(),
-      connectDrive: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
+      connect: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
       fetch: nativeFetch,
       save,
       WebSocket: vi.fn(),
     };
     const events = [];
     const client = new DriveClient({
-      transport,
+      transport: scopedTransport(transport),
       sign: async (event) => {
         events.push(event);
         return event;
       },
     });
-    await client.listing(share, 'mobile-folder');
-    expect(transport.connectDrive).toHaveBeenCalledWith({ endpoint: share.endpoint });
-    expect(nativeFetch).toHaveBeenCalledTimes(1);
-    expect(nativeFetch.mock.calls[0][0]).toBe(
-      'http://host-a.fips:7345/drive/v1/share-a/list?path=mobile-folder',
-    );
-    expect(events[0].tags[0]).toEqual([
-      'u',
-      'http://host-a.fips:7345/drive/v1/share-a/list?path=mobile-folder',
-    ]);
+    await expect(client.listing(share, 'mobile-folder')).rejects.toThrow('missing-drive-grant');
+    expect(nativeFetch).not.toHaveBeenCalled();
+    expect(events).toHaveLength(0);
   });
   it('does not direct browser fetch to raw mobile FIPS Drive endpoints', async () => {
     const oldFetch = globalThis.fetch;
@@ -278,22 +289,22 @@ describe('Drive boundaries', () => {
     const transport = {
       version: 1,
       available: true,
-      capabilities: { connect: true, connectDrive: true, fetch: true },
+      capabilities: { connect: true, connect: true, fetch: true },
       connect: vi.fn(),
-      connectDrive: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
+      connect: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
       fetch: browserFetch,
     };
     const client = new DriveClient({
-      transport,
+      transport: scopedTransport(transport),
       sign: async (event) => event,
       diagnostics: (row) => diagnostics.push(row),
     });
     try {
-      await expect(client.listing(share, '')).rejects.toThrow('unsafe-browser-fetch');
+      await expect(client.listing(share, '')).rejects.toThrow('missing-drive-grant');
       expect(browserFetch).not.toHaveBeenCalled();
       const text = formatDriveDiagnostics(diagnostics);
-      expect(text).toContain('stage="request"');
-      expect(text).toContain('error="unsafe_browser_fetch"');
+      expect(text).toContain('stage="connect"');
+      expect(text).toContain('error="missing_drive_grant"');
       expect(text).not.toContain('/drive/v1/share-a/list');
     } finally {
       globalThis.fetch = oldFetch;
@@ -304,21 +315,21 @@ describe('Drive boundaries', () => {
     const sign = vi.fn(async (event) => event);
     const ambientFetch = vi.fn(async () => new Response('raw bridge request failed later'));
     const transport = {
-      connectDrive: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
+      connect: vi.fn(async ({ endpoint }) => ({ version: 1, endpoint })),
       fetch: ambientFetch,
       save: vi.fn(),
     };
     const client = new DriveClient({
-      transport,
+      transport: scopedTransport(transport),
       sign,
       diagnostics: (row) => diagnostics.push(row),
     });
-    await expect(client.listing(share, '')).rejects.toThrow('missing-drive-grant-request');
+    await expect(client.listing(share, '')).rejects.toThrow('missing-drive-grant');
     expect(sign).not.toHaveBeenCalled();
     expect(ambientFetch).not.toHaveBeenCalled();
     const text = formatDriveDiagnostics(diagnostics);
-    expect(text).toContain('stage="request"');
-    expect(text).toContain('error="missing_drive_grant_request"');
+    expect(text).toContain('stage="connect"');
+    expect(text).toContain('error="missing_drive_grant"');
     expect(text).not.toContain('/drive/v1/share-a/list');
   });
   it('rejects ambient bridge fetches that are not endpoint-specific Drive grants', async () => {
@@ -326,48 +337,43 @@ describe('Drive boundaries', () => {
     const sign = vi.fn(async (event) => event);
     const ambientBridgeFetch = vi.fn(async () => new Response('raw bridge request failed later'));
     const transport = {
-      connectDrive: vi.fn(async () => ({})),
+      connect: vi.fn(async () => ({})),
       fetch: ambientBridgeFetch,
       save: vi.fn(),
     };
     const client = new DriveClient({
-      transport,
+      transport: scopedTransport(transport),
       sign,
       diagnostics: (row) => diagnostics.push(row),
     });
-    await expect(client.listing(share, '')).rejects.toThrow('missing-drive-grant-request');
+    await expect(client.listing(share, '')).rejects.toThrow('missing-drive-grant');
     expect(sign).not.toHaveBeenCalled();
     expect(ambientBridgeFetch).not.toHaveBeenCalled();
     const text = formatDriveDiagnostics(diagnostics);
-    expect(text).toContain('stage="request"');
-    expect(text).toContain('error="missing_drive_grant_request"');
+    expect(text).toContain('stage="connect"');
+    expect(text).toContain('error="missing_drive_grant"');
     expect(text).not.toContain('/drive/v1/share-a/list');
   });
-  it('keeps NIP-98 bound to the FIPS endpoint when a Drive grant supplies a local proxy', async () => {
+  it('rejects legacy local-proxy Drive grants', async () => {
     const oldFetch = globalThis.fetch;
     const proxyFetch = vi.fn(async () => new Response(JSON.stringify({ entries: [], revision: 'r' })));
     globalThis.fetch = proxyFetch;
     const events = [];
     const transport = {
-      connectDrive: vi.fn(async () => ({ proxyBaseUrl: 'http://127.0.0.1:49152/grant' })),
+      connect: vi.fn(async () => ({ proxyBaseUrl: 'http://127.0.0.1:49152/grant' })),
       fetch: globalThis.fetch,
     };
     const client = new DriveClient({
-      transport,
+      transport: scopedTransport(transport),
       sign: async (event) => {
         events.push(event);
         return event;
       },
     });
     try {
-      await client.listing(share, 'proxied');
-      expect(proxyFetch.mock.calls[0][0]).toBe(
-        'http://127.0.0.1:49152/grant/drive/v1/share-a/list?path=proxied',
-      );
-      expect(events[0].tags[0]).toEqual([
-        'u',
-        'http://host-a.fips:7345/drive/v1/share-a/list?path=proxied',
-      ]);
+      await expect(client.listing(share, 'proxied')).rejects.toThrow('missing-drive-grant');
+      expect(proxyFetch).not.toHaveBeenCalled();
+      expect(events).toHaveLength(0);
     } finally {
       globalThis.fetch = oldFetch;
     }
@@ -377,11 +383,11 @@ describe('Drive boundaries', () => {
       build: 'test-build',
       context: 'active',
       origin: 'http://127.0.0.1:47831',
-      transport: 'connectDrive,fetch',
+      transport: 'connect,fetch',
     });
     expect(text).toContain('build=test-build context=active');
     expect(text).toContain('origin="http://127.0.0.1:47831"');
-    expect(text).toContain('transport="connectDrive,fetch"');
+    expect(text).toContain('transport="connect,fetch"');
   });
   it('drops stale Drive client diagnostics after the workspace context changes', async () => {
     const { driveManagerMixin } = await import('../src/drive.js');
@@ -392,7 +398,7 @@ describe('Drive boundaries', () => {
     state.requestTowerSyncFamily = vi.fn(async () => {});
     const oldWindow = globalThis.window,
       oldLocation = globalThis.location;
-    globalThis.window = { fipsTransport: { connectDrive() {} } };
+    globalThis.window = { fipsTransport: { connect() {} } };
     globalThis.location = { hash: '' };
     try {
       await state.startDrive();
@@ -426,11 +432,11 @@ describe('Drive boundaries', () => {
     try {
       await state.startDrive();
       expect(state.driveState).toBe('missing-transport');
-      globalThis.window.fipsTransport = { connectDrive() {}, fetch() {} };
+      globalThis.window.fipsTransport = { connect() {}, fetch() {} };
       listeners.get('fips-transport-ready')?.();
       expect(state.driveState).toBe('ready');
       expect(state.driveDiagnosticsText).toContain('origin="http://127.0.0.1:47831"');
-      expect(state.driveDiagnosticsText).toContain('transport="connectDrive,fetch"');
+      expect(state.driveDiagnosticsText).toContain('transport="connect,fetch"');
     } finally {
       state.stopDrive();
       globalThis.window = oldWindow;
@@ -456,7 +462,7 @@ describe('Drive boundaries', () => {
     const abort = new AbortController();
     abort.abort();
     const sign = vi.fn();
-    const client = new DriveClient({ transport: { connectDrive: async () => {} }, sign });
+    const client = new DriveClient({ transport: { connect: async () => {} }, sign });
     await expect(client.listing(share, '', { signal: abort.signal })).rejects.toThrow();
     expect(sign).not.toHaveBeenCalled();
   });
@@ -530,7 +536,7 @@ it('captures a cold reference before slow sync, finds a later file page, and fol
   state.navSection = 'files';
   const oldWindow = globalThis.window,
     oldLocation = globalThis.location;
-  globalThis.window = { fipsTransport: { connectDrive() {} } };
+  globalThis.window = { fipsTransport: { connect() {} } };
   globalThis.location = { hash: driveReference(share, 'folder/later.txt', 'file') };
   let resume;
   const metadata = new Promise((resolve) => {
@@ -614,7 +620,7 @@ describe('Drive media and navigation', () => {
     const events = [];
     const cancelled = vi.fn();
     const transport = {
-      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      connect: vi.fn(async () => ({ fetch: grantFetch })),
       fetch: vi.fn(async () => {
         throw new Error('root fetch must not be used');
       }),
@@ -622,7 +628,7 @@ describe('Drive media and navigation', () => {
     const grantFetch = vi.fn(async () => new Response(new ReadableStream({
         start(c) { c.enqueue(new Uint8Array(5)); }, cancel: cancelled,
       })));
-    const client = new DriveClient({ transport, sign: async (e) => { events.push(e); return e; } });
+    const client = new DriveClient({ transport: scopedTransport(transport), sign: async (e) => { events.push(e); return e; } });
     await expect(client.preview(share, 'photo.JPG', { type: 'image/jpeg', revision: 'r', limit: 4, size: 4 })).rejects.toThrow('Preview too large');
     expect(cancelled).toHaveBeenCalled();
     expect(events[0].tags[0][1]).toContain('revision=r');
@@ -677,13 +683,13 @@ describe('Drive media and navigation', () => {
     const rows = [];
     const grantFetch = vi.fn(async () => new Response('file'));
     const transport = {
-      connectDrive: vi.fn(async () => ({ fetch: grantFetch })),
+      connect: vi.fn(async () => ({ fetch: grantFetch })),
       fetch: vi.fn(async () => {
         throw new Error('root fetch must not be used');
       }),
       save: vi.fn(async () => undefined),
     };
-    const client = new DriveClient({ transport, sign: async e => e, diagnostics: row => rows.push(row) });
+    const client = new DriveClient({ transport: scopedTransport(transport), sign: async e => e, diagnostics: row => rows.push(row) });
     await expect(client.save(share, 'private.jpg', { name: 'private.jpg' })).rejects.toThrow('save-not-confirmed');
     expect(rows.at(-1)).toMatchObject({ stage: 'save', error: 'save_not_confirmed' });
     transport.save.mockRejectedValue(new Error('save-dialog-failed'));

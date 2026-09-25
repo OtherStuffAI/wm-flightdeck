@@ -256,18 +256,19 @@ function normalizeAgent(row) {
 }
 
 export function createAutopilotDiscoveryClient(verifiedPackage, {
-  bridge = globalThis.window?.wingmanTowerTransport,
+  transport = globalThis.window?.fipsTransport,
   authHeader = createNip98AuthHeader,
   timeoutMs = 20_000,
 } = {}) {
   if (!verifiedPackage?.fipsEndpoint || !verifiedPackage?.installationNpub || !verifiedPackage?.transportNpub) {
     fail('package_unverified', 'Verify the Autopilot Connect Package before connecting.');
   }
-  if (!bridge || bridge.version !== 2 || bridge.available === false || bridge.pairingIdentity !== 'service-npub'
-    || typeof bridge.connect !== 'function' || typeof bridge.fetch !== 'function') {
+  if (!transport || transport.version < 2 || transport.available === false
+    || typeof transport.connect !== 'function') {
     fail('fips_unavailable', 'Native FIPS transport is unavailable. Open Flight Deck in a supported, unlocked Wingman app.');
   }
   let connected = false;
+  let handle = null;
   const requestId = verifiedPackage.correlationId || correlationId();
   const advertisedPaths = new Set([verifiedPackage.healthPath, verifiedPackage.agentsPath]);
   if (verifiedPackage.controlledRestartPath) advertisedPaths.add(verifiedPackage.controlledRestartPath);
@@ -289,11 +290,10 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
     let descriptor;
     diagnose('native_connect_invoked', requestId);
     try {
-      descriptor = await bridge.connect({
+      descriptor = await transport.connect({
         endpoint: verifiedPackage.fipsEndpoint,
-        serviceNpub: verifiedPackage.transportNpub,
-        installationNpub: verifiedPackage.installationNpub,
-        correlationId: requestId,
+        peerNpub: verifiedPackage.transportNpub,
+        purpose: 'autopilot',
       });
     }
     catch (error) {
@@ -307,10 +307,12 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
       fail('fips_connection_failed', 'Could not connect to the signed Autopilot FIPS endpoint. Open WMapp Setup and check FIPS diagnostics.', { cause: error, correlationId: requestId });
     }
     if (descriptor?.version !== 2 || descriptor.endpoint !== verifiedPackage.fipsEndpoint
-      || descriptor.serviceNpub !== verifiedPackage.transportNpub || descriptor.transport !== 'native') {
-      await bridge.disconnect?.();
+      || descriptor.peerNpub !== verifiedPackage.transportNpub || descriptor.purpose !== 'autopilot'
+      || typeof descriptor.fetch !== 'function' || typeof descriptor.disconnect !== 'function') {
+      await descriptor?.disconnect?.();
       fail('endpoint_mismatch', 'Native FIPS bridge connected to a different endpoint than the signed package.');
     }
+    handle = descriptor;
     diagnose('native_connect_succeeded', requestId);
     connected = true;
   }
@@ -327,7 +329,7 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
     catch (error) { fail('auth_signing_failed', `Could not sign the exact Autopilot ${operation} request.`, { cause: error }); }
     let response;
     try {
-      response = await bridge.fetch(requestUrl, {
+      response = await handle.fetch(requestUrl, {
         method: normalizedMethod,
         headers: {
           Accept: accept,
@@ -446,9 +448,11 @@ export function createAutopilotDiscoveryClient(verifiedPackage, {
         accept: 'text/event-stream', signal,
       });
     },
-    disconnect() {
+    async disconnect() {
       connected = false;
-      return bridge.disconnect?.();
+      const selectedHandle = handle;
+      handle = null;
+      await selectedHandle?.disconnect?.();
     },
   });
 }

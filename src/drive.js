@@ -99,68 +99,10 @@ function safeErrorCode(error) {
   return DRIVE_SAFE_ERROR_CODES.get(error.name) || 'unknown';
 }
 
-function isOrdinaryBrowserFetch(fetcher) {
-  return typeof fetcher === 'function' && typeof globalThis.fetch === 'function' && fetcher === globalThis.fetch;
-}
-
-function isLocalProxyUrl(url) {
-  return ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(url.hostname);
-}
-
-function driveProxyUrl(actualUrl, proxyBaseUrl) {
-  let proxy;
-  try {
-    const actual = new URL(actualUrl),
-      base = new URL(proxyBaseUrl);
-    if (!['http:', 'https:'].includes(base.protocol) || !isLocalProxyUrl(base))
-      throw new Error('unsafe-drive-proxy');
-    proxy = new URL(`${base.href.replace(/\/+$/, '')}${actual.pathname}${actual.search}`);
-  } catch (error) {
-    if (error?.message === 'unsafe-drive-proxy') throw error;
-    throw new Error('unsafe-drive-proxy');
-  }
-  return proxy.href;
-}
-
-function isPairedNativeGraspDriveTransport(rootTransport, grant, actualUrl) {
-  if (!rootTransport || !grant || typeof grant !== 'object') return false;
-  const version = Number(rootTransport.version);
-  if (version !== 1 || Number(grant.version) !== version) return false;
-  if (rootTransport.available !== true) return false;
-  if (typeof rootTransport.connect !== 'function' || typeof rootTransport.connectDrive !== 'function')
-    return false;
-  if (typeof rootTransport.fetch !== 'function' || isOrdinaryBrowserFetch(rootTransport.fetch))
-    return false;
-  const capabilities = rootTransport.capabilities;
-  if (
-    capabilities?.connect !== true ||
-    capabilities?.connectDrive !== true ||
-    capabilities?.fetch !== true
-  )
-    return false;
-  try {
-    const paired = new URL(grant.endpoint);
-    const actual = new URL(actualUrl);
-    return (
-      paired.protocol === 'http:' &&
-      paired.hostname.endsWith('.fips') &&
-      paired.pathname === '/' &&
-      !paired.search &&
-      !paired.hash &&
-      !paired.username &&
-      !paired.password &&
-      actual.origin === paired.origin &&
-      actual.pathname.startsWith('/drive/v1/')
-    );
-  } catch {
-    return false;
-  }
-}
-
 function resolveDriveTransport(rootTransport, grant, actualUrl) {
   if (!grant || typeof grant !== 'object') throw new Error('missing-drive-grant');
   if (typeof grant.fetch === 'function') {
-    if (isOrdinaryBrowserFetch(grant.fetch) || grant.fetch === rootTransport?.fetch)
+    if (grant.fetch === globalThis.fetch || grant.fetch === rootTransport?.fetch)
       throw new Error('unsafe-drive-grant-fetch');
     return {
       fetch: grant.fetch.bind(grant),
@@ -170,24 +112,6 @@ function resolveDriveTransport(rootTransport, grant, actualUrl) {
       requestUrl: actualUrl,
     };
   }
-  if (grant?.proxyBaseUrl) {
-    return {
-      fetch: globalThis.fetch.bind(globalThis),
-      save: typeof (grant.save || rootTransport?.save) === 'function'
-        ? (grant.save || rootTransport.save).bind(grant.save ? grant : rootTransport)
-        : null,
-      requestUrl: driveProxyUrl(actualUrl, grant.proxyBaseUrl),
-    };
-  }
-  if (isPairedNativeGraspDriveTransport(rootTransport, grant, actualUrl)) {
-    return {
-      fetch: rootTransport.fetch.bind(rootTransport),
-      save: typeof rootTransport.save === 'function' ? rootTransport.save.bind(rootTransport) : null,
-      requestUrl: actualUrl,
-    };
-  }
-  if (isOrdinaryBrowserFetch(rootTransport?.fetch)) throw new Error('unsafe-browser-fetch');
-  if (typeof rootTransport?.fetch === 'function') throw new Error('missing-drive-grant-request');
   throw new Error('missing-drive-grant-request');
 }
 
@@ -281,6 +205,7 @@ export class DriveClient {
     this._hasExplicitTransport = Object.hasOwn(options, 'transport');
     this.sign = sign;
     this.connecting = Promise.resolve();
+    this.handles = new Map();
     this.diagnostics = typeof diagnostics === 'function' ? diagnostics : null;
   }
   get transport() {
@@ -301,7 +226,7 @@ export class DriveClient {
     const started = performance.now?.() || Date.now();
     const elapsed = () => (performance.now?.() || Date.now()) - started;
     const transport = this.transport;
-    if (!transport?.connectDrive) {
+    if (!transport?.connect || transport.version < 2 || transport.available === false) {
       const error = new Error('missing-transport');
       this.recordDiagnostic(share, {
         stage: 'connect',
@@ -317,7 +242,17 @@ export class DriveClient {
       if (options.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
       this.recordDiagnostic(share, { stage: 'connect', operation, elapsed_ms: elapsed() });
       try {
-        const result = await transport.connectDrive({ endpoint: share.endpoint });
+        const endpoint = new URL(share.endpoint);
+        const peerNpub = endpoint.hostname.slice(0, -'.fips'.length);
+        const existing = this.handles.get(endpoint.origin);
+        if (existing) return existing;
+        const result = await transport.connect({ endpoint: endpoint.origin, peerNpub, purpose: 'drive' });
+        if (result?.version !== 2 || result.endpoint !== endpoint.origin || result.peerNpub !== peerNpub
+          || result.purpose !== 'drive' || typeof result.fetch !== 'function' || typeof result.disconnect !== 'function') {
+          await result?.disconnect?.();
+          throw new Error('missing-drive-grant');
+        }
+        this.handles.set(endpoint.origin, result);
         this.recordDiagnostic(share, { stage: 'consent', operation, elapsed_ms: elapsed() });
         return result;
       } catch (error) {
@@ -405,6 +340,11 @@ export class DriveClient {
     }
     DRIVE_RESPONSE_TRANSPORT.set(response, driveTransport);
     return response;
+  }
+  async disconnect() {
+    const handles = [...this.handles.values()];
+    this.handles.clear();
+    await Promise.allSettled(handles.map((handle) => handle.disconnect()));
   }
   async listing(share, path, options = {}) {
     const response = await this.request(share, 'list', path, options);
@@ -578,7 +518,7 @@ export const driveManagerMixin = {
   get driveDiagnosticsText() {
     const transport = globalThis.window?.fipsTransport;
     const capabilities = [
-      transport?.connectDrive ? 'connectDrive' : '',
+      transport?.connect ? 'connect' : '',
       transport?.fetch ? 'fetch' : '',
       transport?.save ? 'save' : '',
       transport?.WebSocket ? 'WebSocket' : '',
@@ -630,7 +570,7 @@ export const driveManagerMixin = {
         this.driveScope === key &&
         this._driveGeneration === generation &&
         this.driveState === 'missing-transport' &&
-        globalThis.window?.fipsTransport?.connectDrive
+        globalThis.window?.fipsTransport?.connect
       )
         this.driveState = 'ready';
     };
@@ -688,7 +628,7 @@ export const driveManagerMixin = {
     try {
       await this.requestTowerSyncFamily('drive-shares', '', { force: true });
       if (this._driveGeneration !== generation || this.driveScope !== key) return;
-      this.driveState = window.fipsTransport?.connectDrive ? 'ready' : 'missing-transport';
+      this.driveState = window.fipsTransport?.connect ? 'ready' : 'missing-transport';
       const ref = reference;
       if (ref?.workspace === resolveTowerPgWorkspaceContext(this).workspaceId) {
         const share = (await db.drive_shares.where('context').equals(key).toArray()).find(
@@ -727,6 +667,8 @@ export const driveManagerMixin = {
     }
   },
   stopDrive() {
+    void this._driveClient?.disconnect?.();
+    this._driveClient = null;
     this.closeDrivePreview();
     this._driveGeneration = (this._driveGeneration || 0) + 1;
     this._driveStartKey = null;

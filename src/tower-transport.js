@@ -87,7 +87,7 @@ export function getTowerTransport(logicalTower) {
 }
 
 export function exportTowerTransports() {
-  return [...connections.entries()].map(([logicalTower, connection]) => ({ logicalTower, ...connection }));
+  return [...connections.entries()].map(([logicalTower, { handle: _handle, ...connection }]) => ({ logicalTower, ...connection }));
 }
 
 export function importTowerTransports(snapshot = []) {
@@ -95,23 +95,23 @@ export function importTowerTransports(snapshot = []) {
 }
 
 export async function connectTowerBridge(logicalTower, endpoint, expectedServiceNpub, {
-  bridge = globalThis.window?.wingmanTowerTransport,
+  transport = globalThis.window?.fipsTransport,
 } = {}) {
   logicalTower = logicalOrigin(logicalTower);
   endpoint = normalizeFipsEndpoint(endpoint);
-  if (!bridge || bridge.version !== 2 || bridge.available === false || typeof bridge.connect !== 'function' || typeof bridge.fetch !== 'function') {
-    throw transportError('FIPS requires WMapp with the paired Tower bridge. Public HTTPS remains available in Connection settings.');
-  }
-  if (bridge.pairingIdentity !== 'service-npub') {
-    throw transportError('Update WMapp to pair using the workspace Tower identity, then reload Flight Deck.');
+  if (!transport || transport.version < 2 || transport.available === false || typeof transport.connect !== 'function') {
+    throw transportError('FIPS requires WMapp with scoped transport handles. Public HTTPS remains available in Connection settings.');
   }
   if (!expectedServiceNpub) throw transportError('The selected workspace has no verified Tower service identity.');
+  const peerNpub = new URL(endpoint).hostname.slice(0, -'.fips'.length);
+  let handle;
   try {
-    const descriptor = await bridge.connect({ endpoint, serviceNpub: expectedServiceNpub });
-    if (descriptor?.version !== 2 || descriptor.endpoint !== endpoint || descriptor.serviceNpub !== expectedServiceNpub || descriptor.transport !== 'native') {
-      throw transportError('WMapp returned an incompatible paired Tower bridge.');
+    handle = await transport.connect({ endpoint, peerNpub, purpose: 'tower' });
+    if (handle?.version !== 2 || handle.endpoint !== endpoint || handle.peerNpub !== peerNpub
+      || handle.purpose !== 'tower' || typeof handle.fetch !== 'function' || typeof handle.disconnect !== 'function') {
+      throw transportError('WMapp returned an incompatible Tower transport handle.');
     }
-    const response = await bridge.fetch(`${endpoint}/health`, {
+    const response = await handle.fetch(`${endpoint}/health`, {
       credentials: 'omit', redirect: 'error', signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) throw transportError(`FIPS Tower health failed (${response.status}).`);
@@ -120,10 +120,10 @@ export async function connectTowerBridge(logicalTower, endpoint, expectedService
       throw transportError('The paired endpoint does not identify the configured Tower.');
     }
   } catch (error) {
-    await bridge.disconnect?.();
+    await handle?.disconnect?.();
     throw error;
   }
-  return { mode: 'fips', endpoint, transport: 'native', serviceNpub: expectedServiceNpub };
+  return { mode: 'fips', endpoint, transport: 'native', serviceNpub: expectedServiceNpub, handle };
 }
 
 export async function initializeTowerTransports(options = {}) {
@@ -133,17 +133,17 @@ export async function initializeTowerTransports(options = {}) {
   const preferences = Object.fromEntries(rows.map(({ logicalTower, ...preference }) => [logicalTower, preference]));
   savedPreferences = new Map(Object.entries(preferences));
   const windowObject = globalThis.window;
-  if (!Object.hasOwn(options, 'bridge') && Object.values(preferences).some((p) => p.mode === 'fips')
-    && !windowObject?.wingmanTowerTransport && windowObject?.addEventListener) {
+  if (!Object.hasOwn(options, 'transport') && Object.values(preferences).some((p) => p.mode === 'fips')
+    && !windowObject?.fipsTransport && windowObject?.addEventListener) {
     // WMapp injects at onPageFinished, after module boot has begun.
     await new Promise((resolve) => {
       const ready = () => {
         clearTimeout(timer);
-        windowObject.removeEventListener('wingman-tower-transport-ready', ready);
+        windowObject.removeEventListener('wingman-fips-transport-ready', ready);
         resolve();
       };
       const timer = setTimeout(ready, 5000);
-      windowObject.addEventListener('wingman-tower-transport-ready', ready, { once: true });
+      windowObject.addEventListener('wingman-fips-transport-ready', ready, { once: true });
     });
   }
   connections = new Map();
@@ -206,12 +206,14 @@ export async function towerFetch(value, options) {
 }
 
 export async function nativeTowerFetch(endpointUrl, options = {}) {
-  const bridge = globalThis.window?.wingmanTowerTransport;
-  if (globalThis.window && (bridge?.version !== 2 || bridge.available === false)) {
+  const transport = globalThis.window?.fipsTransport;
+  if (globalThis.window && (!transport || transport.version < 2 || transport.available === false)) {
     throw transportError('WMapp native Tower transport is unavailable.');
   }
-  const fetchNative = bridge?.version === 2 && bridge.available !== false
-    ? bridge.fetch.bind(bridge)
+  const connection = [...connections.values()].find((candidate) => candidate.mode === 'fips'
+    && new URL(endpointUrl).origin === candidate.endpoint);
+  const fetchNative = connection?.handle?.fetch
+    ? connection.handle.fetch.bind(connection.handle)
     : nativeWorkerFetch;
   return fetchNative(endpointUrl, { ...options, credentials: 'omit', redirect: 'error' });
 }

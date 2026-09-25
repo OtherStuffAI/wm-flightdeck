@@ -6,7 +6,7 @@ import { nip19 } from 'nostr-tools';
 
 // Optional cross-repository proof against the producer's generated production
 // script. See docs/fips-transport.md for the reproducible generator command.
-const fixturePath = process.env.WMAPP_TOWER_BRIDGE_SCRIPT;
+const fixturePath = process.env.WMAPP_FIPS_TRANSPORT_SCRIPT;
 const ports = [];
 afterEach(() => { for (const port of ports.splice(0)) port.close(); });
 
@@ -22,7 +22,7 @@ describe.skipIf(!fixturePath)('production WMapp JS / Flight Deck worker contract
     let canceled = false;
     const rpc = async (message) => {
       const { params, method } = message;
-      if (method === 'connect') return { version: 2, transport: 'native', ...params };
+      if (method === 'connect') return { version: 2, grantId: 'tower-grant', ...params };
       if (method === 'open') { const id = String(++nextId); requests.set(id, { ...params, chunks: [], pulls: 0 }); return id; }
       const request = requests.get(params.requestId);
       if (method === 'write') { request.chunks.push(params.chunk); return null; }
@@ -35,15 +35,16 @@ describe.skipIf(!fixturePath)('production WMapp JS / Flight Deck worker contract
       window, location: { origin: 'https://flightdeck.example' }, Request, Response,
       ReadableStream, AbortController, DOMException, Headers, Event, Uint8Array, atob, btoa, setTimeout, clearTimeout,
       MessageChannel: class extends MessageChannel { constructor() { super(); ports.push(this.port1, this.port2); } },
-      WingmanTower: { postMessage(raw) {
+      WingmanGrasp: { postMessage(raw) {
         const message = JSON.parse(raw);
-        rpc(message).then((result) => window.__wingmanTowerReply(message.token, message.id, result, null),
-          () => window.__wingmanTowerReply(message.token, message.id, null, 'fixture error'));
+        rpc(message).then((result) => window.__wingmanGraspReply(message.token, message.id, result, null),
+          () => window.__wingmanGraspReply(message.token, message.id, null, 'fixture error'));
       } },
     };
     runInNewContext(readFileSync(fixturePath, 'utf8'), context);
-    const native = window.wingmanTowerTransport;
-    expect(await native.connect({ endpoint, serviceNpub: nip19.npubEncode('34'.repeat(32)) })).toMatchObject({ version: 2, endpoint, transport: 'native' });
+    const native = window.fipsTransport;
+    const peerNpub = nip19.npubEncode('12'.repeat(32));
+    expect(await native.connect({ endpoint, peerNpub, purpose: 'tower' })).toMatchObject({ version: 2, endpoint, peerNpub, purpose: 'tower' });
     const worker = { postMessage(message) { consumer.acceptNativeTowerPort(message); } };
     native.attachWorker(worker);
     const response = await consumer.nativeWorkerFetch(`${endpoint}/api/storage`, {

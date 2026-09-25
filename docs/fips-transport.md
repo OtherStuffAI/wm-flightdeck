@@ -2,8 +2,8 @@
 
 Flight Deck can keep its existing HTTPS page, workspace and local database while
 using a manually paired Tower FIPS endpoint. Public HTTPS remains the default
-for browsers and iPhone. FIPS requires a WMapp build exposing native Tower bridge
-version 2 with `pairingIdentity: 'service-npub'`. The selected workspace's stored
+for browsers and iPhone. FIPS requires a WMapp build exposing
+`window.fipsTransport` version 2. The selected workspace's stored
 Tower service identity and an explicitly approved mesh endpoint define the pairing.
 No native Tower URL or reachable public Tower is required. The existing backend
 locator remains a compatibility key for local data, never a pairing prerequisite. A raw HTTP `.fips` URL is insufficient for an HTTPS page.
@@ -55,20 +55,22 @@ an existing per-Tower transport preference.
 
 ## Native transport contract
 
-`window.wingmanTowerTransport.version` must be `2`. `connect({endpoint,
-serviceNpub})` returns `{version:2, endpoint, serviceNpub, transport:'native'}`.
-Native code checks the mesh health service identity before enabling signing.
+`window.fipsTransport.version` must be at least `2`.
+`connect({endpoint, peerNpub: endpointNodeNpub, purpose:'tower'})` returns an immutable
+endpoint-scoped handle with `fetch()` and `disconnect()`. Flight Deck retains the
+handle for that logical Tower and uses it for page requests. Native transport
+pins the endpoint to the peer identity encoded by the FIPS hostname.
 Flight Deck then validates the signed workspace descriptor; failure revokes pairing.
 Service identity is not inferred from the mesh node npub. Older native builds and
 older Flight Deck callers receive an explicit update instruction.
-Its `fetch(actualMeshUrl, RequestInit)` returns a standard streaming Response.
+The handle's `fetch(actualMeshUrl, RequestInit)` returns a standard streaming Response.
 The bridge must explicitly pair and pin the destination, preserve method,
 Authorization and body bytes, reject redirects, omit cookies/forwarding headers,
 and propagate cancellation. It does not sign or act as an authority.
 
-WMapp injects this bridge on page completion. Flight Deck waits up to five seconds
-for `wingman-tower-transport-ready` when restoring a FIPS preference. A missing
-bridge is an explicit unsupported-client state. No global fetch replacement,
+WMapp injects this provider on page completion. Flight Deck waits up to five seconds
+for `wingman-fips-transport-ready` when restoring a FIPS preference. A missing
+provider is an explicit unsupported-client state. No global fetch replacement,
 WebView mixed-content exception, TLS exception or page-origin change is used.
 Native WKWebView testing rejected an earlier loopback HTTP fetch proposal from
 HTTPS pages; v2 therefore transports bytes through the native message channel.
@@ -133,14 +135,11 @@ transport. This setting does not make the entire application an offline or
 mesh-only browser. Tower links outside the paired endpoint are rejected in FIPS
 PG requests rather than accepted as a public transport fallback.
 
-Flight Deck Drive uses the WM App GRASP v1 bridge shape on mobile: `connectDrive()`
-pairs the document to the exact `http://<node>.fips:<port>` endpoint and returns
-the pair object, while top-level `fipsTransport.fetch()` is the safe pinned request
-primitive after that pairing. Consumers must not treat an arbitrary root fetch as
-safe; Flight Deck accepts this path only with the explicit native GRASP v1
-capabilities and a pair endpoint matching the Drive URL. NIP-98 signs the actual
-`/drive/v1/...` FIPS URL even if a future bridge supplies a local proxy request
-URL.
+Flight Deck Drive uses the same v2 provider. It calls
+`connect({endpoint, peerNpub, purpose:'drive'})`, retains the returned scoped
+handle, and issues authenticated reads only through that handle. Drive handles
+can coexist with Tower and Autopilot handles and are revoked independently when
+the Files surface stops. NIP-98 still signs the exact `/drive/v1/...` FIPS URL.
 
 ## Validation
 
@@ -149,8 +148,8 @@ public-source, release-note, build and dist checks. For cross-repository protoco
 proof, generate WMapp's actual injected script and execute the paired consumer:
 
 ```sh
-dart run ../wmapp/tools/export_tower_bridge.dart test-document-token https://flightdeck.example > /tmp/wmapp-tower-bridge.js
-WMAPP_TOWER_BRIDGE_SCRIPT=/tmp/wmapp-tower-bridge.js bunx vitest run tests/wmapp-tower-bridge-contract.test.js
+dart run ../wmapp/tools/export_grasp_bridge.dart test-document-token https://flightdeck.example > /tmp/wmapp-fips-transport.js
+WMAPP_FIPS_TRANSPORT_SCRIPT=/tmp/wmapp-fips-transport.js bunx vitest run tests/wmapp-fips-transport-contract.test.js
 ```
 
 The optional cross-repository test uses the production JS producer and a real
