@@ -2112,6 +2112,12 @@
         "Stack Menu above Start thread in the thread composer so the controls use less horizontal space.",
         "Hide the reconnecting indicator on connected mobile sessions while preserving feedback during genuine connection recovery."
       ]
+    },
+    {
+      "buildNumber": 2089,
+      "label": "Validate mobile connection indicator",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
