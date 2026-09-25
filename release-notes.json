@@ -2097,6 +2097,13 @@
       "notes": [
         "Load the owning channel reliably when opening a thread from Inbox, keep failures retryable, and use a compact mobile reply composer with aligned actions."
       ]
+    },
+    {
+      "buildNumber": 2085,
+      "label": "Scannable mobile task threads",
+      "notes": [
+        "Show task thread titles in bold on mobile cards so the right conversation is easier to find and update."
+      ]
     }
   ]
 }

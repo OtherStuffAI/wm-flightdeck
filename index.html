@@ -3027,7 +3027,7 @@
                               />
                             </label>
                           </template>
-                          <span class="kanban-card-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-text="task.title"></span>
+                          <span class="kanban-card-title task-thread-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-text="task.title"></span>
                           <template x-if="$store.chat.getPrimaryTaskAssigneeNpub(task)">
                             <button type="button" class="kanban-card-assignee identity-avatar-button" :title="'Assigned to ' + $store.chat.getSenderName($store.chat.getPrimaryTaskAssigneeNpub(task))" @click.stop="$store.chat.openIdentityCard($event, $store.chat.getPrimaryTaskAssigneeNpub(task))">
                               <template x-if="$store.chat.getSenderAvatar($store.chat.getPrimaryTaskAssigneeNpub(task))">
@@ -3110,7 +3110,7 @@
                               <input type="checkbox" :checked="$store.chat.isTaskSelected(task.record_id)" @change="$store.chat.toggleTaskSelection(task.record_id)" />
                             </label>
                           </template>
-                          <span class="task-list-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-text="task.title"></span>
+                          <span class="task-list-title task-thread-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-text="task.title"></span>
                           <template x-if="$store.chat.getPrimaryTaskAssigneeNpub(task)">
                             <button type="button" class="kanban-card-assignee identity-avatar-button" :title="'Assigned to ' + $store.chat.getSenderName($store.chat.getPrimaryTaskAssigneeNpub(task))" @click.stop="$store.chat.openIdentityCard($event, $store.chat.getPrimaryTaskAssigneeNpub(task))">
                               <template x-if="$store.chat.getSenderAvatar($store.chat.getPrimaryTaskAssigneeNpub(task))">
@@ -3133,7 +3133,7 @@
                                 <input type="checkbox" :checked="$store.chat.isTaskSelected(sub.record_id)" @change="$store.chat.toggleTaskSelection(sub.record_id)" />
                               </label>
                               <span class="task-list-indent"></span>
-                              <span class="task-list-title" :class="$store.chat.getTaskTitleLengthClass(sub.title)" x-text="sub.title"></span>
+                              <span class="task-list-title task-thread-title" :class="$store.chat.getTaskTitleLengthClass(sub.title)" x-text="sub.title"></span>
                               <span class="badge task-status-badge" :style="{ '--task-status-color': $store.chat.stateColor(sub.state) }" x-text="$store.chat.formatState(sub.state)"></span>
                               <template x-if="$store.chat.getPrimaryTaskAssigneeNpub(sub)">
                                 <button type="button" class="kanban-card-assignee identity-avatar-button" :title="'Assigned to ' + $store.chat.getSenderName($store.chat.getPrimaryTaskAssigneeNpub(sub))" @click.stop="$store.chat.openIdentityCard($event, $store.chat.getPrimaryTaskAssigneeNpub(sub))">

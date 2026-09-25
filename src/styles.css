@@ -19545,6 +19545,10 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
 
 /* Responsive task board */
 @media (max-width: 768px) {
+  .task-thread-title:not(:empty) {
+    font-weight: 700;
+  }
+
   .doc-back-btn {
     min-width: 36px;
     min-height: 36px;

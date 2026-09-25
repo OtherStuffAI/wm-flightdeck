@@ -200,6 +200,21 @@ describe('Chat channel rendering hooks', () => {
     expect(mobileCss).toMatch(/\.task-filters-bar\s*\{[\s\S]*grid-column:\s*1\s*\/\s*-1;/);
   });
 
+  it('emphasizes only populated thread titles on mobile task cards', () => {
+    const taskSectionIndex = html.indexOf('class="tasks-section"');
+    const taskDetailIndex = html.indexOf('<!-- Task detail panel -->', taskSectionIndex);
+    const taskCards = html.slice(taskSectionIndex, taskDetailIndex);
+    const responsiveStart = styles.indexOf('/* Responsive task board */');
+    const responsiveCss = styles.slice(responsiveStart, styles.indexOf('@media (max-width: 480px)', responsiveStart));
+
+    expect(taskCards.match(/class="(?:kanban-card-title|task-list-title) task-thread-title"/g)).toHaveLength(3);
+    expect(taskCards).toContain('class="kanban-card-title task-thread-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-text="task.title"');
+    expect(taskCards).toContain('class="task-list-title task-thread-title" :class="$store.chat.getTaskTitleLengthClass(task.title)" x-text="task.title"');
+    expect(responsiveCss).toMatch(/@media \(max-width:\s*768px\)[\s\S]*\.task-thread-title:not\(:empty\)\s*\{[\s\S]*font-weight:\s*700;/);
+    expect(styles.slice(0, responsiveStart)).not.toContain('.task-thread-title');
+    expect(taskCards).not.toMatch(/task-thread-title[^>]*x-text="[^\"]*\|\|/);
+  });
+
   it('renders the fullscreen header toggle in the shared PG channel bar', () => {
     const globalBarIndex = html.indexOf('class="global-pg-channel-bar"');
     const globalBarEndIndex = html.indexOf('<template x-if="$store.chat.navSection === \'status\'">', globalBarIndex);
