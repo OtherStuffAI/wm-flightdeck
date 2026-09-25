@@ -202,7 +202,7 @@ describe('Thread mobile responsive behavior', () => {
       expect(sidebarZ).toBeGreaterThan(backdropZ);
     });
 
-    it('mounts mobile composer actions beside the textarea without stretching the textarea', async () => {
+    it('mounts mobile composer actions beside the textarea with thread controls stacked', async () => {
       css = css || await loadStylesheet();
       mobileBlock = mobileBlock || findMediaBlock(css, 768);
 
@@ -226,7 +226,7 @@ describe('Thread mobile responsive behavior', () => {
       expect(threadComposerBodyDecl).toMatch(/grid-template-columns\s*:\s*minmax\(0,\s*1fr\) auto/);
 
       const threadInputActionsDecl = extractDeclarations(mobileBlock, '.thread-input-actions');
-      expect(threadInputActionsDecl).toMatch(/flex-direction\s*:\s*row/);
+      expect(threadInputActionsDecl).toMatch(/flex-direction\s*:\s*column/);
       expect(threadInputActionsDecl).toMatch(/gap\s*:\s*0\.35rem/);
 
       const threadInputDecl = extractDeclarations(mobileBlock, '.thread-input-bar .chat-input');

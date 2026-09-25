@@ -16543,7 +16543,7 @@ html.wingman-iphone-webview .chat-channel-tab-scroll * {
   }
 
   .thread-input-actions {
-    flex-direction: row;
+    flex-direction: column;
     justify-content: flex-end;
     gap: 0.35rem;
   }

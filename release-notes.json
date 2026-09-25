@@ -2104,6 +2104,14 @@
       "notes": [
         "Show task thread titles in bold on mobile cards so the right conversation is easier to find and update."
       ]
+    },
+    {
+      "buildNumber": 2086,
+      "label": "Compact thread controls",
+      "notes": [
+        "Stack Menu above Start thread in the thread composer so the controls use less horizontal space.",
+        "Hide the reconnecting indicator on connected mobile sessions while preserving feedback during genuine connection recovery."
+      ]
     }
   ]
 }

@@ -43,6 +43,18 @@ describe('Chat channel rendering hooks', () => {
     expect(styles).toMatch(/\.channel-thread-index-header\s*\{[\s\S]*min-height:\s*3\.5rem;[\s\S]*padding:\s*0\.55rem/);
   });
 
+  it('stacks Menu above Start thread in the thread composer controls', () => {
+    const composerStart = html.indexOf('class="thread-input-actions"');
+    const composerEnd = html.indexOf('</div>', html.indexOf('class="thread-reply-btn"', composerStart));
+    const controls = html.slice(composerStart, composerEnd);
+
+    expect(composerStart).toBeGreaterThan(-1);
+    expect(controls.indexOf('>Menu</button>')).toBeGreaterThan(-1);
+    expect(controls.indexOf('>Menu</button>')).toBeLessThan(controls.indexOf('class="thread-reply-btn"'));
+    expect(styles).toMatch(/\.thread-input-actions\s*\{[\s\S]*flex-direction:\s*column;/);
+    expect(styles).toMatch(/@media \(max-width: 640px\)[\s\S]*\.thread-input-actions\s*\{[\s\S]*flex-direction:\s*column;/);
+  });
+
   it('keeps the load-more control wired to the shared visibility getter', () => {
     expect(html).toContain('showMainFeedLoadMoreControl');
   });
