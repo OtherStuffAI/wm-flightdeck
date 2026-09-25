@@ -2084,6 +2084,12 @@
       "notes": [
         "Open channels with a compact conversation header and a bounded first page of conversation cards, while keeping older conversations available on demand."
       ]
+    },
+    {
+      "buildNumber": 2083,
+      "label": "Activate faster channel conversations",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
