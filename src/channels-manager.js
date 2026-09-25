@@ -12,6 +12,7 @@ import {
   upsertGroup,
   deleteGroupById,
   getAddressBookPeople,
+  getWorkspaceMembers,
   getMessagePresentationWindowByChannel,
   upsertAddressBookPerson,
   replaceWorkspaceMembers,
@@ -248,9 +249,23 @@ function mapTowerPgActor(actor = {}) {
     actor_id: actorId,
     id: actorId,
     npub,
-    kind: String(actor.kind || 'human').trim() || 'human',
+    kind: String(actor.kind || '').trim() || null,
     display_name: String(actor.display_name || '').trim() || null,
+    picture: String(actor.picture || actor.image || actor.avatar_url || actor.avatar || '').trim() || null,
   };
+}
+
+function actorKindForGroupMember(store, member = {}) {
+  const npub = String(member?.npub || '').trim();
+  const authoritative = (store.pgWorkspaceMembers || []).find((candidate) => candidate?.npub === npub);
+  return String(
+    member?.kind
+    || member?.actor_kind
+    || member?.actor?.kind
+    || authoritative?.kind
+    || authoritative?.actor_kind
+    || 'human',
+  ).trim().toLowerCase() || 'human';
 }
 
 function mapTowerPgGroupEntry(group = {}, { workspaceOwnerNpub = '' } = {}) {
@@ -1170,11 +1185,55 @@ export const channelsManagerMixin = {
         joined_at: entry.membership?.joined_at || entry.membership?.created_at || null,
       });
     }
-    const members = [...byNpub.values()];
+    let members = [...byNpub.values()];
     if (!isCurrent()) return [];
-    if (hasWorkspaceDb()) await replaceWorkspaceMembers(workspaceId, members);
+    if (hasWorkspaceDb()) {
+      const existingMembers = await getWorkspaceMembers(workspaceId);
+      const existingByActor = new Map(existingMembers.flatMap((member) => [
+        [String(member?.actor_id || member?.id || '').trim(), member],
+        [String(member?.npub || '').trim(), member],
+      ]).filter(([key]) => key));
+      members = members.map((member) => {
+        const existing = existingByActor.get(member.actor_id) || existingByActor.get(member.npub) || {};
+        return {
+          ...existing,
+          ...member,
+          kind: member.kind || existing.kind || 'human',
+          display_name: member.display_name || existing.display_name || null,
+          picture: member.picture || existing.picture || existing.avatar_url || existing.image || null,
+        };
+      });
+      await replaceWorkspaceMembers(workspaceId, members);
+    }
     if (!isCurrent()) return [];
     if (members.length > 0) {
+      for (const member of members) {
+        const npub = String(member?.npub || '').trim();
+        if (!npub) continue;
+        const currentProfile = this.chatProfiles?.[npub] || {};
+        const cached = this.getCachedPerson?.(npub) || null;
+        const towerName = String(member?.display_name || '').trim() || null;
+        const towerPicture = String(member?.picture || member?.image || member?.avatar_url || '').trim() || null;
+        this.chatProfiles = {
+          ...(this.chatProfiles || {}),
+          [npub]: {
+            ...currentProfile,
+            name: towerName || currentProfile.name || cached?.label || null,
+            picture: towerPicture || currentProfile.picture || cached?.avatar_url || null,
+          },
+        };
+        await upsertAddressBookPerson({
+          npub,
+          label: towerName,
+          avatar_url: towerPicture,
+          source: 'tower-pg-member',
+          last_used_at: new Date().toISOString(),
+        });
+        if (!towerPicture && !currentProfile.picture && !cached?.avatar_url) {
+          this.resolveChatProfile?.(npub, { requirePicture: true });
+        }
+      }
+      this.addressBookPeople = await getAddressBookPeople();
       await this.rememberPeople(members.map((member) => member.npub), 'pg-workspace-member');
     }
     return members;
@@ -3540,10 +3599,11 @@ export const channelsManagerMixin = {
         const groupId = created.group?.group_id || created.group?.id;
         if (!groupId) throw new Error('Tower PG did not return a group id');
         for (const memberNpub of [...new Set(members.map((member) => member.npub))]) {
+          const selectedMember = members.find((member) => member.npub === memberNpub);
           await createTowerPgWorkspaceMember(this, workspaceId, {
             member_npub: memberNpub,
             role: 'member',
-            kind: 'human',
+            kind: actorKindForGroupMember(this, selectedMember),
           }, { baseUrl, appNpub });
           await addTowerPgWorkspaceGroupMember(this, workspaceId, groupId, {
             member_npub: memberNpub,
@@ -3557,6 +3617,7 @@ export const channelsManagerMixin = {
           }
         }
         this.scheduleGroupsRefresh({ force: true, minIntervalMs: 0 }, 'PG group write');
+        this.schedulePgChannelAccessMaterializationRefresh?.();
         await this.rememberPeople(members.map((member) => member.npub), 'pg-group');
         this.showNewGroupModal = false;
         this.resetNewGroupDraft();
@@ -3640,10 +3701,11 @@ export const channelsManagerMixin = {
           if (member?.npub && member?.actor_id) actorIdByNpub.set(member.npub, member.actor_id);
         }
         for (const memberNpub of membersToAdd) {
+          const selectedMember = members.find((member) => member.npub === memberNpub);
           await createTowerPgWorkspaceMember(this, workspaceId, {
             member_npub: memberNpub,
             role: 'member',
-            kind: 'human',
+            kind: actorKindForGroupMember(this, selectedMember),
           }, { baseUrl, appNpub });
           await addTowerPgWorkspaceGroupMember(this, workspaceId, group.group_id, {
             member_npub: memberNpub,
@@ -3666,6 +3728,7 @@ export const channelsManagerMixin = {
         }
         await this.rememberPeople(desiredMembers, 'pg-group');
         this.scheduleGroupsRefresh({ force: true, minIntervalMs: 0 }, 'PG group write');
+        this.schedulePgChannelAccessMaterializationRefresh?.();
         this.showEditGroupModal = false;
         this.resetEditGroupDraft();
         return;

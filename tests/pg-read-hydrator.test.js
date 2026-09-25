@@ -1785,6 +1785,37 @@ describe('PG read hydrator', () => {
     expect(replacePgReactionsForTarget).toHaveBeenCalledWith(expect.any(String), 'message-1', [expect.objectContaining({ record_id: 'reaction-1' })]);
   });
 
+  it('routes access-control events to targeted control-plane hydration without a workspace fallback', async () => {
+    const refreshGroups = vi.fn(async () => []);
+    const refreshTowerPgWorkspaceMembers = vi.fn(async () => []);
+    const refreshDailyScopeAgentAccess = vi.fn(async () => []);
+    const refreshChannelGrants = vi.fn(async () => []);
+    const refreshPgChannelAccessMaterialization = vi.fn(async () => undefined);
+    const target = store({
+      selectedChannelId: 'channel-1',
+      refreshGroups,
+      refreshTowerPgWorkspaceMembers,
+      refreshDailyScopeAgentAccess,
+      refreshChannelGrants,
+      refreshPgChannelAccessMaterialization,
+    });
+
+    const result = await hydrateTowerPgEventUpdates(target, [
+      { entity_type: 'workspace_member', entity_id: 'actor-1' },
+      { entity_type: 'group', entity_id: 'group-1' },
+      { entity_type: 'group_member', entity_id: 'actor-1' },
+      { entity_type: 'channel_grant', channel_id: 'channel-1' },
+      { entity_type: 'daily_scope_agent_access', entity_id: 'actor-agent' },
+    ]);
+
+    expect(result.fallbackEvents).toBe(0);
+    expect(refreshTowerPgWorkspaceMembers).toHaveBeenCalledWith({ force: true, limit: 200 });
+    expect(refreshGroups).toHaveBeenCalledWith({ force: true, minIntervalMs: 0 });
+    expect(refreshDailyScopeAgentAccess).toHaveBeenCalledOnce();
+    expect(refreshChannelGrants).toHaveBeenCalledOnce();
+    expect(refreshPgChannelAccessMaterialization).toHaveBeenCalledOnce();
+  });
+
   it('routes PG workroom visible events to targeted workroom hydrators', async () => {
     const target = store({
       workrooms: [],

@@ -8282,7 +8282,7 @@ export function initApp() {
         add(
           member?.npub || member?.user_npub || member?.member_npub,
           member?.display_name || member?.label || member?.name,
-          'User',
+          String(kind || '').toLowerCase() === 'agent' ? 'Agent' : 'User',
           kind,
           true,
         );

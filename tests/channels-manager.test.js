@@ -2628,6 +2628,33 @@ describe('channels-manager pure utilities', () => {
       expect(store.showNewGroupModal).toBe(true);
     });
 
+    it('submits an authoritative agent kind and schedules only targeted access hydration', async () => {
+      const agentNpub = `npub1${'a'.repeat(58)}`;
+      const schedulePgChannelAccessMaterializationRefresh = vi.fn();
+      const store = createPgGrantStore({
+        canAdminWorkspace: true,
+        newGroupName: 'Agents',
+        newGroupMemberQuery: '',
+        newGroupMembers: [{ npub: agentNpub, kind: 'agent', actorId: 'actor-agent' }],
+        pgWorkspaceMembers: [{ actor_id: 'actor-agent', npub: agentNpub, kind: 'agent', display_name: 'Agent One' }],
+        groupCreatePending: false,
+        consumeGroupMemberQuery: vi.fn((_query, members) => ({ members })),
+        resetNewGroupDraft: vi.fn(),
+        schedulePgChannelAccessMaterializationRefresh,
+        requestTowerSyncFamily: vi.fn(),
+      });
+
+      await store.createSharingGroup();
+
+      expect(createTowerPgWorkspaceMember).toHaveBeenCalledWith('workspace-1', {
+        member_npub: agentNpub,
+        role: 'member',
+        kind: 'agent',
+      }, expect.any(Object));
+      expect(schedulePgChannelAccessMaterializationRefresh).toHaveBeenCalledOnce();
+      expect(store.requestTowerSyncFamily).not.toHaveBeenCalledWith('workspace-bootstrap', expect.anything(), expect.anything());
+    });
+
     it('allows selected-channel managers to submit group grants', async () => {
       const store = createPgGrantStore({
         channelGrantPrincipalType: 'group',
@@ -2815,6 +2842,40 @@ it('materializes the roster when same-workspace metadata refreshes during the re
   expect(await getWorkspaceMembers('workspace-1')).toEqual(expect.arrayContaining([
     expect.objectContaining({ actor_id: 'roster-agent', display_name: 'Roster Agent' }),
   ]));
+});
+
+it('preserves cached agent metadata when a Tower roster response is sparse', async () => {
+  const { openWorkspaceDb, getWorkspaceDb, getWorkspaceMembers, replaceWorkspaceMembers } = await import('../src/db.js');
+  openWorkspaceDb('mention-roster-sparse-agent');
+  await getWorkspaceDb().open();
+  await replaceWorkspaceMembers('workspace-1', [{
+    actor_id: 'agent-sparse',
+    id: 'agent-sparse',
+    workspace_id: 'workspace-1',
+    npub: 'npub1agent-sparse',
+    kind: 'agent',
+    display_name: 'Cached Agent',
+    picture: 'https://cached.example/agent.png',
+  }]);
+  getTowerPgWorkspaceMembers.mockResolvedValueOnce({
+    members: [{ actor: { actor_id: 'agent-sparse', npub: 'npub1agent-sparse' } }],
+  });
+  const store = createPgGrantStore({ rememberPeople: vi.fn(async () => {}), chatProfiles: {}, addressBookPeople: [] });
+
+  const members = await store.refreshTowerPgWorkspaceMembers();
+
+  expect(members).toEqual(expect.arrayContaining([expect.objectContaining({
+    actor_id: 'agent-sparse',
+    kind: 'agent',
+    display_name: 'Cached Agent',
+    picture: 'https://cached.example/agent.png',
+  })]));
+  expect(await getWorkspaceMembers('workspace-1')).toEqual(expect.arrayContaining([expect.objectContaining({
+    actor_id: 'agent-sparse',
+    kind: 'agent',
+    display_name: 'Cached Agent',
+    picture: 'https://cached.example/agent.png',
+  })]));
 });
 
 

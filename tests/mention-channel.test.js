@@ -140,13 +140,13 @@ describe('channel mention lookup', () => {
       type: 'agent',
       id: 'npub-testagent',
       label: 'Test Agent',
-      sublabel: 'User',
+      sublabel: 'Agent',
     }]);
     expect(store.searchMentions('integrator')).toEqual([{
       type: 'agent',
       id: 'npub-agent',
       label: 'Integrator Agent',
-      sublabel: 'User',
+      sublabel: 'Agent',
     }]);
   });
 

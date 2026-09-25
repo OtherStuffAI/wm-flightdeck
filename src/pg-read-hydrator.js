@@ -2858,6 +2858,9 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
   const workroomParticipantIds = new Set();
   const resourceViewStateUpdates = [];
   let workspaceMembersChanged = false;
+  let groupsChanged = false;
+  let dailyScopeAccessChanged = false;
+  const channelGrantChannels = new Set();
   let channelsChanged = false;
   let attentionStateChanged = false;
   let fallbackEvents = 0;
@@ -2875,6 +2878,12 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
       || trimText(event?.event_type) === 'actor.profile.updated'
     ) {
       workspaceMembersChanged = true;
+    } else if (['group', 'group_member', 'workspace_group_member'].includes(entityType)) {
+      groupsChanged = true;
+    } else if (['daily_scope_agent_access', 'daily_scope_access'].includes(entityType)) {
+      dailyScopeAccessChanged = true;
+    } else if (entityType === 'channel_grant' && channelId) {
+      channelGrantChannels.add(channelId);
     } else if (entityType === 'channel') {
       channelsChanged = true;
     } else if (['message', 'thread'].includes(entityType) && channelId) {
@@ -2990,6 +2999,7 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
     if (!current || Number(update.activity.sequence) > Number(current.activity.sequence)) latest.set(key, update);
     return latest;
   }, new Map()).values()];
+  const accessMaterializationChanged = groupsChanged || channelGrantChannels.size > 0;
 
   const jobs = [
     ...(channelsChanged && typeof store?.refreshChannels === 'function'
@@ -2998,6 +3008,20 @@ export async function hydrateTowerPgEventUpdates(store, events = [], deps = {}) 
     ...(workspaceMembersChanged && typeof store?.refreshTowerPgWorkspaceMembers === 'function'
       ? [store.refreshTowerPgWorkspaceMembers({ force: true, limit: 200 })]
       : []),
+    ...(groupsChanged && typeof store?.refreshGroups === 'function'
+      ? [store.refreshGroups({ force: true, minIntervalMs: 0 })]
+      : []),
+    ...(accessMaterializationChanged && typeof store?.refreshPgChannelAccessMaterialization === 'function'
+      ? [store.refreshPgChannelAccessMaterialization()]
+      : []),
+    ...(dailyScopeAccessChanged && typeof store?.refreshDailyScopeAgentAccess === 'function'
+      ? [store.refreshDailyScopeAgentAccess()]
+      : []),
+    ...[...channelGrantChannels].flatMap((grantChannelId) => [
+      ...(grantChannelId === trimText(store?.selectedChannelId) && typeof store?.refreshChannelGrants === 'function'
+        ? [store.refreshChannelGrants()]
+        : []),
+    ]),
     ...[...messageChannels].map((channelId) => hydrateTowerPgChannelMessages(store, channelId, deps)),
     ...[...taskIds].map((taskId) => hydrateTowerPgTask(store, taskId, deps)),
     ...[...taskChannels].map((channelId) => hydrateTowerPgChannelTasks(store, channelId, deps)),

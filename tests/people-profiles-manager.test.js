@@ -410,6 +410,26 @@ describe('findGroupMemberSuggestions', () => {
     const results = fn('npub1', [{ npub: 'npub1a' }]);
     expect(results.every((r) => r.npub !== 'npub1a')).toBe(true);
   });
+
+  it('keeps authoritative Tower actor kind, name, and photo on agent suggestions', () => {
+    const { fn } = bindMethod('findGroupMemberSuggestions', {
+      addressBookPeople: [{ npub: 'npub1agent', label: 'Old label', avatar_url: 'https://cached.example/agent.png' }],
+      pgWorkspaceMembers: [{
+        actor_id: 'actor-agent',
+        npub: 'npub1agent',
+        kind: 'agent',
+        display_name: 'Tower Agent',
+      }],
+    });
+
+    expect(fn('tower', [])).toEqual([expect.objectContaining({
+      npub: 'npub1agent',
+      actorId: 'actor-agent',
+      kind: 'agent',
+      label: 'Tower Agent',
+      avatarUrl: 'https://cached.example/agent.png',
+    })]);
+  });
 });
 
 describe('findFlowApproverSuggestions', () => {
@@ -453,6 +473,18 @@ describe('mapGroupDraftMembers', () => {
     const { fn } = bindMethod('mapGroupDraftMembers');
     const result = fn(['npub1a', '  npub1a  ', '', null]);
     expect(result).toHaveLength(1);
+  });
+
+  it('restores authoritative actor metadata for an existing agent member', () => {
+    const { fn } = bindMethod('mapGroupDraftMembers', {
+      pgWorkspaceMembers: [{ actor_id: 'actor-agent', npub: 'npub1agent', kind: 'agent', display_name: 'Agent One' }],
+    });
+
+    expect(fn(['npub1agent'])).toEqual([expect.objectContaining({
+      actorId: 'actor-agent',
+      kind: 'agent',
+      label: 'Agent One',
+    })]);
   });
 });
 

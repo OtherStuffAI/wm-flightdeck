@@ -594,7 +594,20 @@ export const peopleProfilesManagerMixin = {
 
     const wsKeyNpubs = new Set(Object.keys(this._wsKeyDisplayMap || {}));
     const existing = new Set((selectedMembers || []).map((member) => member.npub));
-    return this.addressBookPeople
+    const workspaceMemberByNpub = new Map((this.pgWorkspaceMembers || [])
+      .map((member) => [String(member?.npub || '').trim(), member])
+      .filter(([npub]) => npub));
+    const peopleByNpub = new Map(this.addressBookPeople.map((person) => [person.npub, person]));
+    for (const [npub, member] of workspaceMemberByNpub) {
+      const cached = peopleByNpub.get(npub) || {};
+      peopleByNpub.set(npub, {
+        ...cached,
+        npub,
+        label: member.display_name || cached.label || null,
+        avatar_url: member.picture || member.avatar_url || member.image || cached.avatar_url || null,
+      });
+    }
+    return [...peopleByNpub.values()]
       .filter((person) => !wsKeyNpubs.has(person.npub))
       .filter((person) => !existing.has(person.npub))
       .filter((person) =>
@@ -603,12 +616,17 @@ export const peopleProfilesManagerMixin = {
         || String(person.label || '').toLowerCase().includes(needle)
       )
       .slice(0, 8)
-      .map((person) => ({
-        npub: person.npub,
-        label: this.getSenderName(person.npub),
-        subtitle: this.getSenderSecondaryLabel(person.npub),
-        avatarUrl: this.getSenderAvatar(person.npub),
-      }));
+      .map((person) => {
+        const member = workspaceMemberByNpub.get(person.npub);
+        return {
+          npub: person.npub,
+          actorId: member?.actor_id || member?.id || '',
+          kind: member?.kind || member?.actor_kind || 'human',
+          label: member?.display_name || this.getSenderName(person.npub),
+          subtitle: this.getSenderSecondaryLabel(person.npub),
+          avatarUrl: member?.picture || member?.avatar_url || member?.image || this.getSenderAvatar(person.npub),
+        };
+      });
   },
 
   findFlowApproverSuggestions(query, selectedApprovers = []) {
@@ -701,11 +719,14 @@ export const peopleProfilesManagerMixin = {
   mapGroupDraftMembers(memberNpubs = []) {
     return [...new Set((memberNpubs || []).map((value) => String(value || '').trim()).filter(Boolean))]
       .map((npub) => {
+        const member = (this.pgWorkspaceMembers || []).find((candidate) => candidate?.npub === npub);
         this.resolveChatProfile(npub);
         return {
           npub,
-          label: this.getSenderName(npub),
-          avatarUrl: this.getSenderAvatar(npub),
+          actorId: member?.actor_id || member?.id || '',
+          kind: member?.kind || member?.actor_kind || 'human',
+          label: member?.display_name || this.getSenderName(npub),
+          avatarUrl: member?.picture || member?.avatar_url || member?.image || this.getSenderAvatar(npub),
         };
       });
   },
@@ -726,11 +747,14 @@ export const peopleProfilesManagerMixin = {
 
     for (const part of parts) {
       if (part.startsWith('npub1') && part.length >= 60 && !existing.has(part)) {
+        const member = (this.pgWorkspaceMembers || []).find((candidate) => candidate?.npub === part);
         this.resolveChatProfile(part);
         nextMembers.push({
           npub: part,
-          label: this.getSenderName(part),
-          avatarUrl: this.getSenderAvatar(part),
+          actorId: member?.actor_id || member?.id || '',
+          kind: member?.kind || member?.actor_kind || 'human',
+          label: member?.display_name || this.getSenderName(part),
+          avatarUrl: member?.picture || member?.avatar_url || member?.image || this.getSenderAvatar(part),
         });
         existing.add(part);
         added = true;

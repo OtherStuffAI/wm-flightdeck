@@ -2064,6 +2064,19 @@
       "notes": [
         "Refresh signed capabilities for existing paired Autopilots so compatible live thread activity starts without reinstalling agents, while Tower remains the fallback."
       ]
+    },
+    {
+      "buildNumber": 2079,
+      "label": "Targeted membership updates",
+      "notes": [
+        "Apply membership and access changes without a full workspace catch-up, and preserve agent identity, names, and profile photos when adding agents to groups or channels."
+      ]
+    },
+    {
+      "buildNumber": 2080,
+      "label": "Validate sparse agent profiles",
+      "notes": [],
+      "noUserVisibleChanges": true
     }
   ]
 }
