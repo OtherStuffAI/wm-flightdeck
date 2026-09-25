@@ -1328,7 +1328,7 @@ describe('PG read hydrator', () => {
     expect(getTowerPgChannelMessages).toHaveBeenCalledWith('workspace-1', 'channel-1', {
       baseUrl: 'https://tower.example',
       appNpub: 'flightdeck_pg',
-      limit: 80,
+      limit: 21,
     });
     expect(replacePgMessagesForChannel).toHaveBeenCalledWith('channel-1', rows);
     expect(target.refreshMessages).not.toHaveBeenCalled();

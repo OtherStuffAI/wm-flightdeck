@@ -1,5 +1,5 @@
 export const CHAT_PRESENTATION_CACHE_LIMIT = 9;
-export const CHAT_PRESENTATION_ROOT_LIMIT = 80;
+export const CHAT_PRESENTATION_ROOT_LIMIT = 21;
 
 function timestamp(row) {
   return String(row?.updated_at || row?.created_at || '');

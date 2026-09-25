@@ -1,10 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CHAT_PRESENTATION_ROOT_LIMIT,
   buildThreadAwarePresentationWindow,
   createChatPresentationCache,
 } from '../src/chat-presentation-cache.js';
 
 describe('chat presentation cache', () => {
+  it('bounds the default initial conversation-card window', () => {
+    const rows = Array.from({ length: 80 }, (_, index) => ({
+      record_id: `root-${String(index).padStart(2, '0')}`,
+      updated_at: `2026-01-01T00:${String(index).padStart(2, '0')}:00.000Z`,
+    }));
+
+    const window = buildThreadAwarePresentationWindow(rows);
+
+    expect(CHAT_PRESENTATION_ROOT_LIMIT).toBe(21);
+    expect(window).toHaveLength(21);
+    expect(window[0]?.record_id).toBe('root-59');
+  });
   it('returns cached entries synchronously and promotes hits in LRU order', () => {
     const cache = createChatPresentationCache(2);
     cache.set('channel:a', { channelId: 'a', messages: [{ record_id: 'a', updated_at: '1' }] });

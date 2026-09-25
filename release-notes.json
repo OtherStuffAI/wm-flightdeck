@@ -2077,6 +2077,13 @@
       "label": "Validate sparse agent profiles",
       "notes": [],
       "noUserVisibleChanges": true
+    },
+    {
+      "buildNumber": 2082,
+      "label": "Faster channel conversations",
+      "notes": [
+        "Open channels with a compact conversation header and a bounded first page of conversation cards, while keeping older conversations available on demand."
+      ]
     }
   ]
 }

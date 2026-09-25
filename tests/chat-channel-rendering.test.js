@@ -31,6 +31,18 @@ describe('Chat channel rendering hooks', () => {
     expect(styles).toMatch(/\.chat-post\.channel-thread-card\s*\{[\s\S]*border-radius:\s*16px;/);
   });
 
+  it('uses a compact channel header without duplicate navigation copy', () => {
+    const headerStart = html.indexOf('class="channel-thread-index-header"');
+    const feedStart = html.indexOf('class="chat-feed channel-thread-index"', headerStart);
+    const header = html.slice(headerStart, feedStart);
+
+    expect(header).toContain('getChannelLabel($store.chat.selectedChannel)');
+    expect(header).toContain('aria-label="New thread"');
+    expect(header).not.toContain('channel-thread-index-eyebrow');
+    expect(header).not.toContain('Open a conversation to read and reply');
+    expect(styles).toMatch(/\.channel-thread-index-header\s*\{[\s\S]*min-height:\s*3\.5rem;[\s\S]*padding:\s*0\.55rem/);
+  });
+
   it('keeps the load-more control wired to the shared visibility getter', () => {
     expect(html).toContain('showMainFeedLoadMoreControl');
   });

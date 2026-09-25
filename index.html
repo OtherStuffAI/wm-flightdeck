@@ -4077,9 +4077,7 @@
               </div>
               <header class="channel-thread-index-header">
                 <div class="channel-thread-index-heading">
-                  <span class="channel-thread-index-eyebrow">Conversations</span>
                   <h2 x-text="$store.chat.selectedChannel ? $store.chat.getChannelLabel($store.chat.selectedChannel) : 'Channel chats'"></h2>
-                  <p>Open a conversation to read and reply, or start a new thread.</p>
                 </div>
                 <button type="button" class="deck-new-thread-button channel-thread-index-new" @click="$store.chat.openDeckThreadComposer()" :disabled="!$store.chat.selectedChannelId" aria-label="New thread">
                   <span aria-hidden="true">+</span><span>New thread</span>

@@ -26,7 +26,10 @@ import { registerChatComposer, resolveChatUploadToken } from './chat-composer-dr
 
 import Alpine from 'alpinejs';
 import { liveQuery } from 'dexie';
-import { createChatPresentationCache } from './chat-presentation-cache.js';
+import {
+  CHAT_PRESENTATION_ROOT_LIMIT,
+  createChatPresentationCache,
+} from './chat-presentation-cache.js';
 import { diffLines } from 'diff';
 import { commentBelongsToDocBlock } from './doc-comment-anchors.js';
 import { docsManagerMixin } from './docs-manager.js';
@@ -557,7 +560,7 @@ export function initApp() {
     SSE_HEARTBEAT_CADENCE_MS: 60000,
     BACKGROUND_GROUP_REFRESH_MS: 5 * 60 * 1000,
     GROUP_KEY_REFRESH_MAX_AGE_MS: 24 * 60 * 60 * 1000,
-    MAIN_FEED_PAGE_SIZE: 80,
+    MAIN_FEED_PAGE_SIZE: CHAT_PRESENTATION_ROOT_LIMIT,
     MESSAGE_PREVIEW_MAX_LINES: 15,
     TASK_COMMENT_PREVIEW_MAX_LINES: 12,
     COMPOSER_MAX_LINES: 5,
@@ -1458,7 +1461,7 @@ export function initApp() {
     messageAudioDrafts: [],
     messageFileDrafts: [],
     messageImageUploadCount: 0,
-    mainFeedVisibleCount: 80,
+    mainFeedVisibleCount: CHAT_PRESENTATION_ROOT_LIMIT,
     chatFeedNearTop: false,
     selectedChannelUnreadCutoff: null,
     selectedChannelUnreadChannelId: null,

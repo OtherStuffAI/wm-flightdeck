@@ -2062,7 +2062,7 @@ export async function hydrateTowerPgChannelMessages(store, channelId, deps = {})
   const messagePage = await readMessages(context.workspaceId, targetChannelId, {
     baseUrl: context.baseUrl,
     appNpub: context.appNpub,
-    limit: Number(store?.MAIN_FEED_PAGE_SIZE || 80),
+    limit: Number(store?.MAIN_FEED_PAGE_SIZE || 21),
   });
   const rawMessages = Array.isArray(messagePage?.messages) ? messagePage.messages : [];
   const sourceMessageIds = new Set(rawThreads.map((thread) => trimText(thread?.source_message_id)).filter(Boolean));
