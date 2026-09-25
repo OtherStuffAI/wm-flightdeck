@@ -148,7 +148,7 @@ public-source, release-note, build and dist checks. For cross-repository protoco
 proof, generate WMapp's actual injected script and execute the paired consumer:
 
 ```sh
-dart run ../wmapp/tools/export_grasp_bridge.dart test-document-token https://flightdeck.example > /tmp/wmapp-fips-transport.js
+# Supply the generated graspFipsBridgeScript output from the WMapp build/test harness.
 WMAPP_FIPS_TRANSPORT_SCRIPT=/tmp/wmapp-fips-transport.js bunx vitest run tests/wmapp-fips-transport-contract.test.js
 ```
 
